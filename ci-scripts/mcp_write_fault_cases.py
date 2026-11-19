@@ -166,52 +166,88 @@ def silent_native_refusal_is_a_typed_error(case: NativeAcceptance) -> None:
     case.assertEqual(inspected["drawings"], [])
 
 
-@acceptance_case(worker_only=FAULT_FLAG)
-def a_native_cell_write_that_refuses_is_a_typed_error(case: NativeAcceptance) -> None:
-    """TXsheet::setCells returns false for a cell it will not take. With that forced, each
-    tool that writes cells fails with a typed error naming the column and row, claims no
-    success and leaves the column's cells as they were. The worker answers partially_applied
-    with the native_error as its cause, as for any failure after a mutation began."""
-    _fault_worker(case, "set-cells", "--test-write-fault", "native:set-cells")
+def _cell_scene(case: NativeAcceptance, columns: int) -> tuple[str, str, list[str]]:
     document = case.create("Refused cells")
     level = case.mutate("level.create", document, name="Ink", format="vector")["level_id"]
+    case.mutate(
+        "drawing.create",
+        document,
+        level_id=level,
+        drawing_id={"number": 1, "suffix": ""},
+        format="vector",
+    )
+    ids = [
+        case.mutate("column.create", document, name=f"C{index}")["column_id"]
+        for index in range(columns)
+    ]
+    return document, level, ids
+
+
+def _cell_writes(level: str, columns: list[str]) -> dict[str, dict[str, Any]]:
     drawing = {"number": 1, "suffix": ""}
-    case.mutate("drawing.create", document, level_id=level, drawing_id=drawing, format="vector")
-    column = case.mutate("column.create", document, name="C")["column_id"]
-    writes = {
+    runs = [{"level_id": level, "drawing_id": drawing, "length": 3}]
+    return {
         "column.expose": {
-            "column_id": column,
+            "column_id": columns[0],
             "level_id": level,
             "drawing_id": drawing,
             "start_frame": 0,
             "length": 3,
         },
         "cells.set": {
-            "columns": [
-                {
-                    "column_id": column,
-                    "start_frame": 0,
-                    "runs": [{"level_id": level, "drawing_id": drawing, "length": 3}],
-                }
-            ],
+            "columns": [{"column_id": c, "start_frame": 0, "runs": runs} for c in columns],
             "overwrite": False,
         },
     }
-    for tool, params in writes.items():
+
+
+def _rows_of(case: NativeAcceptance, document: str, column: str) -> list[bool]:
+    cells = case.success(
+        "column.cells",
+        {"document_id": document, "column_id": column, "start_frame": 0, "length": 3},
+    )["cells"]
+    return [not cell["empty"] for cell in cells]
+
+
+@acceptance_case(worker_only=FAULT_FLAG)
+def a_refused_first_cell_write_is_a_rejection_that_changes_nothing(case: NativeAcceptance) -> None:
+    """TXsheet::setCells returns false for a cell it will not take. With that forced on the
+    first native write, each tool that writes cells answers native_error naming the column
+    and row, as a rejection: no success is claimed, the cells are as they were and the
+    revision has not moved."""
+    _fault_worker(case, "set-cells", "--test-write-fault", "native:set-cells")
+    document, level, columns = _cell_scene(case, 2)
+    for tool, params in _cell_writes(level, columns).items():
         with case.subTest(tool=tool):
-            case.revisions[document] = case.success("scene.summary", {"document_id": document})[
-                "revision"
-            ]
+            revision = case.revisions[document]
             error = case.failure(tool, case.write_params(document, params))
-            case.assertEqual(error["code"], "partially_applied", error)
-            case.assertEqual(error["details"]["cause_code"], "native_error")
+            case.assertEqual(error["code"], "native_error", error)
             case.assertIn("native cell write was refused", error["message"])
-            case.assertEqual(error["details"]["column_id"], column)
+            case.assertEqual(error["details"]["column_id"], columns[0])
             case.assertEqual(error["details"]["frame"], 0)
-            case.assertNotIn("success", error["message"].lower())
-            cells = case.success(
-                "column.cells",
-                {"document_id": document, "column_id": column, "start_frame": 0, "length": 3},
-            )["cells"]
-            case.assertTrue(all(cell["empty"] for cell in cells), cells)
+            case.assertNotIn("completed", error["details"])
+            _unchanged(case, document, revision)
+            for column in columns:
+                case.assertEqual(_rows_of(case, document, column), [False] * 3)
     case.assertEqual(case.success("scene.summary", {"document_id": document})["frame_count"], 0)
+
+
+@acceptance_case(worker_only=FAULT_FLAG)
+def a_cell_write_refused_after_another_landed_says_what_landed(case: NativeAcceptance) -> None:
+    """When the first column's write lands and the second's is refused, the answer is
+    partially_applied with the native_error as its cause, the revision has moved, and the
+    details name exactly the write that landed; the column that landed holds its cells."""
+    _fault_worker(case, "set-cells-later", "--test-write-fault", "native:set-cells-later")
+    document, level, columns = _cell_scene(case, 2)
+    revision = case.revisions[document]
+    params = _cell_writes(level, columns)["cells.set"]
+    error = case.failure("cells.set", case.write_params(document, params))
+    case.assertEqual(error["code"], "partially_applied", error)
+    case.assertEqual(error["details"]["cause_code"], "native_error")
+    case.assertEqual(error["details"]["column_id"], columns[1])
+    landed = [{"column_id": columns[0], "start_frame": 0, "length": 3}]
+    case.assertEqual(error["details"]["completed"], landed)
+    summary = case.success("scene.summary", {"document_id": document})
+    case.assertNotEqual(summary["revision"], revision)
+    case.assertEqual(_rows_of(case, document, columns[0]), [True] * 3)
+    case.assertEqual(_rows_of(case, document, columns[1]), [False] * 3)

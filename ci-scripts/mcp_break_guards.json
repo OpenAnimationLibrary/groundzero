@@ -705,7 +705,24 @@
       {
         "kind": "acceptance",
         "names": [
-          "a_native_cell_write_that_refuses_is_a_typed_error"
+          "a_refused_first_cell_write_is_a_rejection_that_changes_nothing",
+          "a_cell_write_refused_after_another_landed_says_what_landed"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "native-first-refusal-is-a-rejection",
+    "file": "toonz/sources/toonz/automation_cells.cpp",
+    "find": "        if (landed.isEmpty() && !startedBefore) context.resetMutationStarted();\n",
+    "replace": "",
+    "why": "A cell write refused before any write landed is a rejection that leaves the revision alone.",
+    "native": true,
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "a_refused_first_cell_write_is_a_rejection_that_changes_nothing"
         ]
       }
     ]

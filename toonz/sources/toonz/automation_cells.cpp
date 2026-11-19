@@ -190,27 +190,49 @@ bool applyNative(TXsheet& sheet, int index, const CellOp& op, bool refused) {
 
 }  // namespace
 
+// A write the native sheet took, as an error lists what landed before a later
+// write failed.
+QJsonObject landedWrite(const CellPlan& plan, const CellOp& op) {
+  const int length = op.kind == CellOp::Write ? int(op.cells.size()) : op.count;
+  return {{"column_id", plan.columnId},
+          {"start_frame", op.row},
+          {"length", length}};
+}
+
 void applyCellPlans(Context& context, Document& document,
                     std::vector<CellPlan>& plans) {
-  TXsheet& sheet = *document.scene->getXsheet();
+  TXsheet& sheet           = *document.scene->getXsheet();
+  const bool startedBefore = context.mutationStarted();
+  QJsonArray landed;
   for (CellPlan& plan : plans) {
     const int index      = plan.index;
     TStageObject* object = sheet.getStageObjectTree()->getStageObject(
         TStageObjectId::ColumnId(index), false);
     const std::string name = object ? object->getName() : std::string();
-    for (const CellOp& op : plan.ops)
-      if (!applyNative(sheet, index, op,
-                       writeFaultFires(context, "native:set-cells")))
+    for (const CellOp& op : plan.ops) {
+      const bool refused =
+          writeFaultFires(context, landed.isEmpty() ? "native:set-cells"
+                                                    : "native:set-cells-later");
+      context.markMutationStarted();
+      if (!applyNative(sheet, index, op, refused)) {
+        // A refusal before any write landed is a rejection: nothing changed.
+        if (landed.isEmpty() && !startedBefore) context.resetMutationStarted();
+        QJsonObject details{{"column_id", plan.columnId}, {"frame", op.row}};
+        if (!landed.isEmpty()) details.insert("completed", landed);
         throw Error("native_error",
-                    "A preflighted native cell write was refused.",
-                    {{"column_id", plan.columnId}, {"frame", op.row}});
+                    "A preflighted native cell write was refused.", details);
+      }
+      landed.append(landedWrite(plan, op));
+    }
     // Native writes rename a column when the editor links names to levels.
     if (object && object->getName() != name) object->setName(name);
     const int row = CellModel::read(sheet, index).firstDifference(plan.after);
     if (row >= 0)
       throw Error("native_error",
                   "The native cells differ from the worker's cell model.",
-                  {{"column_id", plan.columnId}, {"frame", row}});
+                  {{"column_id", plan.columnId},
+                   {"frame", row},
+                   {"completed", landed}});
   }
 }
 
@@ -287,7 +309,6 @@ QJsonValue exposeColumn(Context& context, const QJsonObject& params) {
                         std::vector<TXshCell>(range.length, cell)});
     modelCellPlan(plan);
     std::vector<CellPlan> plans{plan};
-    context.markMutationStarted();
     applyCellPlans(context, document, plans);
   }
   return QJsonObject{{"column_id", document.idForColumn(column)},

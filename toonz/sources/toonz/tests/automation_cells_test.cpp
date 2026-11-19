@@ -107,6 +107,7 @@ void testEdges() {
 
 // SCN-07 F3: a native write that refuses is reported, never success.
 void testRefusedWriteIsReported(Context& context) {
+  context.resetMutationStarted();
   Fixture fixture(context);
   Document& document = context.addDocument(std::move(fixture.scene));
   const QString id   = document.id;
@@ -126,10 +127,51 @@ void testRefusedWriteIsReported(Context& context) {
   try {
     applyCellPlans(context, document, plans);
   } catch (const Error& error) {
-    refused = error.code == "native_error";
+    refused =
+        error.code == "native_error" && !error.details.contains("completed");
   }
+  const bool started = context.mutationStarted();
   context.removeDocument(id);
   require(refused, "a refused native write must be a native_error");
+  require(!started, "a refusal before any write landed starts no mutation");
+}
+
+// A refusal after an earlier write landed is a partial change that lists it.
+void testRefusalAfterAWriteListsWhatLanded(Context& context) {
+  context.resetMutationStarted();
+  Fixture fixture(context);
+  Document& document = context.addDocument(std::move(fixture.scene));
+  const QString id   = document.id;
+  TXsheet& sheet     = *document.scene->getXsheet();
+  sheet.setCell(0, 0, TXshCell(fixture.level, TFrameId(1)));
+  sheet.setCell(0, 1, TXshCell(fixture.level, TFrameId(1)));
+  sheet.getColumn(1)->lock(true);
+  std::vector<CellPlan> plans;
+  for (int index = 0; index < 2; ++index) {
+    CellPlan plan;
+    plan.column   = sheet.getColumn(index);
+    plan.index    = index;
+    plan.columnId = index ? "second" : "first";
+    plan.before   = CellModel::read(sheet, index);
+    plan.ops      = {
+        {CellOp::Write, 4, 2,
+         std::vector<TXshCell>(2, TXshCell(fixture.level, TFrameId(2)))}};
+    modelCellPlan(plan);
+    plans.push_back(plan);
+  }
+  QJsonArray completed;
+  try {
+    applyCellPlans(context, document, plans);
+  } catch (const Error& error) {
+    completed = error.details.value("completed").toArray();
+  }
+  const bool started = context.mutationStarted();
+  context.removeDocument(id);
+  require(started, "a refusal after a landed write leaves the mutation marked");
+  require(completed.size() == 1 &&
+              completed.at(0).toObject().value("column_id") == "first" &&
+              completed.at(0).toObject().value("length") == 2,
+          "the refusal must list the write that landed");
 }
 
 // A native result that differs from the model is reported even when every
@@ -219,6 +261,7 @@ void runAutomationCellsTests(Context& context) {
   testEdges();
   testModelMatchesNative(context);
   testRefusedWriteIsReported(context);
+  testRefusalAfterAWriteListsWhatLanded(context);
   testDivergenceIsReported(context);
   testRetimeMatchesNative(context);
   std::cout << "automation-cells-test: model and native PASS" << std::endl;

@@ -253,7 +253,6 @@ QJsonObject runPlans(Context& context, Document& document,
   for (const CellPlan& plan : plans)
     if (!plan.before.equals(plan.after)) changed.push_back(plan);
   if (!changed.empty()) {
-    context.markMutationStarted();
     applyCellPlans(context, document, changed);
   }
   QJsonArray columns;
