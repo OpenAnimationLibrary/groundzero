@@ -485,7 +485,7 @@ COMMON: list[Scenario] = [
     ("bidirectional override in the name", bidi_name, ADMIT, _denied),
     ("unreadable folder", locked_directory, DENY, _unusable),
     ("case alias of an existing name", case_alias, DENY, _denied),
-    ("decomposed spelling of a composed name", nfd_alias, DENY, _denied),
+    ("decomposed spelling of a composed name", nfd_alias, ALIAS, _aliased),
     ("composed spelling of a decomposed name", nfc_alias_of_decomposed, ALIAS, _aliased),
     ("trailing slash", trailing_slash, ADMIT, _denied),
     ("doubled slash", double_slash, ADMIT, _denied),

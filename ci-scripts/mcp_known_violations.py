@@ -78,29 +78,6 @@ KNOWN_VIOLATIONS: dict[str, Violation] = {
         answers=frozenset({"does not match the Bezier"}),
         row="SCN-13 #1",
     ),
-    "KV-10": Violation(
-        name=(
-            "A package saved into a folder whose name is not in Unicode composed form cannot be "
-            "opened by the path the save reported"
-        ),
-        tool="scene.save_copy, scene.open",
-        call=(
-            "scene.save_copy into <workspace>/a/c + U+0301 (a base letter and a combining mark), "
-            "then scene.open with the package_directory it returned"
-        ),
-        expected=(
-            "the open succeeds: the path is spelled exactly as it is stored, which is what the "
-            "refusal's own message asks for"
-        ),
-        observed=(
-            'error code "path_denied" (no normalization variant of a name), from '
-            "canonicalAncestor in automation_context.cpp, which compares the given path with "
-            "QFileInfo::canonicalFilePath. Likely cause, not confirmed: Qt composes file names "
-            "on macOS, so a decomposed name never equals its canonical form"
-        ),
-        answers=frozenset({"path_denied"}),
-        row="QLT-04 #2 (path serialization)",
-    ),
 }
 
 

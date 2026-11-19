@@ -533,6 +533,11 @@ NAME_CHARACTERS = "abcXYZ019 _-.<>&\"'%$+#()[]{}@!~,;=中é \U0001f680́\t"
 SAFE_CHARACTERS = "abcXYZ019 _-.+#()[]{}@!~,;=%&'中é\U0001f680́"
 
 
+def _composed(text: str) -> str:
+    """The text with every name composed, which is how a macOS worker reports stored names."""
+    return unicodedata.normalize("NFC", text)
+
+
 def _random_text(rng: random.Random, alphabet: str, longest: int) -> str:
     return "".join(rng.choice(alphabet) for _ in range(rng.randint(1, longest)))
 
@@ -606,15 +611,12 @@ def package_paths_round_trip_through_save_and_open(case: NativeAcceptance) -> No
             target = case.workspace.joinpath(f"{seed}", *parts)
             target.parent.mkdir(parents=True)
             saved = case.mutate("scene.save_copy", document, directory=str(target))
-            case.assertEqual(saved["package_directory"], str(target))
+            reported = saved["package_directory"]
+            case.assertEqual(_composed(reported), _composed(str(target)))
+            case.assertTrue(os.path.samefile(reported, target), reported)
             case.assertTrue((target / "scene.tnz").is_file())
-            if not unicodedata.is_normalized("NFC", str(target)):
-                opening = case.write_params(None, {"path": saved["package_directory"]})
-                answer = _raw(case, "scene.open", opening)
-                settle(case, "KV-10", answer.get("error", {}).get("code", "opened"), "opened")
-                case.mutate("scene.discard", document)
-                continue
-            reopened = case.mutate("scene.open", None, path=saved["package_directory"])
+            reopened = case.mutate("scene.open", None, path=reported)
+            case.assertEqual(reopened["package_directory"], reported)
             summary = case.success("scene.summary", {"document_id": reopened["document_id"]})
             case.assertEqual([item["name"] for item in summary["levels"]], ["Quadrants"])
             case.assertEqual(summary["frame_count"], 25)
