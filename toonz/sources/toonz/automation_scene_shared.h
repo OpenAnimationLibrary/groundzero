@@ -8,6 +8,7 @@
 
 #include <map>
 
+class TFilePath;
 class TFrameId;
 class TStageObjectTree;
 class ToonzScene;
@@ -48,6 +49,9 @@ void requireEditable(Document& document, TStageObject* object);
 QJsonObject drawingId(const TFrameId& frame);
 TFrameId readDrawingId(const QJsonObject& params);
 
+/// A new private file path for a level of the given extension; defined with
+/// the level tools.
+TFilePath newLevelPath(Context& context, const QString& extension);
 /// Describe a level; defined with the level tools.
 QJsonObject describeLevel(Document& document, TXshLevel* level,
                           bool includeDrawings);

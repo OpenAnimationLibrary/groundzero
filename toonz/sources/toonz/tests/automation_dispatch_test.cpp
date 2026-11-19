@@ -321,7 +321,8 @@ QString domainToolset(const QString& name) {
       "column.move",      "column.duplicate", "column.kinds",
       "camera.list",      "camera.create",    "camera.duplicate",
       "camera.select",    "camera.remove",    "scene.properties.inspect",
-      "scene.output.set", "scene.guides.set"};
+      "scene.output.set", "scene.guides.set", "level.settings.set",
+      "level.rename",     "level.duplicate",  "level.remove"};
   if (name.startsWith("cells.") || sheet.contains(name)) return "sheet";
   return "core";
 }

@@ -5,6 +5,7 @@
 #include "automation_drawing_inspection.h"
 #include "automation_files.h"
 #include "automation_hook.h"
+#include "automation_level_lifecycle.h"
 #include "automation_vector_opacity.h"
 #include "tstrokeopacity.h"
 
@@ -408,23 +409,61 @@ void scanExposures(Document& document, ExposureScan& scan) {
   }
 }
 
+// The drawing exposures are rewritten to: none for refuse and clear, the
+// policy's drawing for remap.
+TFrameId remapTarget(TXshSimpleLevel* level, const TFrameId& frame,
+                     const QJsonObject& policy) {
+  if (policy.value("kind").toString() != "remap") return TFrameId();
+  const TFrameId target = frameId(policy, "drawing_id");
+  if (target == frame)
+    throw Error("invalid_params", "Remap to another drawing.",
+                {{"reason", "same_drawing"}});
+  if (!level->isFid(target))
+    throw Error("not_found", "The remap drawing does not exist");
+  return target;
+}
+
+QJsonArray topColumns(Document& document, const LevelUsage& usage) {
+  QJsonArray ids;
+  for (const LevelUsageColumn& column : usage.columns)
+    if (!column.sheetLevel)
+      ids.append(document.idForColumn(column.sheet->getColumn(column.index)));
+  return ids;
+}
+
 QJsonObject removeDrawing(Context& context, Document& document,
                           const QJsonObject& params) {
-  auto* level      = simpleLevel(document, params);
-  const auto frame = frameId(params);
+  auto* level                = simpleLevel(document, params);
+  const auto frame           = frameId(params);
+  const QJsonObject exposure = params.value("exposure_policy").toObject();
+  const QString policy = exposure.isEmpty() ? QString("refuse")
+                                            : exposure.value("kind").toString();
   imageFor(level, frame);
-  ExposureScan scan{level, {frame}, true, 1000000, {}, {}};
-  scanExposures(document, scan);
-  if (!scan.exposures.empty())
-    throw Error("in_use", "Remove every exposure before removing this drawing");
+  const TFrameId target        = remapTarget(level, frame, exposure);
+  const std::set<TFrameId> one = {frame};
+  const LevelUsage usage       = scanLevelUsage(document, level, &one);
+  if (usage.complete && policy == "refuse" && usage.cells > 0)
+    throw Error("in_use",
+                "The drawing is exposed; remove its exposures first or "
+                "choose clear or remap",
+                {{"usage", levelUsageJson(document, usage)}});
+  requireEditableUsage(document, usage);
   requireAutomationHookRemoval(document, *level, frame);
   const int hookKeys = automationHookKeys(*level, frame);
   context.markMutationStarted();
+  const qint64 rewritten =
+      rewriteLevelUsage(usage, policy == "remap" ? level : nullptr, target);
   level->eraseFrame(frame);
   level->setDirtyFlag(true);
   if (automationHookKeys(*level, frame) != 0)
     throw Error("native_error", "Native drawing removal kept hook keys");
-  return {{"removed", frameJson(frame)}, {"hook_keys_removed", hookKeys}};
+  return {{"removed", frameJson(frame)},
+          {"hook_keys_removed", hookKeys},
+          {"exposure_policy", policy},
+          {"exposures_cleared", policy == "clear" ? rewritten : 0},
+          {"exposures_remapped", policy == "remap" ? rewritten : 0},
+          {"columns", topColumns(document, usage)},
+          {"usage", levelUsageJson(document, usage)}};
 }
 
 using DrawingMapping = std::map<TFrameId, TFrameId>;
@@ -1507,6 +1546,23 @@ QJsonObject editSchema() {
   return {{"type", "object"}, {"oneOf", alternatives}};
 }
 
+QJsonObject exposurePolicy() {
+  auto kind = [](const char* name) {
+    return QJsonObject{{"type", "string"}, {"enum", QJsonArray{name}}};
+  };
+  auto policy = [](const QJsonObject& properties, const QJsonArray& required) {
+    return QJsonObject{{"type", "object"},
+                       {"additionalProperties", false},
+                       {"properties", properties},
+                       {"required", required}};
+  };
+  return {{"oneOf", QJsonArray{policy({{"kind", kind("refuse")}}, {"kind"}),
+                               policy({{"kind", kind("clear")}}, {"kind"}),
+                               policy({{"kind", kind("remap")},
+                                       {"drawing_id", drawingIdentity()}},
+                                      {"kind", "drawing_id"})}}};
+}
+
 void drawingCatalog(QJsonArray& tools) {
   auto properties = target();
   properties.insert("format", choice({"vector", "rgba8", "toonzRaster"}));
@@ -1532,9 +1588,16 @@ void drawingCatalog(QJsonArray& tools) {
       properties,
       {"document_id", "level_id", "drawing_id", "destination_drawing_id"},
       true));
+  properties = target();
+  properties.insert("exposure_policy", exposurePolicy());
   tools.append(operation(
-      "drawing.remove", "Remove an unexposed drawing; reject any remaining use",
-      target(), {"document_id", "level_id", "drawing_id"}, true));
+      "drawing.remove",
+      "Remove a drawing. exposure_policy {kind: refuse} (the default) "
+      "rejects a drawing that any sheet exposes; {kind: clear} blanks those "
+      "exposures without shifting later cells; {kind: remap, drawing_id} "
+      "shows another drawing of the same level there instead. Locked "
+      "exposures refuse.",
+      properties, {"document_id", "level_id", "drawing_id"}, true));
 }
 
 void renumberCatalog(QJsonArray& tools) {

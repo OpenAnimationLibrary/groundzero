@@ -292,7 +292,14 @@
   },
   "drawing.remove": {
     "handler": "removeDrawing",
-    "read": []
+    "read": [
+      "column_id",
+      "column_index",
+      "first_frame",
+      "last_frame",
+      "locked",
+      "sheet_level_id"
+    ]
   },
   "drawing.renumber": {
     "handler": "renumberDrawing",
@@ -430,13 +437,68 @@
     "handler": "createLevel",
     "read": []
   },
+  "level.duplicate": {
+    "handler": "duplicateLevel",
+    "read": []
+  },
   "level.import": {
     "handler": "importLevel",
     "read": []
   },
   "level.inspect": {
     "handler": "inspectLevel",
+    "read": [
+      "antialias_softness",
+      "applicable",
+      "cells",
+      "color_space_gamma",
+      "column_id",
+      "column_index",
+      "columns",
+      "complete",
+      "dpi",
+      "first_frame",
+      "last_frame",
+      "locked",
+      "premultiply",
+      "rows",
+      "rows_truncated",
+      "sheet_level_id",
+      "sheets",
+      "subsampling",
+      "value",
+      "white_transparent",
+      "writable"
+    ]
+  },
+  "level.remove": {
+    "handler": "removeLevel",
+    "read": [
+      "column_id",
+      "column_index",
+      "first_frame",
+      "last_frame",
+      "locked",
+      "sheet_level_id"
+    ]
+  },
+  "level.rename": {
+    "handler": "renameLevel",
     "read": []
+  },
+  "level.settings.set": {
+    "handler": "setLevelSettings",
+    "read": [
+      "antialias_softness",
+      "applicable",
+      "color_space_gamma",
+      "dpi",
+      "premultiply",
+      "subsampling",
+      "value",
+      "white_transparent",
+      "writable"
+    ]
   },
   "library.inspect": {
     "handler": "inspectItem",

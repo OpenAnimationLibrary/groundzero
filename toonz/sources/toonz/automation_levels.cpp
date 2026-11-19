@@ -1,5 +1,7 @@
 #include "automation_drawing.h"
 #include "automation_files.h"
+#include "automation_hook.h"
+#include "automation_level_lifecycle.h"
 #include "automation_scene_host.h"
 #include "automation_scene_shared.h"
 
@@ -60,8 +62,6 @@ QJsonObject describeLevel(Document& document, TXshLevel* level,
   return result;
 }
 
-namespace {
-
 TFilePath newLevelPath(Context& context, const QString& extension) {
   const QString directory =
       context.resolvePath(context.privateDirectory("levels"), true);
@@ -72,6 +72,8 @@ TFilePath newLevelPath(Context& context, const QString& extension) {
   return TFilePath(
       QDir(directory).filePath(id + separator + extension).toStdWString());
 }
+
+namespace {
 
 std::unique_ptr<TXshSimpleLevel> prepareLevel(Context& context,
                                               Document& document,
@@ -211,10 +213,26 @@ QJsonValue importLevel(Context& context, const QJsonObject& params) {
   return describeLevel(document, result, true);
 }
 
+int hookKeys(TXshSimpleLevel& level) {
+  int keys = 0;
+  for (const TFrameId& frame : level.getFids())
+    keys += automationHookKeys(level, frame);
+  return keys;
+}
+
 QJsonValue inspectLevel(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
-  return describeLevel(
-      document, document.level(requiredString(params, "level_id")), true);
+  TXshLevel* level        = document.level(requiredString(params, "level_id"));
+  QJsonObject result      = describeLevel(document, level, true);
+  TXshSimpleLevel* simple = level->getSimpleLevel();
+  if (!simple) return result;
+  const LevelUsage usage = scanLevelUsage(document, level);
+  QJsonObject settings   = levelSettingsReport(document, simple, usage);
+  settings.insert("hook_keys", hookKeys(*simple));
+  result.insert("settings", settings);
+  if (boolParam(params, "include_usage", false))
+    result.insert("usage", levelUsageJson(document, usage));
+  return result;
 }
 
 }  // namespace
@@ -234,11 +252,15 @@ void addLevelOperations(QJsonArray& catalog) {
       "level.import",
       "Import one PNG as private drawing 1 within document asset limits.",
       level, {"document_id", "path", "name"}, true));
-  catalog.append(
-      operation("level.inspect",
-                "Inspect a level's format and exact drawing identifiers.",
-                merge(documentSchema(), {{"level_id", textSchema()}}),
-                {"document_id", "level_id"}));
+  catalog.append(operation(
+      "level.inspect",
+      "Inspect a level's format, exact drawing identifiers and interpretation "
+      "settings, each with whether it applies and can be written now; with "
+      "include_usage, its exposures in every sheet.",
+      merge(documentSchema(),
+            {{"level_id", textSchema()},
+             {"include_usage", QJsonObject{{"type", "boolean"}}}}),
+      {"document_id", "level_id"}));
 }
 
 void addLevelHandlers(SceneHandlers& handlers) {

@@ -8759,10 +8759,38 @@
   "drawing.remove": {
     "additionalProperties": false,
     "properties": {
+      "columns": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 1000000,
+        "minItems": 0,
+        "type": "array"
+      },
       "document_id": {
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "exposure_policy": {
+        "enum": [
+          "refuse",
+          "clear",
+          "remap"
+        ],
+        "type": "string"
+      },
+      "exposures_cleared": {
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "exposures_remapped": {
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
       },
       "hook_keys_removed": {
         "maximum": 1.7976931348623157e+308,
@@ -8798,14 +8826,128 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "usage": {
+        "additionalProperties": false,
+        "properties": {
+          "cells": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "columns": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "incomplete_reason": {
+            "enum": [
+              "cell_limit",
+              "sheet_limit"
+            ],
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cells": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "column_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  ]
+                },
+                "column_index": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "first_frame": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "last_frame": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "sheet_level_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "cells",
+                "column_id",
+                "column_index",
+                "first_frame",
+                "last_frame",
+                "locked",
+                "sheet_level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 256,
+            "minItems": 0,
+            "type": "array"
+          },
+          "rows_truncated": {
+            "type": "boolean"
+          },
+          "sheets": {
+            "maximum": 128,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cells",
+          "columns",
+          "complete",
+          "rows",
+          "rows_truncated",
+          "sheets"
+        ],
+        "type": "object"
       }
     },
     "required": [
+      "columns",
       "document_id",
+      "exposure_policy",
+      "exposures_cleared",
+      "exposures_remapped",
       "hook_keys_removed",
       "operation_id",
       "removed",
-      "revision"
+      "revision",
+      "usage"
     ],
     "type": "object"
   },
@@ -16936,6 +17078,142 @@
     ],
     "type": "object"
   },
+  "level.duplicate": {
+    "additionalProperties": false,
+    "properties": {
+      "cast_metadata": {
+        "additionalProperties": false,
+        "properties": {
+          "cast_id": {
+            "const": "new"
+          },
+          "collections": {
+            "const": "none"
+          },
+          "cover": {
+            "enum": [
+              "copied",
+              "none"
+            ],
+            "type": "string"
+          },
+          "folder": {
+            "const": "default"
+          },
+          "tags": {
+            "const": "copied"
+          }
+        },
+        "required": [
+          "cast_id",
+          "collections",
+          "cover",
+          "folder",
+          "tags"
+        ],
+        "type": "object"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "exposed": {
+        "const": false
+      },
+      "hooks_copied": {
+        "maximum": 99,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "level": {
+        "additionalProperties": false,
+        "properties": {
+          "drawing_count": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "format": {
+            "enum": [
+              "vector",
+              "toonzRaster",
+              "rgba8"
+            ],
+            "type": "string"
+          },
+          "level_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "drawing_count",
+          "format",
+          "level_id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "palette": {
+        "enum": [
+          "cloned",
+          "none"
+        ],
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "settings_copied": {
+        "items": {
+          "enum": [
+            "dpi",
+            "premultiply",
+            "white_transparent",
+            "antialias_softness",
+            "subsampling",
+            "color_space_gamma"
+          ],
+          "type": "string"
+        },
+        "maxItems": 6,
+        "minItems": 0,
+        "type": "array"
+      },
+      "source_level_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "cast_metadata",
+      "document_id",
+      "exposed",
+      "hooks_copied",
+      "level",
+      "operation_id",
+      "palette",
+      "revision",
+      "settings_copied",
+      "source_level_id"
+    ],
+    "type": "object"
+  },
   "level.import": {
     "additionalProperties": false,
     "properties": {
@@ -17058,12 +17336,1627 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "settings": {
+        "additionalProperties": false,
+        "properties": {
+          "antialias_softness": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "color_space_gamma": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "dpi": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "dpi_policy": {
+            "enum": [
+              "custom",
+              "image"
+            ],
+            "type": "string"
+          },
+          "hook_keys": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "image_dpi_x": {
+            "maximum": 1000000000000.0,
+            "minimum": 0,
+            "type": "number"
+          },
+          "image_dpi_y": {
+            "maximum": 1000000000000.0,
+            "minimum": 0,
+            "type": "number"
+          },
+          "image_height_px": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "image_width_px": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "premultiply": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "subsampling": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "white_transparent": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "antialias_softness",
+          "color_space_gamma",
+          "dirty",
+          "dpi",
+          "dpi_policy",
+          "image_dpi_x",
+          "image_dpi_y",
+          "image_height_px",
+          "image_width_px",
+          "premultiply",
+          "subsampling",
+          "white_transparent"
+        ],
+        "type": "object"
+      },
+      "usage": {
+        "additionalProperties": false,
+        "properties": {
+          "cells": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "columns": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "incomplete_reason": {
+            "enum": [
+              "cell_limit",
+              "sheet_limit"
+            ],
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cells": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "column_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  ]
+                },
+                "column_index": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "first_frame": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "last_frame": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "sheet_level_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "cells",
+                "column_id",
+                "column_index",
+                "first_frame",
+                "last_frame",
+                "locked",
+                "sheet_level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 256,
+            "minItems": 0,
+            "type": "array"
+          },
+          "rows_truncated": {
+            "type": "boolean"
+          },
+          "sheets": {
+            "maximum": 128,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cells",
+          "columns",
+          "complete",
+          "rows",
+          "rows_truncated",
+          "sheets"
+        ],
+        "type": "object"
       }
     },
     "required": [
       "format",
       "level_id",
       "name"
+    ],
+    "type": "object"
+  },
+  "level.remove": {
+    "additionalProperties": false,
+    "properties": {
+      "cast_ids_removed": {
+        "const": 1
+      },
+      "cells_cleared": {
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "cells_replaced": {
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "collection_memberships_dormant": {
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "exposure_policy": {
+        "enum": [
+          "refuse",
+          "clear",
+          "replace"
+        ],
+        "type": "string"
+      },
+      "files_deleted": {
+        "const": 0
+      },
+      "name": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "removed_level_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "replacement_level_id": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        ]
+      },
+      "revision": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "type_changed": {
+        "type": "boolean"
+      },
+      "usage_before": {
+        "additionalProperties": false,
+        "properties": {
+          "cells": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "columns": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "incomplete_reason": {
+            "enum": [
+              "cell_limit",
+              "sheet_limit"
+            ],
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cells": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "column_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  ]
+                },
+                "column_index": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "first_frame": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "last_frame": {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "sheet_level_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "cells",
+                "column_id",
+                "column_index",
+                "first_frame",
+                "last_frame",
+                "locked",
+                "sheet_level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 256,
+            "minItems": 0,
+            "type": "array"
+          },
+          "rows_truncated": {
+            "type": "boolean"
+          },
+          "sheets": {
+            "maximum": 128,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cells",
+          "columns",
+          "complete",
+          "rows",
+          "rows_truncated",
+          "sheets"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "cast_ids_removed",
+      "cells_cleared",
+      "cells_replaced",
+      "collection_memberships_dormant",
+      "document_id",
+      "exposure_policy",
+      "files_deleted",
+      "name",
+      "operation_id",
+      "removed_level_id",
+      "replacement_level_id",
+      "revision",
+      "type_changed",
+      "usage_before"
+    ],
+    "type": "object"
+  },
+  "level.rename": {
+    "additionalProperties": false,
+    "properties": {
+      "cast_id_kept": {
+        "const": true
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "level": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "enum": [
+              "vector",
+              "toonzRaster",
+              "rgba8"
+            ],
+            "type": "string"
+          },
+          "level_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "format",
+          "level_id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "name_before": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "renamed": {
+        "type": "boolean"
+      },
+      "revision": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "cast_id_kept",
+      "document_id",
+      "level",
+      "name_before",
+      "operation_id",
+      "renamed",
+      "revision"
+    ],
+    "type": "object"
+  },
+  "level.settings.set": {
+    "additionalProperties": false,
+    "properties": {
+      "camera_changed": {
+        "const": false
+      },
+      "changed": {
+        "items": {
+          "enum": [
+            "dpi",
+            "premultiply",
+            "white_transparent",
+            "antialias_softness",
+            "subsampling",
+            "color_space_gamma"
+          ],
+          "type": "string"
+        },
+        "maxItems": 6,
+        "minItems": 0,
+        "type": "array"
+      },
+      "columns": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 4096,
+        "minItems": 0,
+        "type": "array"
+      },
+      "coupled_cleared": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "enum": [
+              "premultiply",
+              "white_transparent"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "exposures": {
+        "maximum": 1000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "hooks_moved_in_inches": {
+        "maximum": 99,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "level_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "pixels_resampled": {
+        "const": false
+      },
+      "revision": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "settings": {
+        "additionalProperties": false,
+        "properties": {
+          "antialias_softness": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "color_space_gamma": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "dpi": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "dpi_policy": {
+            "enum": [
+              "custom",
+              "image"
+            ],
+            "type": "string"
+          },
+          "hook_keys": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "image_dpi_x": {
+            "maximum": 1000000000000.0,
+            "minimum": 0,
+            "type": "number"
+          },
+          "image_dpi_y": {
+            "maximum": 1000000000000.0,
+            "minimum": 0,
+            "type": "number"
+          },
+          "image_height_px": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "image_width_px": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "premultiply": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "subsampling": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "white_transparent": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "antialias_softness",
+          "color_space_gamma",
+          "dirty",
+          "dpi",
+          "dpi_policy",
+          "image_dpi_x",
+          "image_dpi_y",
+          "image_height_px",
+          "image_width_px",
+          "premultiply",
+          "subsampling",
+          "white_transparent"
+        ],
+        "type": "object"
+      },
+      "settings_before": {
+        "additionalProperties": false,
+        "properties": {
+          "antialias_softness": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "color_space_gamma": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "dpi": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "dpi_policy": {
+            "enum": [
+              "custom",
+              "image"
+            ],
+            "type": "string"
+          },
+          "hook_keys": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "image_dpi_x": {
+            "maximum": 1000000000000.0,
+            "minimum": 0,
+            "type": "number"
+          },
+          "image_dpi_y": {
+            "maximum": 1000000000000.0,
+            "minimum": 0,
+            "type": "number"
+          },
+          "image_height_px": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "image_width_px": {
+            "maximum": 1000000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "premultiply": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "subsampling": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          },
+          "white_transparent": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable": {
+                "type": "boolean"
+              },
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "enum": [
+                      "not_applicable_to_format",
+                      "linear_raster_only",
+                      "unsaved_level",
+                      "read_only_level",
+                      "locked_exposure",
+                      "read_only_document"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "writable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "applicable",
+              "reason",
+              "value",
+              "writable"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "antialias_softness",
+          "color_space_gamma",
+          "dirty",
+          "dpi",
+          "dpi_policy",
+          "image_dpi_x",
+          "image_dpi_y",
+          "image_height_px",
+          "image_width_px",
+          "premultiply",
+          "subsampling",
+          "white_transparent"
+        ],
+        "type": "object"
+      },
+      "stage_size_in_after": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "height": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "width": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [
+              "height",
+              "width"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "stage_size_in_before": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "height": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "width": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [
+              "height",
+              "width"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
+    "required": [
+      "camera_changed",
+      "changed",
+      "columns",
+      "coupled_cleared",
+      "document_id",
+      "exposures",
+      "hooks_moved_in_inches",
+      "level_id",
+      "operation_id",
+      "pixels_resampled",
+      "revision",
+      "settings",
+      "settings_before",
+      "stage_size_in_after",
+      "stage_size_in_before"
     ],
     "type": "object"
   },
