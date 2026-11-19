@@ -1170,6 +1170,23 @@ if(BUILD_RELIABILITY_TESTS)
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME inputmodifier COMMAND inputmodifier_test)
     set_tests_properties(inputmodifier PROPERTIES TIMEOUT 60)
+    # Replays recorded pointer gestures through the brush and eraser tools the
+    # editor registers and compares the drawings with golden data. Record the
+    # golden data of a platform with:
+    #   brushstroke_test <sources>/tnztools/tests/brushstroke/golden --update
+    add_executable(brushstroke_test
+        tnztools/tests/brushstroke/main.cpp
+        tnztools/tests/brushstroke/harness.cpp
+        tnztools/tests/brushstroke/golden.cpp
+        tnztools/tests/brushstroke/cases_vector.cpp
+        tnztools/tests/brushstroke/cases_raster.cpp
+        tnztools/tests/brushstroke/cases_eraser.cpp)
+    target_link_libraries(brushstroke_test PRIVATE tnztools toonzqt toonzlib tnzext tnzbase tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
+    add_test(NAME brushstroke COMMAND brushstroke_test
+        ${CMAKE_CURRENT_SOURCE_DIR}/tnztools/tests/brushstroke/golden)
+    set_tests_properties(brushstroke PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
 endif()
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)

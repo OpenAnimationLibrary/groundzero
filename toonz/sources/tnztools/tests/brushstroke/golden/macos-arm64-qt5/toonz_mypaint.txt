@@ -1,0 +1,2 @@
+frame1 raster kind=cm32 size=192x128 savebox=20,30,171,99 painted=3934 sha256=94cc59d9ab9d163a8903069a096059941da1374822715c79eb2564466f630332 changed=642
+undo steps=1 undone=1 restored=1 redone=1 repeated=1

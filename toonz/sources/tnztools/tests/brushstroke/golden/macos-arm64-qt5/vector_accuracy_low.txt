@@ -1,0 +1,8 @@
+frame1 strokes=1 regions=0 insideGroup=0
+frame1 stroke 0 style=1 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point -40 0 0.45166272821552217
+frame1 point -27.7890625 13.4609375 0.45603563807117792
+frame1 point -2.6171875 3.15625 0.45622169999170298
+frame1 point 22.546875 -7.1328125 0.45640776191222798
+frame1 point 40 1.640625 0.45155552733333332
+undo steps=1 undone=1 restored=1 redone=1 repeated=1

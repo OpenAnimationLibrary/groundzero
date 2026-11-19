@@ -1,0 +1,59 @@
+frame1 strokes=2 regions=5 insideGroup=0
+frame1 stroke 0 style=4 loop=1 cap=1 join=1 miter=0/4 group=0 points=41
+frame1 point -43.65625 -2.828125 0
+frame1 point -22.09375 5.609375 0
+frame1 point -8.9140625 5.9453125 0
+frame1 point 0.9921875 6.1953125 0
+frame1 point 15.078125 1.109375 0
+frame1 point 20.34375 -0.828125 0
+frame1 point 25.5234375 -3 0
+frame1 point 30.703125 -5.1796875 0
+frame1 point 35.984375 -7.0859375 0
+frame1 point 40.203125 -8.5703125 0
+frame1 point 43.7265625 -9.6640625 0
+frame1 point 44.296875 -9.6953125 0
+frame1 point 44.7265625 -9.328125 0
+frame1 point 44.8359375 -9.078125 0
+frame1 point 44.8984375 -8.796875 0
+frame1 point 44.6875 -8.265625 0
+frame1 point 44.265625 -7.9453125 0
+frame1 point 42.3515625 -7.28125 0
+frame1 point 40.421875 -6.6640625 0
+frame1 point 38.4921875 -6.0546875 0
+frame1 point 36.578125 -5.390625 0
+frame1 point 32.7578125 -4.0390625 0
+frame1 point 28.96875 -2.5625 0
+frame1 point 25.640625 -1.234375 0
+frame1 point 22.34375 0.1640625 0
+frame1 point 19.046875 1.5703125 0
+frame1 point 15.6875 2.8046875 0
+frame1 point 6.765625 6.0234375 0
+frame1 point -2.078125 7.40625 0
+frame1 point -9.6015625 8.578125 0
+frame1 point -20.7421875 6.3125 0
+frame1 point -29.171875 4.59375 0
+frame1 point -39.21875 0.8359375 0
+frame1 point -42.625 -0.4296875 0
+frame1 point -44.3359375 -1.1640625 0
+frame1 point -44.5859375 -1.296875 0
+frame1 point -44.7578125 -1.5234375 0
+frame1 point -44.9296875 -2.0625 0
+frame1 point -44.6796875 -2.578125 0
+frame1 point -44.234375 -2.8515625 0
+frame1 point -43.65625 -2.828125 0
+frame1 stroke 1 style=1 loop=1 cap=1 join=1 miter=0/4 group=0 points=9
+frame1 point -42 -22 1
+frame1 point 0 -22 1
+frame1 point 42 -22 1
+frame1 point 42 0 1
+frame1 point 42 22 1
+frame1 point 0 22 1
+frame1 point -42 22 1
+frame1 point -42 0 1
+frame1 point -42 -22 1
+frame1 region depth=0 style=2 subregions=0 box -43 -23 43 5.9570255307467059
+frame1 region depth=0 style=4 subregions=0 box 41 -10.118086904093843 44.8984375 -6.1775090977951281
+frame1 region depth=0 style=2 subregions=0 box -43.000000000000014 -10.118086904093843 43 7.8057528409090917
+frame1 region depth=0 style=2 subregions=0 box -43 -8.1775090977951272 43 23
+frame1 region depth=0 style=4 subregions=0 box -44.827835648148145 -3.1872468686205364 -41 0.78155308013948233
+undo steps=1 undone=1 restored=1 redone=1 repeated=1

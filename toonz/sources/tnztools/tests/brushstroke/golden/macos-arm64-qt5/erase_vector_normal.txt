@@ -1,0 +1,77 @@
+frame1 strokes=11 regions=3 insideGroup=0
+frame1 stroke 0 style=1 loop=0 cap=1 join=1 miter=0/4 group=0 points=7
+frame1 point -44 -18 1.5
+frame1 point -33 -6 1.5
+frame1 point -22 -18 1.5
+frame1 point -11 -6 1.5
+frame1 point 0 -18 1.5
+frame1 point 1.7890625 -16.046875 1.5
+frame1 point 3.578125 -14.7265625 1.5
+frame1 stroke 1 style=1 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point 20.625 -16.6015625 1.5
+frame1 point 21.3125 -17.25 1.5
+frame1 point 22 -18 1.5
+frame1 point 33 -6 1.5
+frame1 point 44 -18 1.5
+frame1 stroke 2 style=2 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point -44 -6 2.5
+frame1 point -43.15625 -5.078125 2.5
+frame1 point -42.3125 -4.296875 2.5
+frame1 point -41.46875 -3.515625 2.5
+frame1 point -40.625 -2.8828125 2.5
+frame1 stroke 3 style=2 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point -30.109375 -0.3984375 2.5
+frame1 point -26.0546875 -1.5625 2.5
+frame1 point -22 -6 2.5
+frame1 point -15.515625 1.0625 2.5
+frame1 point -9.0390625 -0.1875 2.5
+frame1 stroke 4 style=2 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point 5.3359375 -1.578125 2.5
+frame1 point 9.2109375 0.5859375 2.5
+frame1 point 13.09375 -0.21875 2.5
+frame1 point 16.734375 -0.96875 2.5
+frame1 point 20.390625 -4.375 2.5
+frame1 stroke 5 style=2 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point 39.5703125 -2.140625 2.5
+frame1 point 39.9453125 -2.3828125 2.5
+frame1 point 40.3203125 -2.65625 2.5
+frame1 point 42.15625 -3.9921875 2.5
+frame1 point 44 -6 2.5
+frame1 stroke 6 style=3 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point -44 6 1
+frame1 point -41.5234375 8.6953125 1
+frame1 point -39.0546875 10.1796875 1
+frame1 point -36.7109375 11.5859375 1
+frame1 point -34.359375 11.8984375 1
+frame1 stroke 7 style=3 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point -24.1484375 8.1171875 1
+frame1 point -23.0703125 7.171875 1
+frame1 point -22 6 1
+frame1 point -19.671875 8.53125 1
+frame1 point -17.34375 10 1
+frame1 stroke 8 style=3 loop=0 cap=1 join=1 miter=0/4 group=0 points=7
+frame1 point -1.3203125 7.3515625 1
+frame1 point -0.65625 6.71875 1
+frame1 point 0 6 1
+frame1 point 11 18 1
+frame1 point 22 6 1
+frame1 point 33 18 1
+frame1 point 44 6 1
+frame1 stroke 9 style=1 loop=0 cap=1 join=1 miter=0/4 group=0 points=5
+frame1 point -8 -1.8125 1
+frame1 point -8 -2.90625 1
+frame1 point -8 -4 1
+frame1 point -7.2109375 -4 1
+frame1 point -6.4296875 -4 1
+frame1 stroke 10 style=1 loop=0 cap=1 join=1 miter=0/4 group=0 points=7
+frame1 point 7.625 -4 1
+frame1 point 7.8125 -4 1
+frame1 point 8 -4 1
+frame1 point 8 0 1
+frame1 point 8 4 1
+frame1 point 4.5078125 4 1
+frame1 point 1.03125 4 1
+frame1 region depth=0 style=0 subregions=0 box -46.5 -8.5 -38.125 -0.3828125
+frame1 region depth=0 style=0 subregions=0 box -9.0390625 -5 -5.4296875 -0.1875
+frame1 region depth=0 style=0 subregions=0 box 2.8359375 -5 10.5 2.0585961211794652
+undo steps=1 undone=1 restored=1 redone=1 repeated=1

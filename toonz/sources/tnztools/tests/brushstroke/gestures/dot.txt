@@ -1,0 +1,4 @@
+# press and release without moving
+# t_ms x y pressure
+0.000 5.000 -3.000 0.800
+30.000 5.000 -3.000 0.800

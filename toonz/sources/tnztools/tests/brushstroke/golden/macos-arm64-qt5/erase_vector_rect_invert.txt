@@ -1,0 +1,2 @@
+frame1 strokes=0 regions=0 insideGroup=0
+undo steps=1 undone=1 restored=1 redone=1 repeated=1

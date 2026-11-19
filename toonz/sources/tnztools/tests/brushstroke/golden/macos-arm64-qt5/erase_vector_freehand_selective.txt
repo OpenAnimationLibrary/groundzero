@@ -1,0 +1,32 @@
+frame1 strokes=3 regions=0 insideGroup=0
+frame1 stroke 0 style=1 loop=0 cap=1 join=1 miter=0/4 group=0 points=9
+frame1 point -44 -18 1.5
+frame1 point -33 -6 1.5
+frame1 point -22 -18 1.5
+frame1 point -11 -6 1.5
+frame1 point 0 -18 1.5
+frame1 point 11 -6 1.5
+frame1 point 22 -18 1.5
+frame1 point 33 -6 1.5
+frame1 point 44 -18 1.5
+frame1 stroke 1 style=2 loop=0 cap=1 join=1 miter=0/4 group=0 points=9
+frame1 point -44 -6 2.5
+frame1 point -33 6 2.5
+frame1 point -22 -6 2.5
+frame1 point -11 6 2.5
+frame1 point 0 -6 2.5
+frame1 point 11 6 2.5
+frame1 point 22 -6 2.5
+frame1 point 33 6 2.5
+frame1 point 44 -6 2.5
+frame1 stroke 2 style=3 loop=0 cap=1 join=1 miter=0/4 group=0 points=9
+frame1 point -44 6 1
+frame1 point -33 18 1
+frame1 point -22 6 1
+frame1 point -11 18 1
+frame1 point 0 6 1
+frame1 point 11 18 1
+frame1 point 22 6 1
+frame1 point 33 18 1
+frame1 point 44 6 1
+undo steps=1 undone=1 restored=1 redone=1 repeated=1
