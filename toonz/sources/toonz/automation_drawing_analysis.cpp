@@ -19,6 +19,7 @@
 #include <QTimer>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <map>
 #include <memory>
@@ -259,6 +260,7 @@ public:
   std::vector<QJsonObject> rows;
   std::map<int, StyleTotal> totals;
   size_t next = 0;
+  std::atomic<qint64> interruptMs{-1};
 
   QString id() const override { return common.id; }
   JobLane lane() const override { return JobLane::Analysis; }
@@ -271,10 +273,19 @@ public:
   QJsonObject record() const override;
   QJsonValue result(Context& owner, const QJsonObject& params) override;
 
+  // A request made on the input thread keeps the time it was made.
   void cancel() override {
     if (common.cancelRequested) return;
+    const qint64 asked     = interruptMs.load();
     common.cancelRequested = true;
-    common.cancelMs        = now();
+    common.cancelMs        = asked >= 0 ? asked : now();
+  }
+
+  // The work runs in application-thread slices that check cancel() between
+  // them, so an interrupt only records when the request was made.
+  void interrupt(qint64 requestedMs) override {
+    qint64 unset = -1;
+    interruptMs.compare_exchange_strong(unset, requestedMs);
   }
 
   qint64 now() const { return jobRegistry(*context).elapsedMs(); }
@@ -298,8 +309,12 @@ private:
   };
   std::optional<RasterScan> m_raster;
 
+  // Each slice is a posted event, so the event loop does not go idle while
+  // the job runs; publishing here keeps polls answered elsewhere current.
   void tick() {
-    if (step()) schedule();
+    const bool more = step();
+    jobRegistry(*context).publish();
+    if (more) schedule();
   }
   bool guardedStep();
   void requireRevision() const;

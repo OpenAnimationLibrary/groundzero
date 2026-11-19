@@ -4,8 +4,10 @@
 #include "automation_scene_host.h"
 
 #include <QCoreApplication>
+#include <QEventLoop>
 #include <QMetaObject>
 #include <QMutexLocker>
+#include <QTimer>
 #include <QUuid>
 
 #include <algorithm>
@@ -150,6 +152,38 @@ QString JobRegistry::newJobId() const {
 QString JobRegistry::newArtifactId() const {
   return "artifact_" + m_instance.left(8) + "_" +
          QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+
+void cancelAllJobs(Context& context) {
+  if (!context.jobs) return;
+  for (const auto& job : context.jobs->jobs())
+    if (!job->terminal()) job->cancel();
+}
+
+namespace {
+
+bool jobsSettled(const Context& context) {
+  return !context.jobs || (context.jobs->active(JobLane::Render).isEmpty() &&
+                           context.jobs->active(JobLane::Analysis).isEmpty());
+}
+
+}  // namespace
+
+bool settleJobs(Context& context, int budgetMs) {
+  cancelAllJobs(context);
+  if (jobsSettled(context)) return true;
+  QElapsedTimer elapsed;
+  elapsed.start();
+  QEventLoop drain;
+  QTimer poll;
+  QObject::connect(&poll, &QTimer::timeout, &drain,
+                   [&context, &drain, &elapsed, budgetMs]() {
+                     if (jobsSettled(context) || elapsed.elapsed() >= budgetMs)
+                       drain.quit();
+                   });
+  poll.start(10);
+  drain.exec(QEventLoop::ExcludeUserInputEvents);
+  return jobsSettled(context);
 }
 
 QString JobRegistry::active(JobLane lane) const {

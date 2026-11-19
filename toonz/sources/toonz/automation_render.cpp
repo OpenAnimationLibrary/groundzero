@@ -33,6 +33,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
@@ -1737,14 +1738,6 @@ QJsonValue executeRender(Context& context, const QString& method,
   throw Error("unknown_operation", "Unknown native render operation.");
 }
 
-void requestRenderCancellation(Context& context) {
-  Q_ASSERT(QThread::currentThread() == QCoreApplication::instance()->thread());
-  if (!context.jobs) return;
-  for (const auto& job : context.jobs->jobs())
-    if (auto* render = dynamic_cast<RenderDetail::RenderJob*>(job.get()))
-      render->requestStop();
-}
-
 int renderJobCount(Context& context) {
   return context.jobs ? context.jobs->retained(JobLane::Render) : 0;
 }
@@ -1755,22 +1748,6 @@ QString activeRenderJob(Context& context) {
 
 void sweepAbandonedRenders(Context& context) {
   OwnershipClaim::removeAbandoned(context.workspace() + "/renders", {"job_*"});
-}
-
-static bool rendersIdle(const Context& context) {
-  return !context.jobs || context.jobs->active(JobLane::Render).isEmpty();
-}
-
-void shutdownRender(Context& context) {
-  requestRenderCancellation(context);
-  if (rendersIdle(context)) return;
-  QEventLoop drain;
-  QTimer poll;
-  QObject::connect(&poll, &QTimer::timeout, &drain, [&context, &drain]() {
-    if (rendersIdle(context)) drain.quit();
-  });
-  poll.start(10);
-  drain.exec(QEventLoop::ExcludeUserInputEvents);
 }
 
 }  // namespace GroundzeroAutomation

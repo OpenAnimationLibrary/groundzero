@@ -10,7 +10,9 @@ import type { WorkerOptions } from "#mcp/options";
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_PENDING_REQUESTS = 16;
-const CLOSE_GRACE_MS = 2_000;
+// Longer than the native worker's own 3 s shutdown deadline after end of input, so the
+// worker ends itself, having removed what it must, before any signal is sent.
+export const CLOSE_GRACE_MS = 4_000;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 interface PendingRequest {

@@ -66,6 +66,7 @@ import mcp_runtime_cases
 import mcp_scene_access_cases
 import mcp_scene_cases
 import mcp_scene_reads_cases
+import mcp_shutdown_cases
 import mcp_storyboard_cases
 import mcp_studio_palette_cases
 import mcp_text_cases
@@ -743,6 +744,28 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_library_unreadable_dependency_is_refused_not_hidden(self) -> None:
         mcp_library_limit_cases.library_unreadable_dependency_is_refused_not_hidden(self)
+
+    def test_end_of_input_during_an_analysis_job_is_bounded(self) -> None:
+        mcp_shutdown_cases.end_of_input_during_an_analysis_job_is_bounded(self)
+
+    def test_end_of_input_during_a_render_cleans_up(self) -> None:
+        mcp_shutdown_cases.end_of_input_during_a_render_cleans_up(self)
+
+    @worker_only("needs the --test-child-fault test hook, which the adapter never passes")
+    def test_end_of_input_during_a_request_is_bounded(self) -> None:
+        mcp_shutdown_cases.end_of_input_during_a_request_is_bounded(self)
+
+    @worker_only("needs the --test-child-fault test hook, which the adapter never passes")
+    def test_automation_processes_stay_in_the_background(self) -> None:
+        mcp_shutdown_cases.automation_processes_stay_in_the_background(self)
+
+    @worker_only("needs the --test-child-fault test hook, which the adapter never passes")
+    def test_graphics_probe_timeout_is_not_a_verdict(self) -> None:
+        mcp_shutdown_cases.graphics_probe_timeout_is_not_a_verdict(self)
+
+    @worker_only("needs --test-render-fault teardown-hang, which the adapter never passes")
+    def test_shutdown_deadline_ends_a_stuck_teardown(self) -> None:
+        mcp_shutdown_cases.shutdown_deadline_ends_a_stuck_teardown(self)
 
     def test_render_cancel_leaves_no_output_and_no_process(self) -> None:
         mcp_failure_cases.render_cancel_leaves_no_output_and_no_process(self)

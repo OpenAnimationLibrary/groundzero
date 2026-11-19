@@ -142,6 +142,13 @@ QJsonObject commonRecord(Context& context, const JobCommon& common,
 // The job.list row for one record.
 QJsonObject jobSummary(const QJsonObject& record);
 
+// Cancel every job this process runs, on both lanes.
+void cancelAllJobs(Context& context);
+// Cancel every job and run the event loop until none is active or budgetMs
+// has passed; true when none is active. Jobs remove their unfinished output
+// when they end.
+bool settleJobs(Context& context, int budgetMs);
+
 QJsonArray jobOperations();
 QJsonValue executeJobs(Context& context, const QString& method,
                        const QJsonObject& params);
