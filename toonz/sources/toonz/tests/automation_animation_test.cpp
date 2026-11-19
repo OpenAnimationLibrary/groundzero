@@ -2,6 +2,8 @@
 #include "automation_animation.h"
 #include "tests/automation_animation_test.h"
 
+#include "toonz/doubleparamcmd.h"
+
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
 #include "tfilepath.h"
@@ -516,6 +518,250 @@ void wholeCurveUnsupportedMetadataIsAtomic() {
            [&]() { prepareAnimationCurveCopy(*source, *destination); });
 }
 
+// ---- Breakdown, key move and key duplicate -------------------------------
+
+using KeyList = std::vector<TDoubleKeyframe>;
+
+KeyList storedKeys(const TDoubleParam& curve) {
+  KeyList result;
+  for (int index = 0; index < curve.getKeyframeCount(); ++index)
+    result.push_back(curve.getKeyframe(index));
+  return result;
+}
+
+bool identical(const TDoubleKeyframe& left, const TDoubleKeyframe& right) {
+  return left.m_frame == right.m_frame && left.m_value == right.m_value &&
+         left.m_type == right.m_type && left.m_prevType == right.m_prevType &&
+         left.m_isKeyframe == right.m_isKeyframe &&
+         left.m_step == right.m_step && left.m_speedIn == right.m_speedIn &&
+         left.m_speedOut == right.m_speedOut &&
+         left.m_linkedHandles == right.m_linkedHandles &&
+         left.m_expressionText == right.m_expressionText &&
+         left.m_fileParams.m_path == right.m_fileParams.m_path &&
+         left.m_fileParams.m_fieldIndex == right.m_fileParams.m_fieldIndex &&
+         left.m_unitName == right.m_unitName &&
+         left.m_similarShapeOffset == right.m_similarShapeOffset;
+}
+
+bool sameKeyLists(const KeyList& left, const KeyList& right) {
+  if (left.size() != right.size()) return false;
+  for (std::size_t index = 0; index < left.size(); ++index)
+    if (!identical(left[index], right[index])) return false;
+  return true;
+}
+
+const TDoubleKeyframe* storedKeyAt(const KeyList& keys, double frame) {
+  for (const auto& candidate : keys)
+    if (candidate.m_frame == frame) return &candidate;
+  return nullptr;
+}
+
+// Frames from before the first key to well after the last, in quarters.
+std::vector<double> denseFrames(double last) {
+  std::vector<double> frames;
+  for (double frame = -2; frame <= last + 4; frame += 0.25)
+    frames.push_back(frame);
+  return frames;
+}
+
+// Segments the edit left alone sample bit-identically; segments between the
+// edited keys are free to change.
+void requireSamplesOutside(const TDoubleParam& before,
+                           const TDoubleParam& after, double from, double to,
+                           const char* message) {
+  for (const double frame : denseFrames(80)) {
+    if (frame > from && frame < to) continue;
+    require(before.getValue(frame) == after.getValue(frame), message);
+  }
+}
+
+void requireOtherKeysIdentical(const KeyList& before, const KeyList& after,
+                               const std::vector<double>& exceptions) {
+  for (const auto& original : before) {
+    bool skipped = false;
+    for (const double frame : exceptions) skipped |= frame == original.m_frame;
+    if (skipped) continue;
+    const auto* current = storedKeyAt(after, original.m_frame);
+    require(current && identical(original, *current),
+            "An untouched key changed");
+  }
+}
+
+TDoubleParamP editedCurve() {
+  const auto curve = mixedCurve();
+  curve->setKeyframe(key(48, 100, TDoubleKeyframe::Linear, {}, {}));
+  auto held   = curve->getKeyframe(3);
+  held.m_step = 2;
+  curve->setKeyframe(held);
+  return curve;
+}
+
+QJsonObject breakdown(int frame, double favour) {
+  return {{"frame", frame}, {"favour_percent", favour}};
+}
+
+TDoubleParamP appliedBreakdown(const TDoubleParam& curve,
+                               const QJsonObject& request) {
+  TDoubleParamP edited(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*edited, prepareAnimationBreakdown(curve, request));
+  return edited;
+}
+
+void breakdownSplitsEverySegmentKind() {
+  struct Case {
+    int frame;
+    double favour;
+    double previous;
+    double next;
+  };
+  const std::array<Case, 4> cases{Case{5, 25, 0, 12}, Case{18, 50, 12, 24},
+                                  Case{30, 110, 24, 36}, Case{40, -10, 36, 48}};
+  for (const auto& item : cases) {
+    const auto curve  = editedCurve();
+    const auto before = storedKeys(*curve);
+    const auto edited =
+        appliedBreakdown(*curve, breakdown(item.frame, item.favour));
+    require(sameKeyLists(before, storedKeys(*curve)),
+            "Preparing a breakdown changed the source curve");
+    const auto after = storedKeys(*edited);
+    require(after.size() == before.size() + 1,
+            "A breakdown must add exactly one key");
+    const auto* inserted = storedKeyAt(after, item.frame);
+    const auto* previous = storedKeyAt(before, item.previous);
+    const auto* next     = storedKeyAt(before, item.next);
+    require(inserted && previous && next, "Breakdown segment ends are missing");
+    near(inserted->m_value,
+         previous->m_value +
+             (next->m_value - previous->m_value) * (item.favour / 100.0));
+    require(inserted->m_type == previous->m_type &&
+                inserted->m_step == previous->m_step && inserted->m_isKeyframe,
+            "The new key must keep its segment's interpolation and step");
+    requireOtherKeysIdentical(before, after, {item.previous, item.next});
+    requireSamplesOutside(*curve, *edited, item.previous, item.next,
+                          "A breakdown changed a segment it does not touch");
+    const auto* first = storedKeyAt(after, item.previous);
+    require(
+        first->m_frame == previous->m_frame &&
+            first->m_value == previous->m_value &&
+            first->m_type == previous->m_type &&
+            first->m_step == previous->m_step &&
+            first->m_speedIn == previous->m_speedIn,
+        "A split segment's start key changed more than its outgoing handle");
+    const auto* last = storedKeyAt(after, item.next);
+    require(last->m_frame == next->m_frame && last->m_value == next->m_value &&
+                last->m_type == next->m_type && last->m_step == next->m_step &&
+                last->m_speedOut == next->m_speedOut,
+            "A split segment's end key changed more than its incoming handle");
+  }
+}
+
+void breakdownMatchesTheEditor() {
+  for (const int frame : {5, 18, 30, 40}) {
+    const auto curve  = editedCurve();
+    const auto edited = appliedBreakdown(*curve, breakdown(frame, 40));
+    TDoubleParamP native(new TDoubleParam(*curve));
+    require(KeyframeSetter::insertBreakdown(native.getPointer(), frame, 0.4),
+            "The editor refused a supported breakdown");
+    const auto ours   = storedKeys(*edited);
+    const auto theirs = storedKeys(*native);
+    require(ours.size() == theirs.size(), "Editor key count differs");
+    for (std::size_t index = 0; index < ours.size(); ++index) {
+      require(ours[index].m_frame == theirs[index].m_frame &&
+                  ours[index].m_type == theirs[index].m_type &&
+                  ours[index].m_step == theirs[index].m_step,
+              "Editor key order or type differs");
+      near(ours[index].m_value, theirs[index].m_value);
+    }
+    for (const double sample : denseFrames(80)) {
+      // The editor leaves the next ease key's incoming ease longer than its new
+      // segment; the evaluator rebalances it to the clamp this tool writes.
+      near(edited->getValue(sample), native->getValue(sample));
+    }
+  }
+}
+
+void breakdownOnCurveValueKeepsLinearAndSpeedShapes() {
+  const auto curve = editedCurve();
+  for (const int frame : {5, 30, 40}) {
+    const auto value = curve->getValue(frame);
+    const auto edited =
+        appliedBreakdown(*curve, {{"frame", frame}, {"value", value}});
+    for (const double sample : denseFrames(80))
+      require(
+          std::abs(edited->getValue(sample) - curve->getValue(sample)) < 1e-4,
+          "A breakdown on the curve changed its shape");
+  }
+}
+
+void breakdownSurvivesSaveAndReopen() {
+  const auto curve  = editedCurve();
+  const auto edited = appliedBreakdown(*curve, breakdown(5, 75));
+  QTemporaryDir directory;
+  require(directory.isValid(), "Breakdown fixture directory is unavailable");
+  const TFilePath path(directory.filePath("breakdown.xml"));
+  {
+    TOStream output(path);
+    edited->saveData(output);
+  }
+  TDoubleParamP reopened(new TDoubleParam());
+  {
+    TIStream input(path);
+    reopened->loadData(input);
+  }
+  require(reopened->getKeyframeCount() == edited->getKeyframeCount(),
+          "Reopening changed the breakdown key count");
+  for (const double sample : denseFrames(80))
+    require(reopened->getValue(sample) == edited->getValue(sample),
+            "Reopening changed a breakdown sample");
+}
+
+void breakdownRefusals() {
+  const auto curve = editedCurve();
+  rejected(*curve, "invalid_argument",
+           [&]() { prepareAnimationBreakdown(*curve, breakdown(12, 50)); });
+  rejected(*curve, "invalid_argument",
+           [&]() { prepareAnimationBreakdown(*curve, breakdown(60, 50)); });
+  TDoubleParamP empty(new TDoubleParam());
+  rejected(*empty, "invalid_argument",
+           [&]() { prepareAnimationBreakdown(*empty, breakdown(3, 50)); });
+  rejected(*curve, "invalid_argument",
+           [&]() { prepareAnimationBreakdown(*curve, {{"frame", 5}}); });
+  rejected(*curve, "invalid_argument", [&]() {
+    prepareAnimationBreakdown(
+        *curve, {{"frame", 5}, {"value", 1}, {"favour_percent", 1}});
+  });
+  rejected(*curve, "invalid_argument",
+           [&]() { prepareAnimationBreakdown(*curve, breakdown(5, 201)); });
+  rejected(*curve, "invalid_argument", [&]() {
+    prepareAnimationBreakdown(*curve, {{"frame", 5}, {"value", 2000000}});
+  });
+  rejected(*curve, "invalid_argument", [&]() {
+    prepareAnimationBreakdown(*curve, {{"frame", 5.5}, {"favour_percent", 50}});
+  });
+  curve->setEditorLocked(true);
+  rejected(*curve, "locked",
+           [&]() { prepareAnimationBreakdown(*curve, breakdown(5, 50)); });
+  curve->setEditorLocked(false);
+  curve->enableCycle(true);
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationBreakdown(*curve, breakdown(5, 50)); });
+  curve->enableCycle(false);
+  auto expression             = curve->getKeyframe(2);
+  expression.m_type           = TDoubleKeyframe::Expression;
+  expression.m_expressionText = "frame";
+  curve->setKeyframe(expression);
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationBreakdown(*curve, breakdown(5, 50)); });
+}
+
+void breakdownRespectsTheKeyLimit() {
+  TDoubleParamP curve(new TDoubleParam());
+  for (int index = 0; index < 10000; ++index)
+    curve->setKeyframe(key(index * 2, index, TDoubleKeyframe::Linear, {}, {}));
+  rejected(*curve, "resource_limit",
+           [&]() { prepareAnimationBreakdown(*curve, breakdown(1, 50)); });
+}
+
 }  // namespace
 
 void runAutomationAnimationTests() {
@@ -533,6 +779,12 @@ void runAutomationAnimationTests() {
   richKindsChangeInBothDirections();
   simpleNoopsPreserveInactiveNativeMetadata();
   deletionAndAdmissionGuards();
+  breakdownSplitsEverySegmentKind();
+  breakdownMatchesTheEditor();
+  breakdownOnCurveValueKeepsLinearAndSpeedShapes();
+  breakdownSurvivesSaveAndReopen();
+  breakdownRefusals();
+  breakdownRespectsTheKeyLimit();
 }
 
 }  // namespace GroundzeroAutomation

@@ -458,6 +458,66 @@ TDoubleKeyframe retimedKey(TDoubleKeyframe key, const TimeMapping& mapping) {
   return key;
 }
 
+[[noreturn]] void refuse(const QString& reason, const QString& message,
+                         double frame, const QString& field) {
+  throw Error("invalid_argument", message,
+              {{"frame", frame}, {"field", field}, {"reason", reason}});
+}
+
+struct BreakdownRequest final {
+  int frame;
+  bool favoured;
+  double favourPercent;
+  double value;
+};
+
+BreakdownRequest readBreakdown(const QJsonObject& request) {
+  const double frame = number(request, "frame", 0, MaxAnimationFrame, -1);
+  if (frame != std::floor(frame))
+    invalid("Breakdown frames must be integers.", frame, "frame");
+  const bool favoured = request.contains("favour_percent");
+  if (favoured == request.contains("value"))
+    refuse("favour_percent_or_value",
+           "Give exactly one of favour_percent and value.", frame,
+           "favour_percent");
+  BreakdownRequest result{static_cast<int>(frame), favoured, 0, 0};
+  if (favoured)
+    result.favourPercent = number(request, "favour_percent", -100, 200, frame);
+  else
+    result.value =
+        number(request, "value", -MaxAnimationValue, MaxAnimationValue, frame);
+  return result;
+}
+
+struct SplitSegment final {
+  TDoubleKeyframe first;
+  TDoubleKeyframe key;
+  TDoubleKeyframe last;
+};
+
+// The editor's KeyframeSetter::createKeyframe for a key inside a segment. A
+// speed segment is cut so the shape is kept; an ease segment gives the new key
+// no ease and clamps its neighbours' eases to the new span (the editor clamps
+// the wrong key's ease on the right side).
+SplitSegment splitSegment(const TDoubleKeyframe& previous,
+                          const TDoubleKeyframe& next, int frame) {
+  SplitSegment split{previous, TDoubleKeyframe(frame, 0), next};
+  auto& key        = split.key;
+  key.m_isKeyframe = true;
+  key.m_type       = previous.m_type;
+  key.m_step       = previous.m_step;
+  if (previous.m_type == TDoubleKeyframe::SpeedInOut) {
+    splitSpeedInOutSegment(key, split.first, split.last);
+  } else if (previous.m_type == TDoubleKeyframe::EaseInOut) {
+    split.first.m_speedOut.x =
+        std::min(split.first.m_speedOut.x, frame - previous.m_frame);
+    split.last.m_speedIn.x =
+        std::max(split.last.m_speedIn.x, frame - next.m_frame);
+  }
+  key.m_linkedHandles = controlKind(previous.m_type) == IncomingKind::None;
+  return split;
+}
+
 }  // namespace
 
 AnimationKeyEdit prepareAnimationKeyEdit(const TDoubleParam& curve,
@@ -485,6 +545,51 @@ AnimationKeyEdit prepareAnimationKeyEdit(const TDoubleParam& curve,
   result.changed = !result.keys.empty();
   std::sort(result.keys.begin(), result.keys.end());
   return result;
+}
+
+AnimationKeyEdit prepareAnimationBreakdown(const TDoubleParam& curve,
+                                           const QJsonObject& request) {
+  if (curve.isEditorLocked())
+    throw Error("locked", "The animation channel is locked.");
+  validateCurve(curve);
+  const auto read = readBreakdown(request);
+  if (curve.isKeyframe(read.frame))
+    refuse("key_exists", "A key already exists at this frame.", read.frame,
+           "frame");
+  const int previousIndex = curve.getPrevKeyframe(read.frame);
+  const int nextIndex     = curve.getNextKeyframe(read.frame);
+  if (previousIndex < 0 || nextIndex < 0)
+    refuse("outside_segment", "The frame must lie between two existing keys.",
+           read.frame, "frame");
+  if (curve.getKeyframeCount() >= MaxAnimationKeys)
+    throw Error("resource_limit", "A channel may contain at most 10000 keys.");
+  const auto& previous = curve.getKeyframe(previousIndex);
+  const auto& next     = curve.getKeyframe(nextIndex);
+  auto split           = splitSegment(previous, next, read.frame);
+  split.key.m_value =
+      read.favoured ? previous.m_value + (next.m_value - previous.m_value) *
+                                             (read.favourPercent / 100.0)
+                    : read.value;
+  if (!std::isfinite(split.key.m_value) ||
+      std::abs(split.key.m_value) > MaxAnimationValue)
+    refuse("value_out_of_bounds", "The breakdown value leaves the bounds.",
+           read.frame, "value");
+  AnimationKeyEdit result;
+  if (split.first.m_speedOut != previous.m_speedOut)
+    result.keys.push_back(split.first);
+  result.keys.push_back(split.key);
+  if (split.last.m_speedIn != next.m_speedIn) result.keys.push_back(split.last);
+  std::sort(result.keys.begin(), result.keys.end());
+  TDoubleParamP prospective(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*prospective, result);
+  validateCurve(*prospective);
+  validateTransition(curve, *prospective, {read.frame});
+  result.changed = true;
+  return result;
+}
+
+void applyAnimationKeyEdit(TDoubleParam& curve, const AnimationKeyEdit& edit) {
+  for (const auto& key : edit.keys) curve.setKeyframe(key);
 }
 
 void validateAnimationKeyDeletion(const TDoubleParam& curve,

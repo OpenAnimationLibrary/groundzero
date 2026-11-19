@@ -462,6 +462,159 @@
     ],
     "type": "object"
   },
+  "animation.insert_breakdown": {
+    "additionalProperties": false,
+    "properties": {
+      "channel": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "editor_locked": {
+        "type": "boolean"
+      },
+      "inserted_frame": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "inserted_value": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "keys": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "frame": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "incoming": {
+              "additionalProperties": false,
+              "properties": {
+                "frame_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "frames": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "kind": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "value_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "interpolation": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "linked_handles": {
+              "type": "boolean"
+            },
+            "outgoing": {
+              "additionalProperties": false,
+              "properties": {
+                "frame_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "frames": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "value_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "step": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "value": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            }
+          },
+          "required": [
+            "frame"
+          ],
+          "type": "object"
+        },
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
+      "object_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "unit": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "value_space": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      }
+    },
+    "required": [
+      "channel",
+      "document_id",
+      "editor_locked",
+      "inserted_frame",
+      "inserted_value",
+      "keys",
+      "object_id",
+      "operation_id",
+      "revision",
+      "unit",
+      "value_space"
+    ],
+    "type": "object"
+  },
   "animation.keys": {
     "additionalProperties": false,
     "properties": {

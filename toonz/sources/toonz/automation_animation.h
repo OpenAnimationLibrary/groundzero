@@ -69,6 +69,24 @@ AnimationKeyEdit prepareAnimationKeyEdit(const TDoubleParam& curve,
 void validateAnimationKeyDeletion(const TDoubleParam& curve,
                                   const std::vector<int>& frames);
 
+// Prepare the editor's Set Breakdown Key: split the segment containing
+// request.frame and give the new key either request.favour_percent of the way
+// from the previous key's value to the next one's, or request.value.
+//
+// Args:
+//   curve: Writable native base curve; it is not modified.
+//   request: frame, and exactly one of favour_percent or value.
+// Returns:
+//   The new key and the segment ends whose facing handle changed, ascending.
+// Throws:
+//   Error: locked, unsupported content, a frame that is a key or lies outside
+//   the keys, or a result outside the profile.
+AnimationKeyEdit prepareAnimationBreakdown(const TDoubleParam& curve,
+                                           const QJsonObject& request);
+
+// Write the prepared records to the curve.
+void applyAnimationKeyEdit(TDoubleParam& curve, const AnimationKeyEdit& edit);
+
 // Return an empty string for supported content, or its concrete admission
 // reason.
 QString animationUnsupportedReason(const TDoubleParam& curve);

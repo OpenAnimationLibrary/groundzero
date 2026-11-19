@@ -210,6 +210,11 @@
    "toolset": "core",
    "writes": true
   },
+  "animation.insert_breakdown": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "animation.keys": {
    "origin": "worker",
    "toolset": "core",
@@ -1724,6 +1729,18 @@
    "tools": [
     "animation.set_keys",
     "animation.delete_keys"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.breakdown_key",
+   "domain": "Stage, camera and animation",
+   "outcome": "Insert a breakdown key into a segment, as the editor's Set Breakdown Key, keeping every other key and segment unchanged.",
+   "classification": "exposed",
+   "tools": [
+    "animation.insert_breakdown"
    ],
    "disposition": {
     "kind": "implemented"

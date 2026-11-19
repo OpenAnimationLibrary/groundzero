@@ -998,6 +998,31 @@ QJsonValue deleteKeys(Context& context, const QJsonObject& params) {
   return inspectKeys(context, params);
 }
 
+void requireStageBaseChannel(const CurveTarget& target, const QString& tool) {
+  if (target.layer >= 0 || isWeight(target) ||
+      target.channel.native == TStageObject::T_Path)
+    throw Error("unsupported_channel",
+                tool +
+                    " edits stage base channels only; use "
+                    "animation.set_keys for path_position, weights and "
+                    "offset layers.");
+}
+
+QJsonValue insertBreakdown(Context& context, const QJsonObject& params) {
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  requireEditable(document, target.object);
+  requireStageBaseChannel(target, "animation.insert_breakdown");
+  const auto edit = prepareAnimationBreakdown(*target.curve, params);
+  context.markMutationStarted();
+  applyAnimationKeyEdit(*target.curve, edit);
+  const int frame    = params.value("frame").toInt();
+  QJsonObject result = inspectKeys(context, params).toObject();
+  result.insert("inserted_frame", frame);
+  result.insert("inserted_value", target.curve->getValue(frame));
+  return result;
+}
+
 TDoubleParam* wholeCurveTarget(Document& document, const QJsonObject& target,
                                bool writable) {
   auto* object = document.object(requiredString(target, "object_id"));
@@ -1373,6 +1398,21 @@ void addAnimationOperations(QJsonArray& catalog) {
   catalog.append(operation("animation.delete_keys",
                            "Delete existing keys after complete validation.",
                            frames, withFrames, true));
+  QJsonObject stage = animation;
+  stage.remove("layer_id");
+  stage.insert("channel", enumSchema({"x", "y", "z", "rotation", "scale_x",
+                                      "scale_y", "scale"}));
+  stage.insert("unit", enumSchema({"inch", "degree", "scalar", "native_z"}));
+  catalog.append(operation(
+      "animation.insert_breakdown",
+      "Insert a key inside a segment as the editor's Set Breakdown Key: "
+      "favour_percent (-100 to 200) of the way from the previous key's value "
+      "to the next one's, or an explicit value. The segment keeps its "
+      "interpolation and step; other keys are unchanged.",
+      merge(stage, {{"frame", integerSchema(0, MaxFrame)},
+                    {"favour_percent", numberSchema(-100, 200)},
+                    {"value", numberSchema(-1000000, 1000000)}}),
+      {"document_id", "object_id", "channel", "unit", "frame"}, true));
   QJsonArray withKeys = required;
   withKeys.append("keys");
   catalog.append(operation(
@@ -1433,6 +1473,7 @@ QJsonValue executeScene(Context& context, const QString& method,
       {"animation.retime_curve", retimeAnimationCurve},
       {"animation.set_keys", setKeys},
       {"animation.delete_keys", deleteKeys},
+      {"animation.insert_breakdown", insertBreakdown},
       {"animation.sample", sampleAnimation}};
   const auto handler = handlers.find(method);
   if (handler == handlers.end())

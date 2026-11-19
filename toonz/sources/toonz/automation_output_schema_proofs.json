@@ -11,6 +11,12 @@
     "handler": "deleteKeys",
     "read": []
   },
+  "animation.insert_breakdown": {
+    "handler": "insertBreakdown",
+    "read": [
+      "frame"
+    ]
+  },
   "animation.keys": {
     "handler": "inspectKeys",
     "read": []
