@@ -489,10 +489,6 @@ void wholeCurveStepsAndRejections() {
   rejected(*curve, "locked",
            [&]() { prepareAnimationCurveCopy(*doubled, *curve); });
   curve->setEditorLocked(false);
-  curve->enableCycle(true);
-  rejected(*curve, "unsupported_interpolation",
-           [&]() { prepareAnimationCurveCopy(*curve, *doubled); });
-  curve->enableCycle(false);
   curve->setDefaultValue(std::numeric_limits<double>::infinity());
   rejected(*curve, "invalid_params",
            [&]() { prepareAnimationCurveCopy(*curve, *doubled); });
@@ -1049,6 +1045,183 @@ void duplicateRefusals() {
   appliedDuplicate(*full, {0}, 30001);
 }
 
+// ---- Cyclic curves --------------------------------------------------------
+
+TDoubleParamP cyclicCurve() {
+  const auto curve = editedCurve();
+  curve->enableCycle(true);
+  return curve;
+}
+
+// The editor's cycle folds a frame past the last key back by the key span and
+// adds the last-minus-first key value per fold. Checked against the same keys
+// evaluated without a cycle.
+double foldedValue(const TDoubleParam& curve, double frame) {
+  TDoubleParamP plain(new TDoubleParam(curve));
+  plain->enableCycle(false);
+  const double first = plain->getKeyframe(0).m_frame;
+  const double last = plain->getKeyframe(plain->getKeyframeCount() - 1).m_frame;
+  const double drift =
+      plain->getKeyframe(plain->getKeyframeCount() - 1).m_value -
+      plain->getKeyframe(0).m_value;
+  if (frame < first) return plain->getValue(first);
+  const double folds = std::floor((frame - first) / (last - first));
+  return plain->getValue(frame - folds * (last - first)) + folds * drift;
+}
+
+void requireCyclicSamples(const TDoubleParam& curve) {
+  for (double frame = -2; frame <= 400; frame += 0.375) {
+    double value = 0;
+    std::string error;
+    require(curve.getValueChecked(frame, value, error),
+            "A cyclic sample failed");
+    near(value, foldedValue(curve, frame));
+  }
+  for (const double frame : {48.0, 96.0, 144.0, 1000.0, 123456.5})
+    near(curve.getValue(frame), foldedValue(curve, frame));
+}
+
+void cyclicCurvesAreAdmittedOnlyOnRequest() {
+  const auto curve = cyclicCurve();
+  require(!animationUnsupportedReason(*curve, CyclePolicy::Refuse).isEmpty(),
+          "A cyclic curve was admitted without the cycle policy");
+  require(animationUnsupportedReason(*curve, CyclePolicy::Allow).isEmpty(),
+          "A cyclic curve was refused under the cycle policy");
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationKeyEdit(*curve, mixedRecords()); });
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { validateAnimationKeyDeletion(*curve, {36}); });
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationBreakdown(*curve, breakdown(5, 50)); });
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationKeyMove(*curve, {36}, 1, 0); });
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationKeyDuplicate(*curve, {36}, 70); });
+  requireCyclicSamples(*curve);
+}
+
+void cyclicEditsKeepTheFlagAndUntouchedSegments() {
+  const auto curve  = cyclicCurve();
+  const auto before = storedKeys(*curve);
+  const std::array<TDoubleParamP, 3> edited{
+      [&]() {
+        TDoubleParamP copy(new TDoubleParam(*curve));
+        applyAnimationKeyEdit(
+            *copy, prepareAnimationBreakdown(*curve, breakdown(40, 50),
+                                             CyclePolicy::Allow));
+        return copy;
+      }(),
+      [&]() {
+        TDoubleParamP copy(new TDoubleParam(*curve));
+        applyAnimationKeyEdit(
+            *copy,
+            prepareAnimationKeyMove(*curve, {36}, 4, 10, CyclePolicy::Allow));
+        return copy;
+      }(),
+      [&]() {
+        TDoubleParamP copy(new TDoubleParam(*curve));
+        applyAnimationKeyEdit(*copy,
+                              prepareAnimationKeyDuplicate(*curve, {36}, 4, 0,
+                                                           CyclePolicy::Allow));
+        return copy;
+      }()};
+  for (const auto& next : edited) {
+    require(next->isCycleEnabled(), "A key edit cleared the cycle");
+    require(sameKeyLists(before, storedKeys(*curve)),
+            "Preparing a cyclic edit changed the source curve");
+    requireCyclicSamples(*next);
+    // The segments before frame 24 repeat every 48 frames, bit for bit.
+    for (double frame = 0; frame <= 400; frame += 0.375)
+      if (std::fmod(frame, 48) < 24)
+        require(next->getValue(frame) == curve->getValue(frame),
+                "A cyclic edit changed a segment it does not touch");
+  }
+  const auto batch =
+      prepareAnimationKeyEdit(*curve, {mixedRecords()[0]}, CyclePolicy::Allow);
+  require(!batch.changed, "An unchanged cyclic key was rewritten");
+  validateAnimationKeyDeletion(*curve, {36}, CyclePolicy::Allow);
+}
+
+void cycleFlagChangesOnlyTheFlag() {
+  const auto curve  = editedCurve();
+  const auto before = storedKeys(*curve);
+  require(prepareAnimationCycle(*curve, true), "Enabling a cycle was a no-op");
+  require(!prepareAnimationCycle(*curve, false),
+          "Disabling a plain curve changed it");
+  curve->enableCycle(true);
+  require(!prepareAnimationCycle(*curve, true), "Repeating a cycle changed it");
+  require(sameKeyLists(before, storedKeys(*curve)),
+          "The cycle flag changed keys");
+  curve->setEditorLocked(true);
+  rejected(*curve, "locked", [&]() { prepareAnimationCycle(*curve, false); });
+  curve->setEditorLocked(false);
+  auto expression             = curve->getKeyframe(2);
+  expression.m_type           = TDoubleKeyframe::Expression;
+  expression.m_expressionText = "frame";
+  curve->setKeyframe(expression);
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationCycle(*curve, false); });
+}
+
+void cycleSurvivesWholeCurveCopyRetimeAndReopen() {
+  const auto source = cyclicCurve();
+  TDoubleParamP destination(new TDoubleParam());
+  const auto copy = prepareAnimationCurveCopy(*source, *destination);
+  require(copy.changed && copy.cycle, "A cyclic copy did not carry its cycle");
+  applyAnimationCurveEdit(*destination, copy);
+  require(destination->isCycleEnabled(), "A copy dropped the cycle flag");
+  requireCyclicSamples(*destination);
+  require(!prepareAnimationCurveCopy(*source, *destination).changed,
+          "An equal cyclic copy was not a no-op");
+  const auto plain = editedCurve();
+  require(prepareAnimationCurveCopy(*plain, *destination).changed,
+          "Copying a plain curve over a cyclic one changed nothing");
+  applyAnimationCurveEdit(*destination,
+                          prepareAnimationCurveCopy(*plain, *destination));
+  require(!destination->isCycleEnabled(), "A copy kept the old cycle flag");
+  TDoubleParamP retimed(new TDoubleParam(*source));
+  applyAnimationCurveEdit(
+      *retimed, prepareAnimationCurveRetime(*source, mapping(3, 2, 4)));
+  require(retimed->isCycleEnabled(), "A retime dropped the cycle flag");
+  for (double frame = 0; frame <= 400; frame += 0.5)
+    near(retimed->getValue(frame * 1.5 + 4), source->getValue(frame));
+  QTemporaryDir directory;
+  require(directory.isValid(), "Cycle fixture directory is unavailable");
+  const TFilePath path(directory.filePath("cycle.xml"));
+  {
+    TOStream output(path);
+    source->saveData(output);
+  }
+  TDoubleParamP reopened(new TDoubleParam());
+  {
+    TIStream input(path);
+    reopened->loadData(input);
+  }
+  require(reopened->isCycleEnabled() &&
+              reopened->getKeyframeCount() == source->getKeyframeCount(),
+          "Reopening lost the cycle");
+  for (double frame = -2; frame <= 400; frame += 0.375)
+    require(reopened->getValue(frame) == source->getValue(frame),
+            "Reopening changed a cyclic sample");
+}
+
+void cyclicSamplingIsBounded() {
+  TDoubleParamP curve(new TDoubleParam());
+  curve->setKeyframe(key(0, 0, TDoubleKeyframe::Linear, {}, {}));
+  curve->setKeyframe(key(1, 1, TDoubleKeyframe::Linear, {}, {}));
+  requireAnimationSampleBudget(*curve, {1000000, 1000000, 1000000});
+  curve->enableCycle(true);
+  requireAnimationSampleBudget(*curve, {1000000});
+  rejected(*curve, "resource_limit", [&]() {
+    requireAnimationSampleBudget(*curve, {1000000, 1000000, 1000000});
+  });
+  requireAnimationSampleBudget(*curve, {0, 0.5});
+  TDoubleParamP single(new TDoubleParam());
+  single->setKeyframe(key(5, 1, TDoubleKeyframe::Linear, {}, {}));
+  single->enableCycle(true);
+  requireAnimationSampleBudget(*single, {1000000, 1000000, 1000000});
+}
+
 }  // namespace
 
 void runAutomationAnimationTests() {
@@ -1078,6 +1251,11 @@ void runAutomationAnimationTests() {
   moveRefusals();
   duplicateCopiesRecordsVerbatim();
   duplicateRefusals();
+  cyclicCurvesAreAdmittedOnlyOnRequest();
+  cyclicEditsKeepTheFlagAndUntouchedSegments();
+  cycleFlagChangesOnlyTheFlag();
+  cycleSurvivesWholeCurveCopyRetimeAndReopen();
+  cyclicSamplingIsBounded();
 }
 
 }  // namespace GroundzeroAutomation

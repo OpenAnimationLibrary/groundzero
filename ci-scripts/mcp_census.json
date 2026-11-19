@@ -240,6 +240,11 @@
    "toolset": "core",
    "writes": false
   },
+  "animation.set_cycle": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "animation.set_keys": {
    "origin": "worker",
    "toolset": "core",
@@ -1764,6 +1769,18 @@
    "tools": [
     "animation.move_keys",
     "animation.duplicate_keys"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.cyclic_curves",
+   "domain": "Stage, camera and animation",
+   "outcome": "Turn a stage channel's cycle on or off and read, sample, edit, copy, retime, save and reopen cyclic curves.",
+   "classification": "exposed",
+   "tools": [
+    "animation.set_cycle"
    ],
    "disposition": {
     "kind": "implemented"

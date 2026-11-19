@@ -1855,6 +1855,48 @@
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
    }
   },
+  "animation.set_cycle": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "turns the cycle of one channel curve on or off",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "enabled": true
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "path_position",
+      "unit": "percent",
+      "enabled": true
+     },
+     "code": "invalid_argument"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Setting the cycle to its current state changes nothing and leaves the revision."
+   }
+  },
   "motion_path.create": {
    "group": "animation",
    "kind": "document",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from mcp_animation_cases import _inspect, _peg, _reopen, _rich_keys, _sample, _simple
+from mcp_animation_cases import _inspect, _peg, _reopen, _rich_keys, _sample, _simple, _target
 from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
@@ -293,3 +293,121 @@ def duplicate_keys_copy_records_verbatim(case: NativeAcceptance) -> None:
     case.assertEqual(again["keys"], final["keys"])
     for actual, expected in zip(again["samples"], final["samples"], strict=True):
         case.assertAlmostEqual(actual, expected, delta=NATIVE_DELTA)
+
+
+CYCLE_FRAMES = [index / 4 for index in range(0, 4 * 200)]
+
+
+def _folded(case: NativeAcceptance, reference: list[float], frame: float) -> float:
+    """The value a cycled curve takes at frame, from the same keys sampled without a cycle."""
+    first, last, drift = 0, 48, 100 - 0
+    if frame < first:
+        return reference[0]
+    folds = int((frame - first) // (last - first))
+    return reference[int((frame - folds * (last - first)) * 4)] + folds * drift
+
+
+def _cycled_scene(case: NativeAcceptance) -> tuple[str, dict[str, str], list[float]]:
+    """A scene whose x curve is cycled, and the same curve sampled without a cycle."""
+    document, target = _setup(case)
+    reference = _sample(case, document, target, [index / 4 for index in range(0, 4 * 48 + 1)])
+    result = case.mutate("animation.set_cycle", document, **target, enabled=True)
+    case.assertTrue(result["cycle"])
+    return document, target, reference
+
+
+@acceptance_case
+def cyclic_curves_sample_edit_and_reopen(case: NativeAcceptance) -> None:
+    """Cycle a curve; samples repeat, edits keep the cycle, a saved copy reopens identical."""
+    document, target, reference = _cycled_scene(case)
+    descriptor = case.success(
+        "animation.channels", {"document_id": document, "object_id": target["object_id"]}
+    )
+    channels = {entry["channel"]: entry for entry in descriptor["channels"]}
+    case.assertTrue(channels["x"]["cycle"])
+    case.assertTrue(channels["x"]["cycle_supported"])
+    case.assertTrue(channels["x"]["writable"])
+    case.assertFalse(channels["y"]["cycle"])
+    case.assertFalse(channels["path_position"]["cycle_supported"])
+    samples = _sample(case, document, target, CYCLE_FRAMES)
+    for frame, value in zip(CYCLE_FRAMES, samples, strict=True):
+        case.assertAlmostEqual(value, _folded(case, reference, frame), delta=1e-9, msg=str(frame))
+    case.assertTrue(_inspect(case, document, target)["cycle"])
+    before = samples
+    case.mutate("animation.insert_breakdown", document, **target, frame=40, favour_percent=50)
+    case.mutate("animation.move_keys", document, **target, frames=[24], frame_offset=2)
+    case.mutate("animation.duplicate_keys", document, **target, frames=[36], frame_offset=2)
+    state = _inspect(case, document, target)
+    case.assertTrue(state["cycle"])
+    after = _sample(case, document, target, CYCLE_FRAMES)
+    for frame, old, new in zip(CYCLE_FRAMES, before, after, strict=True):
+        if frame % 48 < 12:
+            case.assertEqual(new, old, f"cycled segment before frame 12 changed at {frame}")
+    reopened, reopened_target = _reopen(case, document, "cycle-reopen")
+    case.assertTrue(_inspect(case, reopened, reopened_target)["cycle"])
+    again = _sample(case, reopened, reopened_target, CYCLE_FRAMES)
+    for actual, expected in zip(again, after, strict=True):
+        case.assertAlmostEqual(actual, expected, delta=NATIVE_DELTA)
+    case.mutate("animation.set_cycle", document, **target, enabled=False)
+    case.assertFalse(_inspect(case, document, target)["cycle"])
+    plain = _sample(case, document, target, CYCLE_FRAMES)
+    case.assertEqual(plain[-1], plain[4 * 60])
+
+
+@acceptance_case
+def cycle_requests_refusals_and_copies(case: NativeAcceptance) -> None:
+    """Idempotent set_cycle, whole-curve copy and retime carry the cycle, sampling is bounded."""
+    document, target, _reference = _cycled_scene(case)
+    revision = case.revisions[document]
+    repeat = case.mutate("animation.set_cycle", document, **target, enabled=True)
+    case.assertEqual(repeat["revision"], revision)
+    case.failure(
+        "animation.set_cycle",
+        case.write_params(
+            document, {**target, "channel": "path_position", "unit": "percent", "enabled": True}
+        ),
+    )
+    case.failure(
+        "animation.set_cycle",
+        case.write_params(document, {**target, "layer_id": "x", "enabled": True}),
+    )
+    case.failure("animation.set_cycle", case.write_params(document, {**target, "enabled": 1}))
+    other = case.mutate("object.create", document, kind="pegbar", name="Copy")
+    destination = _target(other["object_id"])
+    copied = case.mutate(
+        "animation.copy_curve",
+        document,
+        source=target,
+        destination=destination,
+        destination_policy="replace_all",
+    )
+    case.assertTrue(copied["cycle"])
+    case.assertEqual(
+        _inspect(case, document, destination)["keys"], _inspect(case, document, target)["keys"]
+    )
+    retimed = case.mutate(
+        "animation.retime_curve",
+        document,
+        **destination,
+        origin_frame=0,
+        shift_frames=3,
+        scale={"numerator": 2, "denominator": 1},
+        step_policy="scale_exact",
+    )
+    case.assertTrue(retimed["cycle"])
+    shifted = _sample(case, document, destination, [3 + 2 * f for f in range(0, 150)])
+    original = _sample(case, document, target, list(range(0, 150)))
+    for actual, expected in zip(shifted, original, strict=True):
+        case.assertAlmostEqual(actual, expected, delta=1e-9)
+    case.mutate("animation.delete_keys", document, **destination, frames=[48 * 2 + 3])
+    case.assertTrue(_inspect(case, document, destination)["cycle"])
+    fast = case.mutate("object.create", document, kind="pegbar", name="Fast")
+    fast_target = _target(fast["object_id"])
+    case.mutate("animation.set_keys", document, **fast_target, keys=[_simple(0, 0), _simple(1, 1)])
+    case.mutate("animation.set_cycle", document, **fast_target, enabled=True)
+    case.success("animation.sample", {"document_id": document, **fast_target, "frames": [1000000]})
+    error = case.failure(
+        "animation.sample",
+        {"document_id": document, **fast_target, "frames": [1000000, 999999, 999998]},
+    )
+    case.assertEqual(error["code"], "resource_limit")

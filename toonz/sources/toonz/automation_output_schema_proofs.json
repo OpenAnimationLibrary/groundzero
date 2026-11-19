@@ -1,7 +1,10 @@
 {
   "animation.channels": {
     "handler": "inspectAnimationChannels",
-    "read": []
+    "read": [
+      "cycle",
+      "cycle_supported"
+    ]
   },
   "animation.copy_curve": {
     "handler": "copyAnimationCurve",
@@ -42,6 +45,12 @@
   "animation.sample": {
     "handler": "sampleAnimation",
     "read": []
+  },
+  "animation.set_cycle": {
+    "handler": "setCycle",
+    "read": [
+      "frame"
+    ]
   },
   "animation.set_keys": {
     "handler": "setKeys",

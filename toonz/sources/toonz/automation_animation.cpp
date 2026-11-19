@@ -17,6 +17,7 @@ namespace {
 constexpr int MaxAnimationFrame    = 1000000;
 constexpr int MaxAnimationKeys     = 10000;
 constexpr double MaxAnimationValue = 1000000;
+constexpr double MaxCycleFolds     = 2000000;
 
 enum class IncomingKind { None, Speed, Ease };
 
@@ -220,8 +221,9 @@ void validateInterval(const TDoubleKeyframe& first,
             "controls");
 }
 
-void validateCurve(const TDoubleParam& curve) {
-  if (curve.isCycleEnabled())
+void validateCurve(const TDoubleParam& curve,
+                   CyclePolicy policy = CyclePolicy::Refuse) {
+  if (policy == CyclePolicy::Refuse && curve.isCycleEnabled())
     throw Error("unsupported_interpolation",
                 "Cyclic curve editing is not qualified.");
   if (curve.getKeyframeCount() > MaxAnimationKeys)
@@ -355,7 +357,7 @@ QJsonObject keyJson(const TDoubleKeyframe& key) {
 void validateWholeCurve(const TDoubleParam& curve, bool writable) {
   if (writable && curve.isEditorLocked())
     throw Error("locked", "The destination animation channel is locked.");
-  validateCurve(curve);
+  validateCurve(curve, CyclePolicy::Allow);
   for (int index = 0; index < curve.getKeyframeCount(); ++index) {
     const double offset = curve.getKeyframe(index).m_similarShapeOffset;
     if (!std::isfinite(offset))
@@ -388,6 +390,7 @@ bool sameStoredKey(const TDoubleKeyframe& left, const TDoubleKeyframe& right) {
 bool matchesCurveEdit(const TDoubleParam& curve,
                       const AnimationCurveEdit& edit) {
   if (curve.getDefaultValue() != edit.defaultValue ||
+      curve.isCycleEnabled() != edit.cycle ||
       curve.getKeyframeCount() != static_cast<int>(edit.keys.size()))
     return false;
   for (int index = 0; index < curve.getKeyframeCount(); ++index)
@@ -520,9 +523,9 @@ SplitSegment splitSegment(const TDoubleKeyframe& previous,
 
 // Validates a curve built by an edit, naming a handle that no longer fits its
 // segment as a reason.
-void validateProspective(const TDoubleParam& curve) {
+void validateProspective(const TDoubleParam& curve, CyclePolicy policy) {
   try {
-    validateCurve(curve);
+    validateCurve(curve, policy);
   } catch (Error& error) {
     if (error.code == "invalid_argument" &&
         error.details.value("field") == "controls")
@@ -586,10 +589,10 @@ TDoubleKeyframe shifted(TDoubleKeyframe record, int frameOffset,
 }  // namespace
 
 AnimationKeyEdit prepareAnimationKeyEdit(const TDoubleParam& curve,
-                                         const QJsonArray& keys) {
-  if (curve.isEditorLocked())
-    throw Error("locked", "The animation channel is locked.");
-  validateCurve(curve);
+                                         const QJsonArray& keys,
+                                         CyclePolicy policy) {
+  requireWritable(curve);
+  validateCurve(curve, policy);
   if (keys.isEmpty() || keys.size() > MaxAnimationKeys)
     throw Error("resource_limit", "keys must contain 1 through 10000 records.");
   TDoubleParamP prospective(new TDoubleParam(curve));
@@ -606,17 +609,17 @@ AnimationKeyEdit prepareAnimationKeyEdit(const TDoubleParam& curve,
                          !sameKey(exactKey(curve, key.m_frame), key);
     if (changed) result.keys.push_back(key);
   }
-  validateCurve(*prospective);
+  validateCurve(*prospective, policy);
   result.changed = !result.keys.empty();
   std::sort(result.keys.begin(), result.keys.end());
   return result;
 }
 
 AnimationKeyEdit prepareAnimationBreakdown(const TDoubleParam& curve,
-                                           const QJsonObject& request) {
-  if (curve.isEditorLocked())
-    throw Error("locked", "The animation channel is locked.");
-  validateCurve(curve);
+                                           const QJsonObject& request,
+                                           CyclePolicy policy) {
+  requireWritable(curve);
+  validateCurve(curve, policy);
   const auto read = readBreakdown(request);
   if (curve.isKeyframe(read.frame))
     refuse("key_exists", "A key already exists at this frame.", read.frame,
@@ -647,7 +650,7 @@ AnimationKeyEdit prepareAnimationBreakdown(const TDoubleParam& curve,
   std::sort(result.keys.begin(), result.keys.end());
   TDoubleParamP prospective(new TDoubleParam(curve));
   applyAnimationKeyEdit(*prospective, result);
-  validateProspective(*prospective);
+  validateProspective(*prospective, policy);
   validateTransition(curve, *prospective, {read.frame});
   result.changed = true;
   return result;
@@ -655,9 +658,10 @@ AnimationKeyEdit prepareAnimationBreakdown(const TDoubleParam& curve,
 
 AnimationKeyEdit prepareAnimationKeyMove(const TDoubleParam& curve,
                                          const std::vector<int>& frames,
-                                         int frameOffset, double valueOffset) {
+                                         int frameOffset, double valueOffset,
+                                         CyclePolicy policy) {
   requireWritable(curve);
-  validateCurve(curve);
+  validateCurve(curve, policy);
   const auto indices = selectedIndices(curve, frames);
   requireOffsets(frameOffset, valueOffset);
   AnimationKeyEdit result;
@@ -684,7 +688,7 @@ AnimationKeyEdit prepareAnimationKeyMove(const TDoubleParam& curve,
   std::sort(result.keys.begin(), result.keys.end());
   TDoubleParamP prospective(new TDoubleParam(curve));
   applyAnimationKeyEdit(*prospective, result);
-  validateProspective(*prospective);
+  validateProspective(*prospective, policy);
   validateTransition(curve, *prospective, newFrames);
   result.changed = true;
   return result;
@@ -693,9 +697,10 @@ AnimationKeyEdit prepareAnimationKeyMove(const TDoubleParam& curve,
 AnimationKeyEdit prepareAnimationKeyDuplicate(const TDoubleParam& curve,
                                               const std::vector<int>& frames,
                                               int frameOffset,
-                                              double valueOffset) {
+                                              double valueOffset,
+                                              CyclePolicy policy) {
   requireWritable(curve);
-  validateCurve(curve);
+  validateCurve(curve, policy);
   const auto indices = selectedIndices(curve, frames);
   requireOffsets(frameOffset, valueOffset);
   AnimationKeyEdit result;
@@ -714,7 +719,7 @@ AnimationKeyEdit prepareAnimationKeyDuplicate(const TDoubleParam& curve,
   }
   TDoubleParamP prospective(new TDoubleParam(curve));
   applyAnimationKeyEdit(*prospective, result);
-  validateProspective(*prospective);
+  validateProspective(*prospective, policy);
   validateTransition(curve, *prospective, created);
   for (const auto& [frame, kind] : sourceKinds)
     if (controlKind(exactKey(*prospective, frame).m_prevType) != kind)
@@ -732,10 +737,10 @@ void applyAnimationKeyEdit(TDoubleParam& curve, const AnimationKeyEdit& edit) {
 }
 
 void validateAnimationKeyDeletion(const TDoubleParam& curve,
-                                  const std::vector<int>& frames) {
-  if (curve.isEditorLocked())
-    throw Error("locked", "The animation channel is locked.");
-  validateCurve(curve);
+                                  const std::vector<int>& frames,
+                                  CyclePolicy policy) {
+  requireWritable(curve);
+  validateCurve(curve, policy);
   TDoubleParamP prospective(new TDoubleParam(curve));
   for (const int frame : frames) {
     if (!curve.isKeyframe(frame))
@@ -744,7 +749,7 @@ void validateAnimationKeyDeletion(const TDoubleParam& curve,
     prospective->deleteKeyframe(frame);
   }
   validateTransition(curve, *prospective, {}, true);
-  validateCurve(*prospective);
+  validateCurve(*prospective, policy);
 }
 
 AnimationCurveEdit prepareAnimationCurveCopy(const TDoubleParam& source,
@@ -753,6 +758,7 @@ AnimationCurveEdit prepareAnimationCurveCopy(const TDoubleParam& source,
   validateWholeCurve(destination, true);
   AnimationCurveEdit edit;
   edit.defaultValue = source.getDefaultValue();
+  edit.cycle        = source.isCycleEnabled();
   for (int index = 0; index < source.getKeyframeCount(); ++index)
     edit.keys.push_back(source.getKeyframe(index));
   validateCurveEdit(destination, edit);
@@ -765,6 +771,7 @@ AnimationCurveEdit prepareAnimationCurveRetime(const TDoubleParam& curve,
   const auto time = readTimeMapping(mapping);
   AnimationCurveEdit edit;
   edit.defaultValue = curve.getDefaultValue();
+  edit.cycle        = curve.isCycleEnabled();
   for (int index = 0; index < curve.getKeyframeCount(); ++index)
     edit.keys.push_back(retimedKey(curve.getKeyframe(index), time));
   validateCurveEdit(curve, edit);
@@ -775,12 +782,14 @@ void applyAnimationCurveEdit(TDoubleParam& destination,
                              const AnimationCurveEdit& edit) {
   destination.clearKeyframes();
   destination.setDefaultValue(edit.defaultValue);
+  destination.enableCycle(edit.cycle);
   for (const auto& key : edit.keys) destination.setKeyframe(key);
 }
 
-QString animationUnsupportedReason(const TDoubleParam& curve) {
+QString animationUnsupportedReason(const TDoubleParam& curve,
+                                   CyclePolicy policy) {
   try {
-    validateCurve(curve);
+    validateCurve(curve, policy);
   } catch (const Error& error) {
     return error.message;
   }
@@ -799,8 +808,30 @@ QJsonArray inspectAnimationKeys(const TDoubleParam& curve) {
   return result;
 }
 
-void requireSupportedAnimationCurve(const TDoubleParam& curve) {
-  validateCurve(curve);
+void requireSupportedAnimationCurve(const TDoubleParam& curve,
+                                    CyclePolicy policy) {
+  validateCurve(curve, policy);
+}
+
+bool prepareAnimationCycle(const TDoubleParam& curve, bool enabled) {
+  requireWritable(curve);
+  validateCurve(curve, CyclePolicy::Allow);
+  return curve.isCycleEnabled() != enabled;
+}
+
+void requireAnimationSampleBudget(const TDoubleParam& curve,
+                                  const std::vector<double>& frames) {
+  if (!curve.isCycleEnabled() || curve.getKeyframeCount() < 2) return;
+  const double first = curve.getKeyframe(0).m_frame;
+  const double last  = curve.getKeyframe(curve.getKeyframeCount() - 1).m_frame;
+  double folds       = 0;
+  for (const double frame : frames)
+    if (frame >= last) folds += std::floor((frame - last) / (last - first)) + 1;
+  if (folds > MaxCycleFolds)
+    throw Error("resource_limit",
+                "Sampling this cyclic curve at these frames needs more than "
+                "2000000 cycle folds; sample fewer or earlier frames.",
+                {{"folds", folds}});
 }
 
 }  // namespace GroundzeroAutomation

@@ -11,6 +11,12 @@
               "minLength": 0,
               "type": "string"
             },
+            "cycle": {
+              "type": "boolean"
+            },
+            "cycle_supported": {
+              "type": "boolean"
+            },
             "editor_locked": {
               "type": "boolean"
             },
@@ -92,6 +98,8 @@
           },
           "required": [
             "channel",
+            "cycle",
+            "cycle_supported",
             "editor_locked",
             "frame_bounds",
             "interpolations",
@@ -171,6 +179,9 @@
         "maxItems": 1048576,
         "minItems": 0,
         "type": "array"
+      },
+      "cycle": {
+        "type": "boolean"
       },
       "default_value": {
         "maximum": 1.7976931348623157e+308,
@@ -332,6 +343,7 @@
     },
     "required": [
       "affected_domains",
+      "cycle",
       "default_value",
       "destination",
       "document_id",
@@ -350,6 +362,9 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "cycle": {
+        "type": "boolean"
       },
       "document_id": {
         "maxLength": 65536,
@@ -451,6 +466,7 @@
     },
     "required": [
       "channel",
+      "cycle",
       "document_id",
       "editor_locked",
       "keys",
@@ -479,6 +495,9 @@
         "maxItems": 1048576,
         "minItems": 0,
         "type": "array"
+      },
+      "cycle": {
+        "type": "boolean"
       },
       "document_id": {
         "maxLength": 65536,
@@ -603,6 +622,7 @@
     "required": [
       "channel",
       "created_frames",
+      "cycle",
       "document_id",
       "editor_locked",
       "keys",
@@ -621,6 +641,9 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "cycle": {
+        "type": "boolean"
       },
       "document_id": {
         "maxLength": 65536,
@@ -754,6 +777,7 @@
     },
     "required": [
       "channel",
+      "cycle",
       "document_id",
       "editor_locked",
       "inserted_frame",
@@ -774,6 +798,9 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "cycle": {
+        "type": "boolean"
       },
       "editor_locked": {
         "type": "boolean"
@@ -880,6 +907,7 @@
     },
     "required": [
       "channel",
+      "cycle",
       "editor_locked",
       "keys",
       "object_id",
@@ -895,6 +923,9 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "cycle": {
+        "type": "boolean"
       },
       "document_id": {
         "maxLength": 65536,
@@ -1028,6 +1059,7 @@
     },
     "required": [
       "channel",
+      "cycle",
       "document_id",
       "editor_locked",
       "keys",
@@ -1057,6 +1089,9 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "cycle": {
+        "type": "boolean"
       },
       "default_value": {
         "maximum": 1.7976931348623157e+308,
@@ -1214,6 +1249,7 @@
     "required": [
       "affected_domains",
       "channel",
+      "cycle",
       "default_value",
       "document_id",
       "keys",
@@ -1295,13 +1331,16 @@
     ],
     "type": "object"
   },
-  "animation.set_keys": {
+  "animation.set_cycle": {
     "additionalProperties": false,
     "properties": {
       "channel": {
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "cycle": {
+        "type": "boolean"
       },
       "document_id": {
         "maxLength": 65536,
@@ -1425,6 +1464,152 @@
     },
     "required": [
       "channel",
+      "cycle",
+      "document_id",
+      "editor_locked",
+      "keys",
+      "object_id",
+      "operation_id",
+      "revision",
+      "unit",
+      "value_space"
+    ],
+    "type": "object"
+  },
+  "animation.set_keys": {
+    "additionalProperties": false,
+    "properties": {
+      "channel": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "cycle": {
+        "type": "boolean"
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "editor_locked": {
+        "type": "boolean"
+      },
+      "keys": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "frame": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "incoming": {
+              "additionalProperties": false,
+              "properties": {
+                "frame_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "frames": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "kind": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "value_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "interpolation": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "linked_handles": {
+              "type": "boolean"
+            },
+            "outgoing": {
+              "additionalProperties": false,
+              "properties": {
+                "frame_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "frames": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "value_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "step": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "value": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            }
+          },
+          "required": [
+            "frame"
+          ],
+          "type": "object"
+        },
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
+      "object_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "unit": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "value_space": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      }
+    },
+    "required": [
+      "channel",
+      "cycle",
       "document_id",
       "editor_locked",
       "keys",

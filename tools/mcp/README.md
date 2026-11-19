@@ -440,7 +440,20 @@ when a copy or the key after it would read an incoming handle of a different kin
 has now (use `animation.set_keys` to state such a segment). Both tools leave every other
 key bit-identical, and the samples of every segment that touches no moved or created key
 are bit-identical before and after, and after `scene.save_copy` and `scene.open`. The
-reason is in `error.details.reason`.
+reason is in the `reason` detail of the error.
+
+`animation.set_cycle` turns the editor's Cycle on or off for a stage base channel curve
+(not `path_position`, weights or offset layers). A cyclic curve repeats its key span past
+its last key and adds the last key's value minus the first key's each repeat; `cycle`
+appears in `animation.keys`, the edit results and the `animation.channels` descriptors
+(with `cycle_supported`). On those channels `animation.set_keys`, `animation.delete_keys`,
+`animation.insert_breakdown`, `animation.move_keys`, `animation.duplicate_keys`,
+`animation.copy_curve` (which copies the flag with the curve) and `animation.retime_curve`
+accept a cyclic curve and keep its flag; samples at the endpoints, at subframes, before the
+first key and past the last key match the native evaluator after `scene.save_copy` and
+`scene.open`. `animation.sample` on a cyclic curve refuses with `resource_limit` when its
+requested frames would need more than 2000000 repeats in total. Cyclic offset-layer,
+weight and path curves are still refused as before.
 
 `scene.save_copy` writes a new package directory containing `scene.tnz`, its
 artwork, and a hash manifest. It checks every saved drawing through the native
@@ -1007,28 +1020,28 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (117):
+- `core` toolset (118):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
-  `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_keys`,
-  `artifact.read`, `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
-  `automation.list_documents`, `camera.inspect`, `camera.update`, `cast.list`, `cast.usage`,
-  `column.cells`, `column.create`, `column.delete`, `column.expose`, `column.update`,
-  `drawing.analysis.submit`, `drawing.clone`, `drawing.create`, `drawing.inspect`,
-  `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`, `fx.create`, `fx.delete`,
-  `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`, `fx.macro.create`,
-  `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`, `fx.parameter.set`,
-  `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`, `fx.terminal.set`,
-  `job.cancel`, `job.list`, `job.result`, `job.status`, `level.create`, `level.import`,
-  `level.inspect`, `motion_path.create`, `motion_path.delete`, `motion_path.duplicate`,
-  `motion_path.inspect`, `motion_path.list`, `motion_path.rename`, `motion_path.update`,
-  `object.create`, `object.parent`, `object.path.attach`, `object.path.detach`,
-  `palette.clone_style`, `palette.create_style`, `palette.inspect`, `palette.page.create`,
-  `palette.page.move`, `palette.page.remove`, `palette.page.rename`, `palette.pages`,
-  `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.inspect`,
-  `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
-  `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
-  `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
+  `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
+  `animation.set_keys`, `artifact.read`, `assistance.inspect`, `assistance.neural.preview`,
+  `automation.capabilities`, `automation.list_documents`, `camera.inspect`, `camera.update`,
+  `cast.list`, `cast.usage`, `column.cells`, `column.create`, `column.delete`, `column.expose`,
+  `column.update`, `drawing.analysis.submit`, `drawing.clone`, `drawing.create`,
+  `drawing.inspect`, `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`,
+  `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`,
+  `fx.macro.create`, `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`,
+  `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`,
+  `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`, `job.status`, `level.create`,
+  `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
+  `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
+  `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
+  `object.path.detach`, `palette.clone_style`, `palette.create_style`, `palette.inspect`,
+  `palette.page.create`, `palette.page.move`, `palette.page.remove`, `palette.page.rename`,
+  `palette.pages`, `palette.rename_style`, `palette.style.move`, `palette.update_style`,
+  `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`,
+  `raster.patch`, `raster.read_pixels`, `render.capabilities`, `render.preflight`,
+  `render.preview`, `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
   `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
   `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
   `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
