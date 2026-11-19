@@ -96,6 +96,7 @@
 
 // Qt includes
 #include <QApplication>
+#include <QMessageBox>
 #include <QAbstractEventDispatcher>
 #include <QAbstractNativeEventFilter>
 #include <QByteArray>
@@ -785,6 +786,12 @@ int main(int argc, char *argv[]) {
   nativeUiCheckpoint("initializing native theme and TApp");
   auto &themeManager = ThemeManager::getInstance();
   themeManager.initialize();
+
+  // Loading a level reports what it could not load; the editor shows it.
+  TXshSimpleLevel::setLoadReportHandler(
+      [](const QString& title, const QString& message) {
+        QMessageBox::warning(nullptr, title, message);
+      });
 
   TTool::setApplication(TApp::instance());
   TApp::instance()->init();

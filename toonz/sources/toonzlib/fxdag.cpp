@@ -357,4 +357,11 @@ void FxDag::loadData(TIStream &is) {
       throw TException("FxDag. unexpected tag: " + tagName);
     is.closeChild();
   }
+  // A sheet is never without an output node: the schematic, the render
+  // commands and the FX builder all take the first one. A file that lists
+  // none gets the default, connected to the xsheet node as in a new sheet.
+  if (m_outputFxs.empty()) {
+    addOutputFx();
+    m_outputFxs[0]->getInputPort(0)->setFx(m_xsheetFx);
+  }
 }

@@ -487,7 +487,7 @@ void checkFinishedTasksReleaseGraphs() {
   renderer.enablePrecomputing(false);
   renderer.enableFrameStrips(false);
   WindowState state;
-  const WindowOptions options;
+  WindowOptions options;
   GraphPort port;
   renderer.addPort(&port);
   TRenderSettings settings;

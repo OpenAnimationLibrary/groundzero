@@ -161,37 +161,15 @@ TThread::RunnableP taskFor(const std::vector<TThread::RunnableP> &before,
   throw std::runtime_error("Native icon request did not retain its actual task");
 }
 
-void reportSceneRetirementTimers(int initial, int armed, int pending,
-                                 const std::vector<QPointer<QTimer>>& timers) {
-  std::cerr << "icon-lifecycle-native: retirement timeout initial=" << initial
-            << " flushed=" << initial - armed << " armed=" << armed
-            << " pending=" << pending << std::endl;
-  for (size_t index = 0; index < timers.size(); ++index) {
-    const auto& timer = timers[index];
-    if (!timer) continue;
-    std::cerr << "icon-lifecycle-native: retirement timer index=" << index
-              << " active=" << timer->isActive()
-              << " remaining_ms=" << timer->remainingTime()
-              << " interval_ms=" << timer->interval() << std::endl;
-  }
-}
-
-void expireSceneRetirements(TSceneHandle* handle) {
-  const auto previous = handle->findChildren<QTimer*>(
+void expireSceneRetirements(TSceneHandle *handle) {
+  // A timer that already timed out has its DeferredDelete queued at this loop
+  // level. Qt withholds such an event from the nested loop below, and a second
+  // deleteLater() on the same object is dropped, so deliver it here first.
+  QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+  const auto timers = handle->findChildren<QTimer *>(
       "sceneRetirement", Qt::FindDirectChildrenOnly);
-  std::vector<QPointer<QTimer>> guarded;
-  for (auto* timer : previous) guarded.emplace_back(timer);
-  // An already-fired timer can await DeferredDelete from an outer event loop.
-  // Deliver that posted event before starting a nested loop or rearming it.
-  for (const auto& timer : guarded)
-    if (timer)
-      QCoreApplication::sendPostedEvents(timer.data(), QEvent::DeferredDelete);
-
-  const auto timers = handle->findChildren<QTimer*>("sceneRetirement",
-                                                    Qt::FindDirectChildrenOnly);
-  int pending       = timers.size();
+  int pending = timers.size();
   if (!pending) return;
-  guarded.clear();
 
   // Let Qt deliver both the timeout and DeferredDelete in an event loop.
   // This also works after the fixture's application event loop has returned.
@@ -199,8 +177,7 @@ void expireSceneRetirements(TSceneHandle* handle) {
   QTimer deadline;
   deadline.setSingleShot(true);
   QObject::connect(&deadline, &QTimer::timeout, &loop, &QEventLoop::quit);
-  for (auto* timer : timers) {
-    guarded.emplace_back(timer);
+  for (auto *timer : timers) {
     QObject::connect(timer, &QObject::destroyed, &loop, [&]() {
       if (--pending == 0) loop.quit();
     });
@@ -208,9 +185,6 @@ void expireSceneRetirements(TSceneHandle* handle) {
   }
   deadline.start(10000);
   loop.exec(QEventLoop::ExcludeUserInputEvents);
-  if (pending)
-    reportSceneRetirementTimers(previous.size(), timers.size(), pending,
-                                guarded);
   require(pending == 0, "Native scene retirement timer did not finish");
 }
 
@@ -911,10 +885,6 @@ void runIconLifecycleNativeChecks(NativeIconQuitScenario scenario) {
                   preparedReplacement->getProject()->isCurrent(),
               "Native Quit replacement lacks a valid initialized scene/project");
     }
-
-    // Drain earlier scene changes before the fresh application loop and its
-    // close-event callback can defer their deletion to an outer loop/scope.
-    expireSceneRetirements(app->getCurrentScene());
 
     const auto gate = std::make_shared<TaskGate>();
     const auto threadLifetime = std::make_shared<ThreadLifetime>();
