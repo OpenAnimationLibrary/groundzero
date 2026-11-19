@@ -167,16 +167,20 @@ def is_rich(keys: dict[int, Key]) -> bool:
 
 
 def shape_is_defined(keys: dict[int, Key]) -> bool:
-    """Whether every speed segment's frame coordinate rises (its two handles do not cross)."""
+    """Whether the model gives every speed segment a shape to compare.
+
+    Its two handles must not cross, and its frame axis must not lose the cubic term of the
+    Bezier (three times the outgoing length minus three times the incoming one is not twice the
+    span), where the worker samples a stepped curve: the known violation KV-9.
+    """
     items = ordered(keys)
     for first, last in zip(items, items[1:], strict=False):
-        if first.interpolation == "speed_in_out":
-            span = last.frame - first.frame
-            if (
-                first.outgoing is not None
-                and first.outgoing[1] > span + incoming_of(first, last)[1]
-            ):
-                return False
+        if first.interpolation != "speed_in_out" or first.outgoing is None:
+            continue
+        span = last.frame - first.frame
+        outgoing, incoming = first.outgoing[1], incoming_of(first, last)[1]
+        if outgoing > span + incoming or 3 * outgoing - 3 * incoming == 2 * span:
+            return False
     return True
 
 
@@ -270,11 +274,13 @@ def _quarter(rng: random.Random, limit: int) -> float:
 
 
 def _handles(rng: random.Random, first: Key, last: Key) -> None:
-    """Give a rich segment handles that fit it, do not cross and are not zero-length at the end."""
+    """Give a rich segment handles that fit it, do not cross and keep the frame axis cubic."""
     span = last.frame - first.frame
     if first.interpolation == "speed_in_out":
         near = rng.randint(0, span - 1)
-        far = rng.randint(near, span - 1)
+        far = rng.randint(near, span)
+        if 3 * (far - near) == span:
+            far += 1 if far < span else -1
         first.outgoing = ("speed", near, _quarter(rng, 40))
         last.incoming = ("speed", far - span, _quarter(rng, 40))
     else:

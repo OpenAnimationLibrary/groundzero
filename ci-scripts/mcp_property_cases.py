@@ -782,7 +782,11 @@ def trailing_empty_columns_are_not_saved_and_inner_ones_are(case: NativeAcceptan
 
 @acceptance_case
 def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptance) -> None:
-    """Sample speed segments with handles of every length against the Bezier, by hand."""
+    """Sample speed segments with handles of every length against the Bezier, by hand.
+
+    A segment whose frame axis is a quadratic in the Bezier parameter, that is where three times
+    the outgoing length minus the incoming length is twice the span, is the known violation.
+    """
     document = case.create()
     peg = case.mutate("object.create", document, name="Peg", kind="pegbar")["object_id"]
     frames = [6, 7, 8, 9, 10, 11, 11.5, 11.9, 12]
@@ -790,7 +794,9 @@ def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptan
         (4, -1, True),
         (0, -3, True),
         (6, -6, True),
+        (4, -0.001, True),
         (4, 0, False),
+        (0, -4, False),
     ):
         target = {"object_id": peg, "channel": "x", "unit": "inch"}
         keys = [

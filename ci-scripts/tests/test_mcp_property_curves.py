@@ -180,6 +180,20 @@ class GeneratorTest(unittest.TestCase):
             self.assertIsNone(curves.native_refusal(keys), seed)
             self.assertTrue(curves.shape_is_defined(keys), seed)
 
+    def test_a_speed_segment_without_a_cubic_frame_axis_has_no_defined_shape(self) -> None:
+        def shaped(outgoing: float, incoming: float) -> bool:
+            keys = {
+                0: Key(0, 0, "speed_in_out", 1, ("none",), ("speed", outgoing, 1), linked=False),
+                6: Key(6, 5, "linear", 1, ("speed", incoming, 1), None, linked=False),
+            }
+            return curves.shape_is_defined(keys)
+
+        self.assertFalse(shaped(4, 0))
+        self.assertFalse(shaped(0, -4))
+        self.assertTrue(shaped(4, -0.001))
+        self.assertTrue(shaped(0, -3))
+        self.assertFalse(shaped(5, -2))
+
 
 if __name__ == "__main__":
     unittest.main()
