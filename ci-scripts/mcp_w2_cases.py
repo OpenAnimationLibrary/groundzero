@@ -56,6 +56,12 @@ def _raw(case: NativeAcceptance, method: str, params: dict[str, Any]) -> dict[st
     return case.worker.exchange(json.dumps(payload).encode())
 
 
+def _declared(case: NativeAcceptance, tool: str) -> set[str]:
+    """The error codes a tool declares in its published descriptor."""
+    listed = {item["name"]: item for item in case.capabilities()["tools"]}
+    return set(listed[tool]["errors"])
+
+
 def _summary(case: NativeAcceptance, document: str) -> dict[str, Any]:
     return case.success("scene.summary", {"document_id": document})
 
@@ -266,11 +272,11 @@ def _past_the_last_frame(
         case.write_params(document, {**target, "start_frame": MAX_FRAME - 1, "length": 3}),
     )
     case.assertIn("error", expose)
-    settle(case, "KV-1", expose["error"]["code"], {"invalid_params", "resource_limit"})
+    settle(case, "KV-1", expose["error"]["code"], _declared(case, "column.expose"))
     case.assertEqual(_summary(case, document), before)
     cells = _raw(case, "column.cells", {**read, "start_frame": MAX_FRAME, "length": 2})
     case.assertIn("error", cells)
-    settle(case, "KV-1", cells["error"]["code"], {"invalid_params", "resource_limit"})
+    settle(case, "KV-1", cells["error"]["code"], _declared(case, "column.cells"))
     case.assertEqual(_summary(case, document), before)
 
 
@@ -504,7 +510,7 @@ def _incompatible(
 ) -> None:
     code = _refused_copy(case, document, pair)
     if same_unit:
-        settle(case, "KV-2", code, {"invalid_params"})
+        settle(case, "KV-2", code, _declared(case, "animation.copy_curve"))
     else:
         case.assertEqual(code, "invalid_params")
 

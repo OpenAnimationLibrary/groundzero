@@ -142,6 +142,75 @@ KNOWN_VIOLATIONS: dict[str, Violation] = {
         answers=frozenset({(1, 1)}),
         row="SCN-05 F3",
     ),
+    "KV-5": Violation(
+        name=(
+            "A name longer than 128 characters, or with a NUL character, is refused with "
+            "`invalid_argument`, a code the tool does not declare, and its schema states no limit"
+        ),
+        tool="level.create, column.create, object.create",
+        call=(
+            "column.create {name: 129 x 'm'}; the same with name 'a' NUL 'b'; and with "
+            "level.create and object.create"
+        ),
+        expected=(
+            "a code the tool declares, or a schema bound that the adapter reports (`maxLength` "
+            "128 on name), so a client can see the limit before it calls"
+        ),
+        observed='error code "invalid_argument"; the name property is {minLength: 1, type: string}',
+        answers=frozenset({"invalid_argument"}),
+        row="QLT-04 #2 (identifier serialization)",
+    ),
+    "KV-6": Violation(
+        name="The camera size in inches is stored with six digits, so a save changes it",
+        tool="scene.save_copy, scene.open, camera.inspect",
+        call=(
+            "scene.create {width_px: 32, height_px: 32, width_in: 32/120, height_in: 32/120}, "
+            "expose a cell, scene.save_copy, scene.open, camera.inspect"
+        ),
+        expected="width_in 0.26666666666666666 (equal within 1e-9), as before the save",
+        observed=(
+            "width_in 0.266667; the pixel size is kept, so the saved scene's pixels per inch change"
+        ),
+        answers=frozenset({"0.266667"}),
+        row="QLT-04 #2 (unit serialization)",
+    ),
+    "KV-7": Violation(
+        name="scene.summary keeps the old frame count after the only column with cells is deleted",
+        tool="column.delete, scene.summary",
+        call=(
+            "column.create, column.expose {start_frame: 0, length: 22}, column.delete, "
+            "scene.summary"
+        ),
+        expected="frame_count 0 (no column holds a cell); it was 22 before the deletion",
+        observed=(
+            "frame_count stays 22 until a later edit recomputes it (generated sequences found "
+            "it; they no longer delete a column that holds cells)"
+        ),
+        answers=frozenset({22}),
+        row="QLT-04 #2 (frame serialization)",
+    ),
+    "KV-8": Violation(
+        name=(
+            "A scene with exposures at row 0 and at row 1000000, both admitted by column.expose, "
+            "cannot be saved"
+        ),
+        tool="column.expose, scene.save_copy",
+        call=(
+            "column.expose at start_frame 0 and at start_frame 1000000 (length 1) in one "
+            "column, then scene.save_copy"
+        ),
+        expected=(
+            "the save succeeds, or column.expose refuses row 1000000; the tools agree on the "
+            "last row (a column's span may be 1000001 rows)"
+        ),
+        observed=(
+            'error code "scene_limit", "The scene exceeds the supported exposure limit."; the '
+            "save counts last row minus first row plus one against 1000000, while column.expose "
+            "admits rows up to 1000000"
+        ),
+        answers=frozenset({"scene_limit"}),
+        row="SCN-07 F1",
+    ),
 }
 
 
