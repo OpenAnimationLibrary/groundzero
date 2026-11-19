@@ -678,6 +678,7 @@ def _ro_preflight(_f: Fixture, document: str) -> list[Call]:
 READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "scene.summary": _ro_summary,
     "camera.inspect": _ro_document,
+    "camera.list": _ro_pinned,
     "level.inspect": _ro_levels,
     "cast.list": _ro_pinned,
     "cast.usage": _ro_pinned,
@@ -744,6 +745,7 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "artifact.read": _artifact,
     "scene.package_info": _package,
     "cast.list": _pinned_with("stale_revision"),
+    "camera.list": _pinned_with("stale_revision"),
     "cast.usage": _pinned_with("stale_revision"),
     "scene.dependencies": _pinned_with("stale_revision"),
     "scene.validate": _pinned_with("stale_revision"),

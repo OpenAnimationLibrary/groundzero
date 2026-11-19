@@ -418,6 +418,20 @@ reopened. Whole-curve copy and retime still refuse objects with layers. IK, pins
 published channels, Plastic deformation, and hook tracker regions are outside this
 profile, and these tools have no live-editor or undo counterpart.
 
+`camera.list` pages through the sheet's cameras with their output and preview roles;
+`camera.inspect` and `camera.update` take an optional `camera_id` (the output camera
+otherwise) and report DPI per axis, square pixels and the interest rectangle. A
+resolution change while an interest rectangle is set needs `interest_rect` (null clears
+it), since the native resolution setter would drop it. `camera.create` takes an explicit
+name, resolution and size; names are unique and never `Camera<digits>`, which native
+code ties to the camera number. `camera.duplicate` copies curves, cycle flags and offset
+layers independently. `camera.select` sets the output (render) and preview roles.
+`camera.remove` refuses the last camera, needs a replacement for each role the camera
+holds and `children_policy: "reattach_to_parent"` for stage children, and keeps camera
+numbers packed: higher cameras are renumbered with their handles, curves and children,
+and one with no stored name keeps the name it showed. Without packing, a gap reloads as
+a phantom camera.
+
 `column.create` appends a column or inserts it before `position`; `column.move` moves a
 block of columns, in their current order, before a position of the original order. In
 both, every column keeps its handle, stage object, parent, curves and FX links.
@@ -1033,11 +1047,12 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (124):
+- `core` toolset (129):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
-  `automation.list_documents`, `camera.inspect`, `camera.update`, `cast.list`, `cast.usage`,
+  `automation.list_documents`, `camera.create`, `camera.duplicate`, `camera.inspect`,
+  `camera.list`, `camera.remove`, `camera.select`, `camera.update`, `cast.list`, `cast.usage`,
   `cells.clear`, `cells.copy`, `cells.insert`, `cells.remove`, `cells.replace`, `cells.retime`,
   `cells.set`, `column.cells`, `column.create`, `column.delete`, `column.duplicate`,
   `column.expose`, `column.kinds`, `column.move`, `column.update`, `drawing.analysis.submit`,

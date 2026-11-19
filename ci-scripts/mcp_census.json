@@ -295,10 +295,35 @@
    "toolset": "core",
    "writes": false
   },
+  "camera.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "camera.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "camera.inspect": {
    "origin": "worker",
    "toolset": "core",
    "writes": false
+  },
+  "camera.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "camera.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "camera.select": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
   },
   "camera.update": {
    "origin": "worker",
@@ -1836,11 +1861,16 @@
    "id": "camera.create_and_select",
    "domain": "Stage, camera and animation",
    "outcome": "Create, duplicate and delete cameras and choose the active one.",
-   "classification": "not_exposed",
-   "tools": [],
+   "classification": "exposed",
+   "tools": [
+    "camera.list",
+    "camera.create",
+    "camera.duplicate",
+    "camera.select",
+    "camera.remove"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W2"
+    "kind": "implemented"
    }
   },
   {

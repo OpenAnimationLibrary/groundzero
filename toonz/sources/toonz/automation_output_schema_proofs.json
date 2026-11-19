@@ -71,8 +71,31 @@
     "handler": "mixdown",
     "read": []
   },
+  "camera.create": {
+    "handler": "createCamera",
+    "read": []
+  },
+  "camera.duplicate": {
+    "handler": "duplicateCamera",
+    "read": []
+  },
   "camera.inspect": {
     "handler": "inspectCamera",
+    "read": []
+  },
+  "camera.list": {
+    "handler": "listCameras",
+    "read": []
+  },
+  "camera.remove": {
+    "handler": "removeCamera",
+    "read": [
+      "new_parent_id",
+      "object_id"
+    ]
+  },
+  "camera.select": {
+    "handler": "selectCamera",
     "read": []
   },
   "camera.update": {

@@ -1169,6 +1169,24 @@
      }
     }
    ]
+  },
+  "two_cameras": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "camera.create",
+     "args": {
+      "name": "Side",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 1,
+      "height_in": 1
+     },
+     "save": {
+      "camera2": "camera.camera_id"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -7016,6 +7034,151 @@
     }
    ],
    "no_noop": "every call adds a column"
+  },
+  "camera.create": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "adds a camera",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "name": "Extra",
+     "width_px": 8,
+     "height_px": 8,
+     "width_in": 1,
+     "height_in": 1
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": "Camera9",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 1,
+      "height_in": 1
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "every call adds a camera"
+  },
+  "camera.duplicate": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "adds a copied camera",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "name": "Copy",
+     "parent_policy": "none"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "name": "Side",
+      "parent_policy": "none"
+     },
+     "code": "name_conflict"
+    }
+   ],
+   "no_noop": "every call adds a camera"
+  },
+  "camera.select": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "output and preview camera roles",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "roles": [
+      "output"
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "roles": [
+       "output",
+       "output"
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "camera_id": "$camera2",
+     "roles": [
+      "output"
+     ]
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "camera.remove": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "removes a camera and packs camera numbers",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "children_policy": "refuse"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "children_policy": "refuse",
+      "replacement": {
+       "output": "$camera2"
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "a removed camera cannot be removed again"
   }
  },
  "known_violations": []
