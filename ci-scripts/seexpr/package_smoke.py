@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 
 import native_ui_test
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "neural-style"))
@@ -56,6 +57,25 @@ def linux_package(artifact, installed):
     return launcher, require_stuff(appimage.parent / "portablestuff")
 
 
+def detach_image(mount):
+    """Detach a mounted disk image, waiting out a volume that is briefly busy.
+
+    hdiutil exits 16 while another process (indexing, for one) still holds the
+    volume. The application has been copied by then, so a volume that stays
+    busy is reported and left for the runner to discard, not treated as a
+    failure of the package.
+    """
+    command = ["hdiutil", "detach", "-quiet", str(mount)]
+    for attempt in range(5):
+        if subprocess.run(command, check=False, timeout=60).returncode == 0:
+            return
+        time.sleep(2 * (attempt + 1))
+    forced = subprocess.run(command + ["-force"], check=False, timeout=60)
+    if forced.returncode != 0:
+        print(f"::warning title=Disk image left mounted::hdiutil could not detach "
+              f"{mount} (exit {forced.returncode}) after five attempts and a forced one")
+
+
 def macos_package(artifact, installed):
     image = unique(artifact.rglob("*.dmg"), "macOS disk image")
     result = subprocess.run(["hdiutil", "attach", "-readonly", "-nobrowse",
@@ -66,8 +86,7 @@ def macos_package(artifact, installed):
               if "mount-point" in entity]
     if len(mounts) != 1:
         for mount in mounts:
-            subprocess.run(["hdiutil", "detach", "-quiet", str(mount)],
-                           check=False, timeout=60)
+            detach_image(mount)
         raise RuntimeError("The application disk image has an unexpected volume layout")
     mount = mounts[0]
     try:
@@ -79,8 +98,7 @@ def macos_package(artifact, installed):
         subprocess.run(["ditto", str(applications[0]), str(application)],
                        check=True, timeout=180)
     finally:
-        subprocess.run(["hdiutil", "detach", "-quiet", str(mount)],
-                       check=True, timeout=60)
+        detach_image(mount)
     executable = application / "Contents" / "MacOS" / "OpenToonz"
     if not executable.is_file():
         raise RuntimeError("The installed bundle is missing its native application")
