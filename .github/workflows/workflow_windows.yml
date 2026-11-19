@@ -717,7 +717,7 @@ jobs:
           set "QT_PLUGIN_PATH=%QT_PATH%\plugins"
           set "QT_QPA_PLATFORM_PLUGIN_PATH=%QT_PATH%\plugins\platforms"
           cd toonz\build || exit /b 1
-          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo castworkflow childstack_lifetime centerline_colors rasterallocation rasterrelease ropmin rasterpaste inputmodifier timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_psd tiio_exr_level malformed_scene spectrum swap24 malformed_palette byteswap soundsample_conversion aiff_reader wav_reader
+          python ..\..\ci-scripts\run_regression_tests.py --config RelWithDebInfo castworkflow childstack_lifetime centerline_colors rasterallocation rasterrelease ropmin rasterpaste inputmodifier timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_psd tiio_exr_level malformed_scene spectrum swap24 malformed_palette subxsheet_output level_load_report aiff_reader byteswap soundsample_conversion wav_reader
 
       - name: Upload reliability diagnostics
         if: always()

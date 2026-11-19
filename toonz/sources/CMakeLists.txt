@@ -1104,6 +1104,23 @@ if(BUILD_RELIABILITY_TESTS)
     endif()
     add_test(NAME malformed_scene COMMAND malformed_scene_test)
     set_tests_properties(malformed_scene PROPERTIES TIMEOUT 300)
+
+    # A sub-xsheet saved without an <output> entry loads with a default output
+    # node and builds its FX tree instead of crashing
+    add_executable(subxsheet_output_test toonzlib/tests/subxsheet_output_test.cpp)
+    target_link_libraries(subxsheet_output_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME subxsheet_output COMMAND subxsheet_output_test)
+    set_tests_properties(subxsheet_output PROPERTIES TIMEOUT 60)
+
+    # Loading a level reports what it cannot load through the level and an
+    # installed handler instead of opening a dialog. The timeout ends a run
+    # that waits on a dialog.
+    add_executable(level_load_report_test toonzlib/tests/level_load_report_test.cpp)
+    target_link_libraries(level_load_report_test PRIVATE
+        toonzlib image tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME level_load_report COMMAND level_load_report_test)
+    set_tests_properties(level_load_report PROPERTIES TIMEOUT 30)
 endif()
 add_subdirectory(toonzfarm/tfarm)
 add_subdirectory(glb)
