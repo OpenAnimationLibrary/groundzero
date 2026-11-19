@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_build_identity.h"
+#include "automation_drawing_analysis.h"
 #include "automation_jobs.h"
 #include "automation_dispatch.h"
 #include "automation_activity.h"
@@ -631,6 +632,8 @@ int domainTestResult(Context& context) {
     runAutomationRuntimeTests(context);
     runAutomationJobsTests(context);
     runAutomationSceneCheckTests(context);
+    // Last: its retention case fills the analysis lane of this shared worker.
+    runAutomationDrawingAnalysisTests(context);
     return 0;
   } catch (const Error& error) {
     std::cerr << "automation-worker: domain tests: "

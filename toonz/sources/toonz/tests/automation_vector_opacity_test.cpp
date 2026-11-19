@@ -1,6 +1,5 @@
 #include "automation_vector_opacity.h"
 #include "automation_drawing.h"
-#include "automation_drawing_analysis.h"
 #include "automation_drawing_inspection.h"
 #include "tools/artlayer.h"
 #include "tregion.h"
@@ -655,6 +654,5 @@ void runAutomationVectorOpacityTests(Context& context) {
   auto& inspected = context.addDocument(std::make_unique<ToonzScene>());
   inspectionAndSelection(context, inspected);
   context.removeDocument(inspected.id);
-  runAutomationDrawingAnalysisTests(context);
 }
 }  // namespace GroundzeroAutomation
