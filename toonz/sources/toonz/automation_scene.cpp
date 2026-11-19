@@ -19,15 +19,21 @@
 #include "toonz/txsheet.h"
 
 #include <QDir>
+#include <QJsonDocument>
 #include <QSet>
 
 #include <cmath>
+#include <functional>
 #include <map>
 #include <vector>
 
 namespace GroundzeroAutomation {
 using namespace SceneShared;
 namespace {
+
+QJsonObject summaryOffsetSchema() {
+  return {{"type", "integer"}, {"minimum", 0}, {"maximum", 16384}};
+}
 
 QJsonObject arraySchema(const QJsonObject& items) {
   return {{"type", "array"},
@@ -52,19 +58,92 @@ QJsonObject describeObject(Document& document, TStageObject* object) {
           {"locked", object->isLocked()}};
 }
 
-QJsonObject describeScene(Document& document, bool includeDrawings = true) {
+constexpr int DefaultSummaryLimit = 256;
+constexpr qint64 MaxSummaryBytes  = 1024 * 1024;
+constexpr int MaxSummaryLimit     = 1024;
+constexpr int MaxSummaryOffset    = 16384;
+// Records stop being added to a page once it holds this many bytes; a page
+// always carries the first record of each list it continues.
+constexpr qint64 SummaryPageBytes = 256 * 1024;
+
+// Which part of each of the summary's three lists a call returns.
+struct SummaryPage final {
+  int limit   = DefaultSummaryLimit;
+  int columns = 0;
+  int levels  = 0;
+  int objects = 0;
+};
+
+SummaryPage summaryPage(const QJsonObject& params) {
+  return {
+      integerParam(params, "limit", 1, MaxSummaryLimit, DefaultSummaryLimit),
+      integerParam(params, "columns_offset", 0, MaxSummaryOffset, 0),
+      integerParam(params, "levels_offset", 0, MaxSummaryOffset, 0),
+      integerParam(params, "objects_offset", 0, MaxSummaryOffset, 0)};
+}
+
+// One list page: records [offset, next) of total, within the limit and the
+// shared byte budget. A null record (an empty column slot) is skipped.
+QJsonObject listPage(const QString& name, int total, int offset, int limit,
+                     qint64& bytes,
+                     const std::function<QJsonValue(int)>& record,
+                     QJsonArray& items) {
+  if (offset > total)
+    throw Error("invalid_params", name + "_offset is beyond the list.",
+                {{"total", total}});
+  int index = offset;
+  for (; index < total && items.size() < limit; ++index) {
+    const QJsonValue value = record(index);
+    if (value.isNull()) continue;
+    const qint64 size =
+        QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact).size();
+    if (!items.isEmpty() && bytes + size > SummaryPageBytes) break;
+    bytes += size;
+    items.append(value);
+  }
+  return {{"offset", offset},
+          {"total", total},
+          {"next_offset", index < total ? QJsonValue(index) : QJsonValue()}};
+}
+
+QJsonObject describeScene(Document& document, bool includeDrawings = true,
+                          const SummaryPage& page = SummaryPage()) {
   QJsonArray columns, levels, objects;
-  TXsheet* sheet = document.scene->getXsheet();
-  for (int index = 0; index < sheet->getColumnCount(); ++index)
-    if (TXshColumn* column = sheet->getColumn(index))
-      columns.append(describeColumn(document, column));
-  TLevelSet* cast = document.scene->getLevelSet();
-  for (int index = 0; index < cast->getLevelCount(); ++index)
-    levels.append(
-        describeLevel(document, cast->getLevel(index), includeDrawings));
-  for (int index = 0; index < tree(document)->getStageObjectCount(); ++index)
-    objects.append(
-        describeObject(document, tree(document)->getStageObject(index)));
+  TXsheet* sheet          = document.scene->getXsheet();
+  TLevelSet* cast         = document.scene->getLevelSet();
+  TStageObjectTree* stage = tree(document);
+  qint64 bytes            = 0;
+  QJsonObject pages{
+      {"columns",
+       listPage(
+           "columns", sheet->getColumnCount(), page.columns, page.limit, bytes,
+           [&](int index) -> QJsonValue {
+             TXshColumn* column = sheet->getColumn(index);
+             return column ? QJsonValue(describeColumn(document, column))
+                           : QJsonValue();
+           },
+           columns)},
+      {"levels",
+       listPage(
+           "levels", cast->getLevelCount(), page.levels, page.limit, bytes,
+           [&](int index) -> QJsonValue {
+             return describeLevel(document, cast->getLevel(index),
+                                  includeDrawings);
+           },
+           levels)},
+      {"objects", listPage(
+                      "objects", stage->getStageObjectCount(), page.objects,
+                      page.limit, bytes,
+                      [&](int index) -> QJsonValue {
+                        return describeObject(document,
+                                              stage->getStageObject(index));
+                      },
+                      objects)}};
+  if (bytes > MaxSummaryBytes)
+    throw Error("resource_limit",
+                "One summary record exceeds 1 MiB; pass include_drawings "
+                "false or use level.inspect.",
+                {{"limit", "page_bytes"}});
   return {
       {"document_id", document.id},
       {"revision", document.revisionText()},
@@ -81,7 +160,9 @@ QJsonObject describeScene(Document& document, bool includeDrawings = true) {
       {"access", document.readOnly ? "read_only" : "editable"},
       {"source", document.readOnly
                      ? QJsonValue(document.readOnly->summarySource())
-                     : QJsonValue()}};
+                     : QJsonValue()},
+      {"limit", page.limit},
+      {"pages", pages}};
 }
 
 struct Settings {
@@ -137,7 +218,8 @@ QJsonValue createScene(Context& context, const QJsonObject& params) {
 
 QJsonValue sceneSummary(Context& context, const QJsonObject& params) {
   return describeScene(getDocument(context, params),
-                       boolParam(params, "include_drawings", true));
+                       boolParam(params, "include_drawings", true),
+                       summaryPage(params));
 }
 
 }  // namespace
@@ -727,9 +809,19 @@ void addSceneOperations(QJsonArray& catalog) {
   catalog.append(
       operation("scene.summary",
                 "Inspect native scene, levels, columns and stage objects; "
-                "include_drawings false omits per-level drawing lists.",
+                "include_drawings false omits per-level drawing lists. Each "
+                "list is paged: at most limit records (default 256) and "
+                "256 KiB per call; pages names each list's next_offset, "
+                "null on its last page, to pass back as columns_offset, "
+                "levels_offset or objects_offset.",
                 merge(documentSchema(),
-                      {{"include_drawings", QJsonObject{{"type", "boolean"}}}}),
+                      {{"include_drawings", QJsonObject{{"type", "boolean"}}},
+                       {"limit", QJsonObject{{"type", "integer"},
+                                             {"minimum", 1},
+                                             {"maximum", MaxSummaryLimit}}},
+                       {"columns_offset", summaryOffsetSchema()},
+                       {"levels_offset", summaryOffsetSchema()},
+                       {"objects_offset", summaryOffsetSchema()}}),
                 {"document_id"}));
   catalog.append(operation(
       "scene.settings", "Set explicit frame rate, pixels and physical inches.",

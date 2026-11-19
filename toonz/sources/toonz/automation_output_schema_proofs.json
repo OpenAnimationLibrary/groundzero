@@ -625,7 +625,13 @@
   },
   "scene.settings": {
     "handler": "updateSettings",
-    "read": []
+    "read": [
+      "column_id",
+      "last_frame",
+      "opacity",
+      "position",
+      "visible"
+    ]
   },
   "scene.source_status": {
     "handler": null,
@@ -637,7 +643,13 @@
   },
   "scene.summary": {
     "handler": "sceneSummary",
-    "read": []
+    "read": [
+      "column_id",
+      "last_frame",
+      "opacity",
+      "position",
+      "visible"
+    ]
   },
   "scene.validate": {
     "handler": null,

@@ -359,6 +359,14 @@ void checkStructure() {
   require(error.code == "scene_limit" &&
               error.details.value("limit") == "sheet_depth",
           "Sub-xsheets nest 16 deep and no deeper");
+  // A child sheet that exposes itself ends the walk with an error.
+  auto cyclic           = nestedScene(1);
+  TXshChildLevel* child = cyclic->getLevelSet()->getLevel(0)->getChildLevel();
+  child->getXsheet()->setCell(0, 0, TXshCell(child, TFrameId(1)));
+  const Error loop = caught([&] { requireReadOnlyStructure(*cyclic); });
+  child->getXsheet()->setCell(0, 0, TXshCell());
+  require(loop.code == "invalid_scene",
+          "A sub-xsheet that contains itself is refused, not walked forever");
 }
 
 // An empty scene saved through the worker, as user scene material.
