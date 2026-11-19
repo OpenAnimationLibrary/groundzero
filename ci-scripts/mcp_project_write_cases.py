@@ -123,7 +123,9 @@ def project_duplicate_copies_the_definition_only(case: NativeAcceptance) -> None
     case.assertEqual(copy["scene_defaults"], source["scene_defaults"])
     copied_art = case.workspace / "projects" / "Copy" / "art"
     case.assertTrue(copied_art.is_dir())
-    case.assertEqual(list(copied_art.iterdir()), [])
+    # TProject::save leaves a scenes.xml pointer in each folder it creates; the
+    # source's assets stay where they are.
+    case.assertEqual([path.name for path in copied_art.iterdir()], ["scenes.xml"])
 
 
 @acceptance_case
