@@ -1178,6 +1178,12 @@ if(BUILD_RELIABILITY_TESTS)
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME inputmodifier COMMAND inputmodifier_test)
     set_tests_properties(inputmodifier PROPERTIES TIMEOUT 60)
+    # Text and Time Code place their content the same on any tile
+    add_executable(textplacement_test stdfx/tests/textplacement_test.cpp)
+    target_link_libraries(textplacement_test PRIVATE tnzstdfx tnzbase tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME textplacement COMMAND textplacement_test)
+    set_tests_properties(textplacement PROPERTIES TIMEOUT 60)
 endif()
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)

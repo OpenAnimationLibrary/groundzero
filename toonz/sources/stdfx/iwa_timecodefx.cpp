@@ -48,10 +48,9 @@ void Iwa_TimeCodeFx::doCompute(TTile &tile, double frame,
                                const TRenderSettings &ri) {
   double fac   = sqrt(fabs(ri.m_affine.det()));
   int size     = (int)(fac * fabs(m_size->getValue(frame)));
-  TPoint point = convert(
-      fac * m_position->getValue(frame) -
-      (tile.m_pos + tile.getRaster()->getCenterD()) +
-      TPointD(ri.m_cameraBox.getLx() / 2.0, ri.m_cameraBox.getLy() / 2.0));
+  // The position is in render coordinates, the tile's own: any tile of the
+  // frame places the time code at the same point
+  TPoint point = convert(fac * m_position->getValue(frame) - tile.m_pos);
 #ifdef _WIN32
   QFont font("Arial", size);
 #else

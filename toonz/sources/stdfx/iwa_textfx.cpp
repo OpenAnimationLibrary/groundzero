@@ -77,10 +77,9 @@ void Iwa_TextFx::doCompute(TTile &tile, double frame,
   double fac = sqrt(fabs(ri.m_affine.det()));
   int size   = (int)(fac * std::abs(font.pixelSize()));
 
-  TPoint center = convert(
-      fac * m_center->getValue(frame) -
-      (tile.m_pos + tile.getRaster()->getCenterD()) +
-      TPointD(ri.m_cameraBox.getLx() / 2.0, ri.m_cameraBox.getLy() / 2.0));
+  // The center is in render coordinates, the tile's own: any tile of the
+  // frame places the text at the same point
+  TPoint center = convert(fac * m_center->getValue(frame) - tile.m_pos);
 
   QRect textBoxRect(0, 0, fac * m_width->getValue(frame),
                     fac * m_height->getValue(frame));

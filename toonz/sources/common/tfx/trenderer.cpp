@@ -120,9 +120,10 @@ const char *const c_stripUnsafeFxIds[] = {
     // Restart their random sequence on every tile
     "STD_dissolveFx", "STD_noiseFx", "STD_saltpepperNoiseFx",
     // Place their content using the tile center as the camera center
-    "STD_iwa_TextFx", "STD_iwa_TimeCodeFx", "STD_iwa_PerspectiveDistortFx",
-    "STD_iwa_FloorBumpFx", "STD_iwa_BarrelDistortFx", "STD_iwa_TileFx",
-    "STD_iwa_PNPerspectiveFx",
+    "STD_iwa_PerspectiveDistortFx", "STD_iwa_FloorBumpFx",
+    "STD_iwa_BarrelDistortFx", "STD_iwa_PNPerspectiveFx",
+    // Anchors its Camera Box mode on the tile center
+    "STD_iwa_TileFx",
     // FFT sizes, hence rounding, depend on the tile size
     "STD_iwa_BokehFx", "STD_iwa_BokehRefFx", "STD_iwa_BokehAdvancedFx",
     "STD_iwa_GlareFx",
