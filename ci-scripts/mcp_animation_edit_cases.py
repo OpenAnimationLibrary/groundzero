@@ -411,3 +411,97 @@ def cycle_requests_refusals_and_copies(case: NativeAcceptance) -> None:
         {"document_id": document, **fast_target, "frames": [1000000, 999999, 999998]},
     )
     case.assertEqual(error["code"], "resource_limit")
+
+
+def _descriptor(descriptors: dict[str, Any], channel: str) -> dict[str, Any]:
+    return next(item for item in descriptors["channels"] if item["channel"] == channel)
+
+
+@acceptance_case
+def fx_remap_and_offset_layer_targets_are_described(case: NativeAcceptance) -> None:
+    """Descriptors name every target and its tool; effect and remap curves read and sample."""
+    document, _level, column = case.populated_scene()
+    effect = case.mutate("fx.create", document, type="colorCardFx", name="Card", frame_count=5)[
+        "fx_id"
+    ]
+    for frame, color in ((0, [255, 0, 0, 255]), (4, [0, 0, 255, 255])):
+        case.mutate(
+            "fx.parameter.set_key",
+            document,
+            fx_id=effect,
+            parameter="color",
+            frame=frame,
+            value=color,
+        )
+    described = case.success("animation.channels", {"document_id": document, "fx_id": effect})
+    case.assertNotIn("object_id", described)
+    names = {item["channel"] for item in described["channels"]}
+    case.assertTrue({"color.r", "color.g", "color.b", "color.m"} <= names, names)
+    red = _descriptor(described, "color.r")
+    case.assertEqual(red["kind"], "fx_parameter")
+    case.assertEqual(red["edit_via"], "fx.parameter.set_key")
+    case.assertFalse(red["writable"])
+    case.assertEqual(red["key_count"], 2)
+    case.assertEqual(red["target"]["fx_id"], effect)
+    channel = {"channel": "color.r", "unit": red["unit"]}
+    keys = case.success("animation.keys", {"document_id": document, "fx_id": effect, **channel})
+    case.assertEqual(keys["value_space"], "fx_parameter")
+    case.assertEqual([key["frame"] for key in keys["keys"]], [0, 4])
+    sampled = case.success(
+        "animation.sample",
+        {"document_id": document, "fx_id": effect, **channel, "frames": [0, 1, 2.5, 4]},
+    )
+    shown = case.success("fx.parameter.get", {"document_id": document, "fx_id": effect, "frame": 0})
+    color = next(item for item in shown["parameters"] if item["name"] == "color")["value"]
+    case.assertAlmostEqual(sampled["values"][0]["value"] * 255, color[0], delta=0.5)
+    case.assertAlmostEqual(sampled["values"][3]["value"], 0, delta=1e-9)
+    case.failure(
+        "animation.set_keys",
+        case.write_params(document, {"fx_id": effect, **channel, "keys": [_simple(0, 0)]}),
+    )
+    remap = case.success(
+        "animation.channels", {"document_id": document, "column_id": column["column_id"]}
+    )
+    entry = _descriptor(remap, "time_remap")
+    case.assertEqual(entry["kind"], "time_remap")
+    case.assertIsNone(entry["edit_via"])
+    case.assertFalse(entry["writable"])
+    case.assertFalse(remap["remap_enabled"])
+    request = {
+        "document_id": document,
+        "column_id": column["column_id"],
+        "channel": "time_remap",
+        "unit": "frame_number",
+    }
+    case.assertEqual(case.success("animation.keys", request)["keys"], [])
+    case.assertEqual(
+        len(case.success("animation.sample", {**request, "frames": [0, 1]})["values"]), 2
+    )
+    for params in (
+        {
+            "document_id": document,
+            "column_id": column["column_id"],
+            "object_id": column["object_id"],
+        },
+        {"document_id": document, "fx_id": effect, "column_id": column["column_id"]},
+        {"document_id": document, "column_id": "column-404"},
+        {"document_id": document},
+    ):
+        case.failure("animation.channels", params)
+    case.failure("animation.keys", {**request, "unit": "inch"})
+    case.failure("animation.keys", {**request, "channel": "x"})
+    peg = _peg(case, document)
+    layer = case.mutate("offset_layer.create", document, object_id=peg["object_id"], name="Layer")
+    layer_id = layer["layer"]["layer_id"]
+    stage = case.success("animation.channels", {"document_id": document, **peg})
+    case.assertEqual(_descriptor(stage, "x")["kind"], "stage_channel")
+    case.assertEqual(_descriptor(stage, "x")["target"], peg)
+    layered = case.success(
+        "animation.channels",
+        {"document_id": document, "object_id": peg["object_id"], "layer_id": layer_id},
+    )
+    weight = _descriptor(layered, "weight")
+    case.assertEqual(weight["kind"], "offset_layer_weight")
+    case.assertEqual(weight["target"]["layer_id"], layer_id)
+    case.assertEqual(_descriptor(layered, "rotation")["kind"], "offset_layer_channel")
+    case.assertEqual(_descriptor(layered, "rotation")["edit_via"], "animation.set_keys")

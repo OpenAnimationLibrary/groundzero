@@ -17,6 +17,18 @@
             "cycle_supported": {
               "type": "boolean"
             },
+            "edit_via": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              ]
+            },
             "editor_locked": {
               "type": "boolean"
             },
@@ -50,6 +62,11 @@
               "minLength": 0,
               "type": "string"
             },
+            "kind": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
             "sample_time": {
               "maxLength": 65536,
               "minLength": 0,
@@ -64,6 +81,43 @@
               "maxItems": 1048576,
               "minItems": 0,
               "type": "array"
+            },
+            "target": {
+              "additionalProperties": false,
+              "properties": {
+                "channel": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "column_id": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "fx_id": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "layer_id": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "object_id": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "unit": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
             },
             "unit": {
               "maxLength": 65536,
@@ -100,13 +154,16 @@
             "channel",
             "cycle",
             "cycle_supported",
+            "edit_via",
             "editor_locked",
             "frame_bounds",
             "interpolations",
             "key_count",
             "key_time",
+            "kind",
             "sample_time",
             "step_bounds",
+            "target",
             "unit",
             "unsupported_reason",
             "value_bounds",
@@ -117,6 +174,16 @@
         "maxItems": 1048576,
         "minItems": 0,
         "type": "array"
+      },
+      "column_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "fx_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
       },
       "object_id": {
         "maxLength": 65536,
@@ -153,6 +220,9 @@
         "minItems": 0,
         "type": "array"
       },
+      "remap_enabled": {
+        "type": "boolean"
+      },
       "value_space": {
         "maxLength": 65536,
         "minLength": 0,
@@ -161,8 +231,6 @@
     },
     "required": [
       "channels",
-      "object_id",
-      "offset_layers",
       "value_space"
     ],
     "type": "object"
@@ -819,11 +887,21 @@
         "minLength": 0,
         "type": "string"
       },
+      "column_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
       "cycle": {
         "type": "boolean"
       },
       "editor_locked": {
         "type": "boolean"
+      },
+      "fx_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
       },
       "keys": {
         "items": {
@@ -930,7 +1008,6 @@
       "cycle",
       "editor_locked",
       "keys",
-      "object_id",
       "unit",
       "value_space"
     ],
@@ -1289,6 +1366,16 @@
         "minLength": 0,
         "type": "string"
       },
+      "column_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "fx_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
       "object_id": {
         "maxLength": 65536,
         "minLength": 0,
@@ -1344,7 +1431,6 @@
     },
     "required": [
       "channel",
-      "object_id",
       "unit",
       "value_space",
       "values"

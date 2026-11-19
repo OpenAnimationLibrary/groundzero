@@ -455,6 +455,18 @@ first key and past the last key match the native evaluator after `scene.save_cop
 requested frames would need more than 2000000 repeats in total. Cyclic offset-layer,
 weight and path curves are still refused as before.
 
+`animation.channels` publishes every curve target with its `kind`, a `target` record to pass
+back, and `edit_via`, the tool that edits it. Name exactly one of `object_id` (stage
+channels; with `layer_id` that offset layer's channels and weight), `fx_id` (every numeric
+parameter component of the effect, named parameter-dot-component for pixel and point
+parameters), or `column_id` (the `time_remap`
+curve of a level column, with `remap_enabled`). `animation.keys` and `animation.sample`
+read the same targets by passing `fx_id` or `column_id` with the descriptor's `channel` and
+`unit`. Effect parameter and remap curves are read only here (`writable` is false): edit an
+effect parameter with `fx.parameter.set_key`; remap curves have no edit tool. A curve with
+expression, file or similar-shape keys is listed with its keys marked unsupported, without
+their text, and `animation.sample` refuses it with `unsupported_interpolation`.
+
 `scene.save_copy` writes a new package directory containing `scene.tnz`, its
 artwork, and a hash manifest. It checks every saved drawing through the native
 reader and compares palette styles, pages, and keys before publishing. Existing

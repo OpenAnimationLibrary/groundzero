@@ -198,6 +198,7 @@ endif()
 set(HEADERS
     automation.h
     automation_animation.h
+    automation_animation_targets.h
     automation_build_identity.h
     automation_jobs.h
     automation_fx_profile.h
@@ -311,6 +312,7 @@ set(SOURCES
     automation_effects.cpp
     automation_grants.cpp
     automation_animation.cpp
+    automation_animation_targets.cpp
     automation_path.cpp
     automation_audio.cpp
     automation_audio_format.cpp
@@ -1346,7 +1348,8 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_macro_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_text_test.cpp)
     target_sources(OpenToonz PRIVATE
-        tests/automation_animation_test.cpp tests/automation_animation_test.h)
+        tests/automation_animation_test.cpp tests/automation_animation_test.h
+        tests/automation_animation_targets_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_dispatch_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_live_protocol_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_live_race_test.cpp)

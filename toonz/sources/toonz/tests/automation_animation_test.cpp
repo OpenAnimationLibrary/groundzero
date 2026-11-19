@@ -1256,6 +1256,7 @@ void runAutomationAnimationTests() {
   cycleFlagChangesOnlyTheFlag();
   cycleSurvivesWholeCurveCopyRetimeAndReopen();
   cyclicSamplingIsBounded();
+  runAutomationAnimationTargetTests();
 }
 
 }  // namespace GroundzeroAutomation

@@ -3,7 +3,10 @@
     "handler": "inspectAnimationChannels",
     "read": [
       "cycle",
-      "cycle_supported"
+      "cycle_supported",
+      "edit_via",
+      "kind",
+      "target"
     ]
   },
   "animation.copy_curve": {
