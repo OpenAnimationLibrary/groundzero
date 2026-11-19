@@ -188,7 +188,7 @@ void testCameraLayerLimit(Context& context) {
                            {"parent_policy", "none"}};
   QString code;
   try {
-    executeScene(context, "camera.duplicate", params);
+    executeSheet(context, "camera.duplicate", params);
   } catch (const Error& error) {
     code = error.code;
   }

@@ -17,6 +17,7 @@ import os
 import random
 import re
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -607,6 +608,12 @@ def package_paths_round_trip_through_save_and_open(case: NativeAcceptance) -> No
             saved = case.mutate("scene.save_copy", document, directory=str(target))
             case.assertEqual(saved["package_directory"], str(target))
             case.assertTrue((target / "scene.tnz").is_file())
+            if not unicodedata.is_normalized("NFC", str(target)):
+                opening = case.write_params(None, {"path": saved["package_directory"]})
+                answer = _raw(case, "scene.open", opening)
+                settle(case, "KV-10", answer.get("error", {}).get("code", "opened"), "opened")
+                case.mutate("scene.discard", document)
+                continue
             reopened = case.mutate("scene.open", None, path=saved["package_directory"])
             summary = case.success("scene.summary", {"document_id": reopened["document_id"]})
             case.assertEqual([item["name"] for item in summary["levels"]], ["Quadrants"])

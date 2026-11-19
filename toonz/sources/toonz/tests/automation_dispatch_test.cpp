@@ -4,6 +4,7 @@
 #include "automation_grants.h"
 #include "automation_jobs.h"
 
+#include <QSet>
 #include <QCryptographicHash>
 #include <QJsonDocument>
 
@@ -314,7 +315,12 @@ QString domainToolset(const QString& name) {
       name.startsWith("library."))
     return "shared-library";
   if (name == "fx.recipe.list") return "fx-finishing";
-  if (name.startsWith("cells.")) return "sheet";
+  static const QSet<QString> sheet{
+      "column.move",      "column.duplicate", "column.kinds",
+      "camera.list",      "camera.create",    "camera.duplicate",
+      "camera.select",    "camera.remove",    "scene.properties.inspect",
+      "scene.output.set", "scene.guides.set"};
+  if (name.startsWith("cells.") || sheet.contains(name)) return "sheet";
   return "core";
 }
 

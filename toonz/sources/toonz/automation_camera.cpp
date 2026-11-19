@@ -562,14 +562,14 @@ void addCameraLifecycle(QJsonArray& catalog, const QJsonObject& sheet,
       "camera.create",
       "Create a camera with an explicit name, resolution and size in inches; "
       "it has no parent and no role.",
-      merge(merge(sheet, cameraSchema()), {{"name", textSchema()}}),
+      merge(merge(sheet, cameraSchema()), {{"name", boundedNameSchema(128)}}),
       {"document_id", "name", "width_px", "height_px", "width_in", "height_in"},
       true));
   catalog.append(operation(
       "camera.duplicate",
       "Copy a camera with independent curves and offset layers, keeping its "
       "parent or none.",
-      merge(camera, {{"name", textSchema()},
+      merge(camera, {{"name", boundedNameSchema(128)},
                      {"parent_policy", enumSchema({"same_parent", "none"})}}),
       {"document_id", "camera_id", "name", "parent_policy"}, true));
   catalog.append(operation(
@@ -615,7 +615,8 @@ void addCameraOperations(QJsonArray& catalog) {
       "rectangle, the output camera by default. A resolution change while an "
       "interest rectangle is set needs interest_rect (null clears it).",
       merge(merge(camera, cameraSchema()),
-            {{"name", textSchema()}, {"interest_rect", interestSchema()}}),
+            {{"name", boundedNameSchema(128)},
+             {"interest_rect", interestSchema()}}),
       {"document_id"}, true));
 }
 

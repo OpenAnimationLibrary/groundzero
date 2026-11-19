@@ -317,12 +317,12 @@
   },
   "camera.create": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "camera.duplicate": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "camera.inspect": {
@@ -332,17 +332,17 @@
   },
   "camera.list": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": false
   },
   "camera.remove": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "camera.select": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "camera.update": {
@@ -412,7 +412,7 @@
   },
   "column.duplicate": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "column.expose": {
@@ -422,12 +422,12 @@
   },
   "column.kinds": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": false
   },
   "column.move": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "column.update": {
@@ -912,7 +912,7 @@
   },
   "scene.guides.set": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "scene.inventory": {
@@ -932,7 +932,7 @@
   },
   "scene.output.set": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "scene.package_info": {
@@ -942,7 +942,7 @@
   },
   "scene.properties.inspect": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": false
   },
   "scene.save_copy": {

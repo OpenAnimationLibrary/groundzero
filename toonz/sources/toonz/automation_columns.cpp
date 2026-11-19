@@ -677,7 +677,7 @@ void addColumnSheetOperations(QJsonArray& catalog) {
       "the stage object and its curves are copied independently, and the FX "
       "branch fed only by the column is copied with exclusive_branch.",
       merge(column,
-            {{"name", textSchema()},
+            {{"name", boundedNameSchema(128)},
              {"position", integerSchema(0, MaxEntities)},
              {"parent_policy", enumSchema({"same_parent", "table"})},
              {"fx_policy", enumSchema({"column_only", "exclusive_branch"})}}),

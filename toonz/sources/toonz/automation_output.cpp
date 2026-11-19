@@ -432,13 +432,15 @@ QJsonObject outputSettingsSchema() {
                          {"ratio", numberSchema(0.1, 10)},
                          {"color", colorSchema()}},
                         {"mode", "ratio"})}}};
-  return objectSchema(
-      {{"range", range},
-       {"step", integerSchema(1, 1000000)},
-       {"shrink", integerSchema(1, 64)},
-       {"bpp", QJsonObject{{"type", "integer"}, {"enum", QJsonArray{32, 64}}}},
-       {"aspect_export", aspect}},
-      {});
+  return objectSchema({{"range", range},
+                       {"step", integerSchema(1, 1000000)},
+                       {"shrink", integerSchema(1, 64)},
+                       {"bpp", QJsonObject{{"type", "integer"},
+                                           {"enum", QJsonArray{32, 64}},
+                                           {"minimum", 32},
+                                           {"maximum", 64}}},
+                       {"aspect_export", aspect}},
+                      {});
 }
 
 }  // namespace

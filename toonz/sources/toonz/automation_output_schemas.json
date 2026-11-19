@@ -30539,6 +30539,14 @@
         "items": {
           "additionalProperties": false,
           "properties": {
+            "camstand_visible": {
+              "type": "boolean"
+            },
+            "color_filter_id": {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
             "column_id": {
               "maxLength": 65536,
               "minLength": 0,
@@ -30563,9 +30571,16 @@
               "type": "string"
             },
             "object_id": {
-              "maxLength": 65536,
-              "minLength": 0,
-              "type": "string"
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              ]
             },
             "opacity": {
               "maximum": 1.7976931348623157e+308,
@@ -30577,11 +30592,16 @@
               "minimum": -1.7976931348623157e+308,
               "type": "number"
             },
+            "preview_visible": {
+              "type": "boolean"
+            },
             "visible": {
               "type": "boolean"
             }
           },
           "required": [
+            "camstand_visible",
+            "color_filter_id",
             "column_id",
             "kind",
             "last_frame",
@@ -30590,6 +30610,7 @@
             "object_id",
             "opacity",
             "position",
+            "preview_visible",
             "visible"
           ],
           "type": "object"
@@ -30622,6 +30643,18 @@
         "items": {
           "additionalProperties": false,
           "properties": {
+            "bit_depth": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                }
+              ]
+            },
             "drawings": {
               "items": {
                 "additionalProperties": false,
@@ -30645,6 +30678,11 @@
               "type": "array"
             },
             "format": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "kind": {
               "maxLength": 65536,
               "minLength": 0,
               "type": "string"
@@ -30739,7 +30777,35 @@
         "minLength": 0,
         "type": "string"
       },
-      "source": {}
+      "source": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "project_id": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "scene_path": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "source_fingerprint": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      }
     },
     "required": [
       "camera",
