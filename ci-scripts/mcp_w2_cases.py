@@ -41,7 +41,7 @@ Drawing = tuple[int, str]
 ONE: Drawing = (1, "")
 ONE_A: Drawing = (1, "a")
 TWO: Drawing = (2, "")
-MAX_FRAME = 1000000
+MAX_FRAME = 999999
 TERMINAL = {"completed", "failed", "canceled", "deadline_exceeded"}
 
 
@@ -264,7 +264,7 @@ def expose_and_cells_refuse_negative_overflowing_and_oversized_ranges(
 def _past_the_last_frame(
     case: NativeAcceptance, document: str, target: dict[str, Any], read: dict[str, Any]
 ) -> None:
-    """Within the schema's bounds but past frame 1000000: refused, and nothing changes."""
+    """An interval that starts in range and runs past the last row is refused whole."""
     before = _summary(case, document)
     expose = _raw(
         case,
@@ -272,11 +272,11 @@ def _past_the_last_frame(
         case.write_params(document, {**target, "start_frame": MAX_FRAME - 1, "length": 3}),
     )
     case.assertIn("error", expose)
-    settle(case, "KV-1", expose["error"]["code"], _declared(case, "column.expose"))
+    case.assertIn(expose["error"]["code"], _declared(case, "column.expose"))
     case.assertEqual(_summary(case, document), before)
     cells = _raw(case, "column.cells", {**read, "start_frame": MAX_FRAME, "length": 2})
     case.assertIn("error", cells)
-    settle(case, "KV-1", cells["error"]["code"], _declared(case, "column.cells"))
+    case.assertIn(cells["error"]["code"], _declared(case, "column.cells"))
     case.assertEqual(_summary(case, document), before)
 
 

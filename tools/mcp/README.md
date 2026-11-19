@@ -476,7 +476,8 @@ effect parameter with `fx.parameter.set_key`; remap curves have no edit tool. A 
 expression, file or similar-shape keys is listed with its keys marked unsupported, without
 their text, and `animation.sample` refuses it with `unsupported_interpolation`.
 
-The cell tools edit up to 64 level columns per call, all or nothing; rows are
+The cell tools are the `sheet` toolset (start the adapter with `--toolsets sheet`, or
+enable it with `toolsets.enable`). They edit up to 64 level columns per call, all or nothing; rows are
 zero-based frames valid at the call's `expected_revision`. `cells.set` writes explicit
 runs of drawings and blanks without shifting (`overwrite: false` refuses occupied rows
 with `occupied_cells`). `cells.clear` blanks an interval and keeps later frame numbers;
