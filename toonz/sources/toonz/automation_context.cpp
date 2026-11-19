@@ -14,12 +14,19 @@
 #include "toonz/txshcolumn.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QUuid>
 
 #include <cmath>
 #include <limits>
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace GroundzeroAutomation {
 namespace {
@@ -35,10 +42,9 @@ bool beneath(const QString& path, const QString& root) {
   return path == root || path.startsWith(prefix);
 }
 
-bool allowedPath(const QString& absolute, const QString& canonical,
-                 const QStringList& roots) {
+bool allowedPath(const QString& path, const QStringList& roots) {
   for (const QString& root : roots)
-    if (beneath(absolute, root) && beneath(canonical, root)) return true;
+    if (beneath(path, root)) return true;
   return false;
 }
 
@@ -67,7 +73,82 @@ QString normalizedWorkerPath(const QString& path) {
   return normalized;
 }
 
-QString canonicalAncestor(const QString& path) {
+QString composed(const QString& text) {
+  return text.normalized(QString::NormalizationForm_C);
+}
+
+// Whether the path could lie in a root once its names are spelled as stored.
+// It only spares the file system questions about paths that cannot; what
+// admits a path is where the file system resolves it.
+bool composedBeneathRoot(const QString& path, const QStringList& roots) {
+  for (const QString& root : roots)
+    if (beneath(composed(path), composed(root))) return true;
+  return false;
+}
+
+#ifndef _WIN32
+// The device and inode of the entry these file-system bytes name, taken from
+// a descriptor: a directory is opened itself, anything else is looked up in
+// its opened directory. A link in the last place is never followed.
+bool entryIdentity(const QByteArray& path, struct stat& identity) {
+  const int flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC;
+  int descriptor  = ::open(path.constData(), flags | O_NOFOLLOW);
+  if (descriptor >= 0) {
+    const bool known = fstat(descriptor, &identity) == 0;
+    ::close(descriptor);
+    return known;
+  }
+  const int slash = path.lastIndexOf('/');
+  if (slash < 0) return false;
+  descriptor = ::open(slash ? path.left(slash).constData() : "/", flags);
+  if (descriptor < 0) return false;
+  const bool known = fstatat(descriptor, path.constData() + slash + 1,
+                             &identity, AT_SYMLINK_NOFOLLOW) == 0 &&
+                     !S_ISLNK(identity.st_mode);
+  ::close(descriptor);
+  return known;
+}
+
+bool linkAmongComponents(QString path) {
+  for (;;) {
+    const QFileInfo info(path);
+    if (info.isSymLink()) return true;
+    if (info.absolutePath() == path) return false;
+    path = info.absolutePath();
+  }
+}
+#endif
+
+// Whether `given` is the stored entry `canonical` under another Unicode
+// normalization of its names. Qt reports every name on macOS composed, so the
+// stored spelling of a decomposed name differs from its canonical path too.
+// Equal composed text only limits the answer to normalization, leaving out
+// case variants; that it is one entry is the file system's word: the bytes
+// the caller gave and the bytes the worker will use reach the same device and
+// inode, through no link.
+bool sameEntryRespelled(const QString& given, const QString& canonical) {
+#ifdef _WIN32
+  // Windows keeps differently normalized names apart and Qt reports names
+  // unchanged there, so a path that differs is a different path.
+  Q_UNUSED(given);
+  Q_UNUSED(canonical);
+  return false;
+#else
+  if (composed(given) != composed(canonical) || linkAmongComponents(given))
+    return false;
+  struct stat asGiven{};
+  struct stat asStored{};
+  return entryIdentity(given.toUtf8(), asGiven) &&
+         entryIdentity(QFile::encodeName(canonical), asStored) &&
+         asGiven.st_dev == asStored.st_dev && asGiven.st_ino == asStored.st_ino;
+#endif
+}
+
+// The path as the file system stores it: the deepest existing ancestor under
+// its stored names, then the names that do not exist yet as they will be
+// reported once they do. Every spelling the file system resolves to one entry
+// yields one text, so paths compare and reopen by it.
+QString storedPath(const QString& path) {
   QString ancestor = path;
   while (!QFileInfo::exists(ancestor)) {
     if (QFileInfo(ancestor).isSymLink())
@@ -83,11 +164,13 @@ QString canonicalAncestor(const QString& path) {
   if (existing.isSymLink())
     throw Error("path_denied",
                 "Symbolic links are not allowed in worker paths.");
-  if (canonical != ancestor)
+  if (canonical != ancestor && !sameEntryRespelled(ancestor, canonical))
     throw Error("path_denied",
-                "Name the path exactly as it is stored: no symbolic link, "
-                "and no case or Unicode-normalization variant of a name.");
-  return canonical;
+                "Name the path as it is stored: no symbolic link and no case "
+                "variant of a name.");
+  const QString absent =
+      QFile::decodeName(QFile::encodeName(path.mid(ancestor.size())));
+  return QDir::cleanPath(canonical + '/' + absent);
 }
 
 bool isColumnFx(TXsheet& sheet, TFx* value) {
@@ -387,23 +470,27 @@ QString Context::resolvePath(const QString& path, bool write) const {
       QDir::cleanPath(QDir(m_workspace).absoluteFilePath(normalized));
   // The workspace journal is written only by the worker itself.
   const QString reserved = QDir(m_workspace).filePath(".groundzero");
-  if (absolute.compare(reserved, Qt::CaseInsensitive) == 0 ||
-      absolute.startsWith(reserved + '/', Qt::CaseInsensitive))
-    throw Error("path_denied",
-                "Paths under .groundzero in the workspace are reserved for "
-                "the workspace journal.",
-                {{"reason", "reserved"}});
+  const auto refuseReserved = [&reserved](const QString& candidate) {
+    if (candidate.compare(reserved, Qt::CaseInsensitive) == 0 ||
+        candidate.startsWith(reserved + '/', Qt::CaseInsensitive))
+      throw Error("path_denied",
+                  "Paths under .groundzero in the workspace are reserved for "
+                  "the workspace journal.",
+                  {{"reason", "reserved"}});
+  };
+  refuseReserved(absolute);
   QStringList roots{m_workspace};
   if (!write) roots.append(m_inputRoots);
-  if (!allowedPath(absolute, absolute, roots))
+  if (!composedBeneathRoot(absolute, roots))
     throw Error("path_denied", "The path is outside the allowed roots.");
-  const QString canonical = canonicalAncestor(absolute);
-  if (!allowedPath(absolute, canonical, roots))
+  const QString stored = storedPath(absolute);
+  refuseReserved(stored);
+  if (!allowedPath(stored, roots))
     throw Error("path_denied", "The path is outside the allowed roots.");
 #ifdef BUILD_UI_PORT_TESTS
-  firePathSwap("validated", absolute);
+  firePathSwap("validated", stored);
 #endif
-  return absolute;
+  return stored;
 }
 
 QJsonObject operation(const QString& name, const QString& description,
