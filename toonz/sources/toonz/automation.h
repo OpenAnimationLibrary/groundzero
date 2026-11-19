@@ -73,6 +73,8 @@ struct Document final {
   QHash<TStageObjectSpline*, QString> pathIds;
   // Verified file metadata of sound sources, keyed by their cast level.
   QHash<TXshLevel*, QJsonObject> soundSources;
+  // How intake.import made each level it made, keyed by level handle.
+  QHash<QString, QJsonObject> intake;
   QHash<QString, TDoubleParamP> offsetLayers;
   // Set only for read-only documents opened from user scenes.
   std::shared_ptr<ReadOnlyScene> readOnly;

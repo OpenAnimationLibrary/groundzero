@@ -1,4 +1,5 @@
 #include "automation_hook.h"
+#include "automation_intake.h"
 #include "automation_path.h"
 #include "automation_rig.h"
 #include "automation_vector_opacity.h"
@@ -380,6 +381,8 @@ Package writePackage(Document& document, const QString& directory) {
     package.manifest.insert(entry.key(), entry.value());
   const QString tags = automationTagsDigest(*document.scene);
   if (!tags.isEmpty()) package.manifest.insert("tags_sha256", tags);
+  const QJsonObject intake = intakeManifest(document);
+  if (!intake.isEmpty()) package.manifest.insert("intake", intake);
   package.manifest.insert("files", fileManifest(directory));
   const QByteArray bytes =
       QJsonDocument(package.manifest).toJson(QJsonDocument::Indented);
@@ -616,6 +619,9 @@ QJsonObject openPackage(Context& context, const QJsonObject& params) {
   context.markMutationStarted();
   Document& document    = context.addDocument(std::move(scene));
   document.soundSources = sounds;
+  adoptIntakeManifest(
+      document,
+      publishedPackages.at(directory).manifest.value("intake").toObject());
   initializeAutomationRig(document);
   return {{"document_id", document.id},
           {"revision", document.revisionText()},

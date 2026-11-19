@@ -328,6 +328,96 @@
     "handler": "setHook",
     "read": []
   },
+  "intake.import": {
+    "handler": "importIntake",
+    "read": [
+      "alpha",
+      "bytes",
+      "color_metadata",
+      "column_id",
+      "copied_files",
+      "copy_name",
+      "document_id",
+      "dpi_policy",
+      "dpi_x",
+      "dpi_y",
+      "drawing_id",
+      "drawings",
+      "exposure",
+      "format",
+      "frame_rate",
+      "gap_rows",
+      "handling",
+      "height",
+      "length",
+      "level",
+      "level_id",
+      "name",
+      "number",
+      "on_gap",
+      "operation_id",
+      "outcome",
+      "pixel_format",
+      "revision",
+      "scene_frame_rate",
+      "sha256",
+      "source_directory",
+      "source_name",
+      "source_rate",
+      "start_frame",
+      "storage",
+      "stored_as",
+      "suffix",
+      "width"
+    ]
+  },
+  "intake.preflight": {
+    "handler": "preflight",
+    "read": [
+      "blocker_total",
+      "blockers",
+      "destination",
+      "document_id",
+      "files",
+      "frame_rate",
+      "importable",
+      "inline_limits",
+      "link_available",
+      "next_offset",
+      "offset",
+      "plan_digest",
+      "revision",
+      "selection",
+      "sequence",
+      "source_directory",
+      "summary"
+    ]
+  },
+  "intake.provenance": {
+    "handler": "provenance",
+    "read": [
+      "alpha",
+      "bytes",
+      "color_metadata",
+      "counts",
+      "drawing_id",
+      "height",
+      "method",
+      "missing",
+      "modified",
+      "modified_ms",
+      "name",
+      "number",
+      "pixel_format",
+      "sha256",
+      "source_status",
+      "stored_as",
+      "suffix",
+      "unchanged",
+      "unreachable",
+      "width"
+    ]
+  },
   "job.cancel": {
     "handler": null,
     "read": []
@@ -645,6 +735,24 @@
   "vector.edit": {
     "handler": "editVector",
     "read": []
+  },
+  "vector.export_svg": {
+    "handler": "exportSvg",
+    "read": [
+      "bytes",
+      "document_id",
+      "format",
+      "operation_id",
+      "path",
+      "regions_written",
+      "revision",
+      "sha256",
+      "stroke_mode",
+      "strokes_omitted",
+      "strokes_written",
+      "verified_subset",
+      "visual_only"
+    ]
   },
   "vector.fill": {
     "handler": "fillVector",

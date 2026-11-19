@@ -10544,6 +10544,1284 @@
     ],
     "type": "object"
   },
+  "intake.import": {
+    "additionalProperties": false,
+    "properties": {
+      "copied_files": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "copy_name": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "drawing_id": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "suffix": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number",
+                "suffix"
+              ],
+              "type": "object"
+            },
+            "sha256": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "source_name": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          "required": [
+            "bytes",
+            "copy_name",
+            "drawing_id",
+            "sha256",
+            "source_name"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "dpi_policy": {
+        "enum": [
+          "source",
+          "value"
+        ],
+        "type": "string"
+      },
+      "dpi_x": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "dpi_y": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "drawings": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alpha": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "bytes": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "color_metadata": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 0,
+              "type": "array"
+            },
+            "drawing_id": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "suffix": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number",
+                "suffix"
+              ],
+              "type": "object"
+            },
+            "height": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "pixel_format": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "sha256": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "stored_as": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "width": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "alpha",
+            "bytes",
+            "color_metadata",
+            "drawing_id",
+            "height",
+            "name",
+            "pixel_format",
+            "sha256",
+            "stored_as",
+            "width"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "exposure": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "column_id": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "gap_rows": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "length": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "on_gap": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "start_frame": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "column_id",
+              "gap_rows",
+              "length",
+              "on_gap",
+              "start_frame"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "frame_rate": {
+        "additionalProperties": false,
+        "properties": {
+          "handling": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "scene_frame_rate": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "source_rate": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "handling",
+          "scene_frame_rate",
+          "source_rate"
+        ],
+        "type": "object"
+      },
+      "level": {
+        "additionalProperties": false,
+        "properties": {
+          "bit_depth": {
+            "oneOf": [
+              {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "drawings": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "suffix": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number",
+                "suffix"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4096,
+            "minItems": 0,
+            "type": "array"
+          },
+          "format": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "level_id": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [
+          "drawings",
+          "format",
+          "level_id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "outcome": {
+        "enum": [
+          "created",
+          "reused"
+        ],
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "source_directory": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "storage": {
+        "enum": [
+          "copy",
+          "link"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "copied_files",
+      "document_id",
+      "dpi_policy",
+      "dpi_x",
+      "dpi_y",
+      "drawings",
+      "exposure",
+      "frame_rate",
+      "level",
+      "operation_id",
+      "outcome",
+      "revision",
+      "source_directory",
+      "storage"
+    ],
+    "type": "object"
+  },
+  "intake.preflight": {
+    "additionalProperties": false,
+    "properties": {
+      "blocker_total": {
+        "maximum": 2147483647,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "blockers": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "name": {
+              "oneOf": [
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reason": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "name",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "destination": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "collision": {
+                "enum": [
+                  "none",
+                  "level_exists"
+                ],
+                "type": "string"
+              },
+              "existing_level_id": {
+                "oneOf": [
+                  {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "existing_storage": {
+                "oneOf": [
+                  {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "name": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              }
+            },
+            "required": [
+              "collision",
+              "existing_level_id",
+              "existing_storage",
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "files": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alpha": {
+              "oneOf": [
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bit_depth": {
+              "oneOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bytes": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "color_metadata": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 0,
+              "type": "array"
+            },
+            "dpi_x": {
+              "oneOf": [
+                {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "dpi_y": {
+              "oneOf": [
+                {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "drawing_id": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "suffix": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number",
+                "suffix"
+              ],
+              "type": "object"
+            },
+            "format": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "height": {
+              "oneOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "interlaced": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "pixel_format": {
+              "oneOf": [
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reason": {
+              "oneOf": [
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "width": {
+              "oneOf": [
+                {
+                  "maximum": 2147483647,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "alpha",
+            "bit_depth",
+            "bytes",
+            "color_metadata",
+            "dpi_x",
+            "dpi_y",
+            "drawing_id",
+            "format",
+            "height",
+            "interlaced",
+            "name",
+            "pixel_format",
+            "reason",
+            "status",
+            "width"
+          ],
+          "type": "object"
+        },
+        "maxItems": 256,
+        "minItems": 0,
+        "type": "array"
+      },
+      "frame_rate": {
+        "additionalProperties": false,
+        "properties": {
+          "handling": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "scene_frame_rate": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "source_rate": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "handling",
+          "scene_frame_rate",
+          "source_rate"
+        ],
+        "type": "object"
+      },
+      "importable": {
+        "type": "boolean"
+      },
+      "inline_limits": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pixels": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          }
+        },
+        "required": [
+          "files",
+          "pixels"
+        ],
+        "type": "object"
+      },
+      "link_available": {
+        "type": "boolean"
+      },
+      "next_offset": {
+        "oneOf": [
+          {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "offset": {
+        "maximum": 2147483647,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "plan_digest": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "selection": {
+        "enum": [
+          "files",
+          "sequence"
+        ],
+        "type": "string"
+      },
+      "sequence": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "contiguous": {
+                "type": "boolean"
+              },
+              "count": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "duplicate_numbers": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "maxItems": 64,
+                "minItems": 0,
+                "type": "array"
+              },
+              "extension": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "first": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "gaps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first": {
+                      "maximum": 2147483647,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last": {
+                      "maximum": 2147483647,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first",
+                    "last"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 64,
+                "minItems": 0,
+                "type": "array"
+              },
+              "last": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "missing_frames": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "mixed_padding": {
+                "type": "boolean"
+              },
+              "prefix": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              }
+            },
+            "required": [
+              "contiguous",
+              "count",
+              "duplicate_numbers",
+              "extension",
+              "first",
+              "gaps",
+              "last",
+              "missing_frames",
+              "mixed_padding",
+              "prefix"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "source_directory": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "summary": {
+        "additionalProperties": false,
+        "properties": {
+          "dpi_x": {
+            "oneOf": [
+              {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dpi_y": {
+            "oneOf": [
+              {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "files": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "files_with_alpha": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "files_without_dpi": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "formats": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "count": {
+                  "maximum": 2147483647,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "format": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "count",
+                "format"
+              ],
+              "type": "object"
+            },
+            "maxItems": 64,
+            "minItems": 0,
+            "type": "array"
+          },
+          "height": {
+            "oneOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_bytes": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "total_pixels": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "uniform_dpi": {
+            "type": "boolean"
+          },
+          "uniform_size": {
+            "type": "boolean"
+          },
+          "width": {
+            "oneOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "dpi_x",
+          "dpi_y",
+          "files",
+          "files_with_alpha",
+          "files_without_dpi",
+          "formats",
+          "height",
+          "supported",
+          "total_bytes",
+          "total_pixels",
+          "uniform_dpi",
+          "uniform_size",
+          "width"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "blocker_total",
+      "blockers",
+      "destination",
+      "document_id",
+      "files",
+      "frame_rate",
+      "importable",
+      "inline_limits",
+      "link_available",
+      "next_offset",
+      "offset",
+      "plan_digest",
+      "revision",
+      "selection",
+      "sequence",
+      "source_directory",
+      "summary"
+    ],
+    "type": "object"
+  },
+  "intake.provenance": {
+    "additionalProperties": false,
+    "properties": {
+      "copies": {
+        "maximum": 2147483647,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "dpi_policy": {
+        "enum": [
+          "source",
+          "value"
+        ],
+        "type": "string"
+      },
+      "dpi_x": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "dpi_y": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "level_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "level_path": {
+        "enum": [
+          "private_store",
+          "linked_source",
+          "package"
+        ],
+        "type": "string"
+      },
+      "name": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "next_offset": {
+        "oneOf": [
+          {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "offset": {
+        "maximum": 2147483647,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "recorded": {
+        "type": "boolean"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "selection": {
+        "enum": [
+          "files",
+          "sequence"
+        ],
+        "type": "string"
+      },
+      "sequence_extension": {
+        "oneOf": [
+          {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "sequence_prefix": {
+        "oneOf": [
+          {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "source_check": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "additionalProperties": false,
+            "properties": {
+              "missing": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "modified": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unchanged": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unreachable": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "missing",
+              "modified",
+              "unchanged",
+              "unreachable"
+            ],
+            "type": "object"
+          },
+          "method": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [
+          "counts",
+          "method"
+        ],
+        "type": "object"
+      },
+      "source_directory": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "sources": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alpha": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "bytes": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "color_metadata": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 0,
+              "type": "array"
+            },
+            "drawing_id": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "suffix": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number",
+                "suffix"
+              ],
+              "type": "object"
+            },
+            "height": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "modified_ms": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "name": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "pixel_format": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "sha256": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "source_status": {
+              "enum": [
+                "unchanged",
+                "modified",
+                "missing",
+                "unreachable"
+              ],
+              "type": "string"
+            },
+            "stored_as": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "width": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "alpha",
+            "bytes",
+            "color_metadata",
+            "drawing_id",
+            "height",
+            "modified_ms",
+            "name",
+            "pixel_format",
+            "sha256",
+            "source_status",
+            "stored_as",
+            "width"
+          ],
+          "type": "object"
+        },
+        "maxItems": 256,
+        "minItems": 0,
+        "type": "array"
+      },
+      "storage": {
+        "enum": [
+          "copy",
+          "link"
+        ],
+        "type": "string"
+      },
+      "total_sources": {
+        "maximum": 2147483647,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "document_id",
+      "level_id",
+      "name",
+      "next_offset",
+      "offset",
+      "recorded",
+      "revision"
+    ],
+    "type": "object"
+  },
   "job.cancel": {
     "oneOf": [
       {
@@ -25560,6 +26838,9 @@
         "minimum": -1.7976931348623157e+308,
         "type": "number"
       },
+      "intake": {
+        "type": "object"
+      },
       "levels": {
         "items": {
           "additionalProperties": false,
@@ -28651,6 +29932,130 @@
       "revision",
       "sharing",
       "stroke_count"
+    ],
+    "type": "object"
+  },
+  "vector.export_svg": {
+    "additionalProperties": false,
+    "properties": {
+      "bytes": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "format": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "path": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "regions_written": {
+        "maximum": 2147483647,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "sha256": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "stroke_mode": {
+        "enum": [
+          "outline",
+          "centerline"
+        ],
+        "type": "string"
+      },
+      "strokes_omitted": {
+        "maximum": 2147483647,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "strokes_written": {
+        "maximum": 2147483647,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "verified_subset": {
+        "additionalProperties": false,
+        "properties": {
+          "losses": {
+            "items": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 0,
+            "type": "array"
+          },
+          "opacity_envelopes": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "raster_content": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "regions": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "styles": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [
+          "losses",
+          "opacity_envelopes",
+          "raster_content",
+          "regions",
+          "styles"
+        ],
+        "type": "object"
+      },
+      "visual_only": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "bytes",
+      "document_id",
+      "format",
+      "operation_id",
+      "path",
+      "regions_written",
+      "revision",
+      "sha256",
+      "stroke_mode",
+      "strokes_omitted",
+      "strokes_written",
+      "verified_subset",
+      "visual_only"
     ],
     "type": "object"
   },

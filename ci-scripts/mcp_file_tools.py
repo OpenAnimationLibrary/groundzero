@@ -18,6 +18,7 @@ from mcp_library_cases import _package_scene
 from mcp_lipsync_cases import Cue, tsv_file
 from mcp_png import write_fixture
 from mcp_scene_access_cases import project_xml
+from mcp_vector_opacity_cases import _fixture as _vector_fixture
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -162,6 +163,48 @@ def _png_export(case: NativeAcceptance, state: State, path: str) -> dict[str, An
     )
 
 
+def _source_folder(_case: NativeAcceptance, _state: State, path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    write_fixture(path / "a.png")
+
+
+def _intake_preflight(case: NativeAcceptance, state: State, path: str) -> dict[str, Any]:
+    params = {"document_id": state["document"], "source_directory": path, "file_names": ["a.png"]}
+    return case.worker.call("intake.preflight", params)
+
+
+def _intake_import(case: NativeAcceptance, state: State, path: str) -> dict[str, Any]:
+    return invoke(
+        case,
+        "intake.import",
+        state["document"],
+        source_directory=path,
+        file_names=["a.png"],
+        name=_name(case, "Intake"),
+        storage="copy",
+        on_existing="refuse",
+        dpi_policy="value",
+        dpi=120,
+        exposure="none",
+    )
+
+
+def _vector(case: NativeAcceptance) -> State:
+    document, target = _vector_fixture(case)
+    return {"document": document, "target": target}
+
+
+def _svg_export(case: NativeAcceptance, state: State, path: str) -> dict[str, Any]:
+    return invoke(
+        case,
+        "vector.export_svg",
+        state["document"],
+        **state["target"],
+        path=path,
+        stroke_mode="outline",
+    )
+
+
 def _audio_import(case: NativeAcceptance, state: State, path: str) -> dict[str, Any]:
     return invoke(case, "audio.import", state["document"], path=path, name=_name(case, "Sound"))
 
@@ -243,6 +286,7 @@ def _package_info(case: NativeAcceptance, _state: State, path: str) -> dict[str,
 
 
 READ_ONLY_REFUSED = frozenset({"not_found", "invalid_path", "invalid_scene", "unsupported_type"})
+SOURCE_MISSING = frozenset({"not_found", "invalid_path", "io_error"})
 INPUT_MISSING = frozenset({"invalid_asset", "io_error", "asset_unavailable", "invalid_params"})
 OUTPUT_FAILED = frozenset(
     {"io_error", "missing_parent", "package_write_failed", "PRESET_WRITE_FAILED"}
@@ -269,6 +313,36 @@ PATH_TOOLS: dict[str, PathTool] = {
         ),
         PathTool(
             "audio.import", ("path",), "read", ".wav", INPUT_MISSING, _document, _audio_import, _wav
+        ),
+        PathTool(
+            "intake.preflight",
+            ("source_directory",),
+            "read",
+            "",
+            SOURCE_MISSING,
+            _document,
+            _intake_preflight,
+            _source_folder,
+        ),
+        PathTool(
+            "intake.import",
+            ("source_directory",),
+            "read",
+            "",
+            SOURCE_MISSING,
+            _document,
+            _intake_import,
+            _source_folder,
+        ),
+        PathTool(
+            "vector.export_svg",
+            ("path",),
+            "write",
+            ".svg",
+            OUTPUT_FAILED,
+            _vector,
+            _svg_export,
+            _file,
         ),
         PathTool(
             "lipsync.import",

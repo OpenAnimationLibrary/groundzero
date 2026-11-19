@@ -171,12 +171,12 @@ class CensusFailureCases(unittest.TestCase):
         self.assert_reports(self.static(), "README names toolset ghost")
 
     def test_readme_file_format_the_census_lacks_fails(self) -> None:
-        self.readme += "\nRender can also write TIFF files.\n"
-        self.assert_reports(self.static(), "README names file format TIFF")
+        self.readme += "\nRender can also write HDR files.\n"
+        self.assert_reports(self.static(), "README names file format HDR")
 
     def test_readme_format_literal_the_census_lacks_fails(self) -> None:
-        self.readme += '\nPass `format: "gif"` to render.submit.\n'
-        self.assert_reports(self.static(), "README names file format GIF")
+        self.readme += '\nPass `format: "webm"` to render.submit.\n'
+        self.assert_reports(self.static(), "README names file format WEBM")
 
     def test_readme_extension_the_census_lacks_fails(self) -> None:
         self.readme += "\nWrites a `.tga` file.\n"

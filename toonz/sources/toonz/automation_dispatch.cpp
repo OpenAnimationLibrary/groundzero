@@ -8,6 +8,7 @@
 #include "automation_path.h"
 #include "automation_audio.h"
 #include "automation_hook.h"
+#include "automation_intake.h"
 #include "automation_jobs.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
@@ -286,7 +287,10 @@ const QMap<QString, QString>& toolsetDescriptions() {
        "application to drawing columns."},
       {"sheet",
        "Cell ranges of level columns: set, clear, remove, insert, copy, "
-       "retime and replace exposures."}};
+       "retime and replace exposures."},
+      {"intake",
+       "Image intake: preflight of PNG files and sequences, import with an "
+       "explicit copy or link choice, and import provenance."}};
   return descriptions;
 }
 
@@ -418,6 +422,8 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(fxOperations(), executeFx, "core");
   add(fxRecipeOperations(), executeFx, "fx-finishing");
   add(drawingOperations(), executeDrawing, "core");
+  add(svgExportOperations(), executeSvgExport, "core");
+  add(intakeOperations(), executeIntake, "intake");
   add(renderOperations(), executeRender, "core");
   add(runtimeOperations(), executeRuntime, "core");
   add(jobOperations(), executeJobs, "core");

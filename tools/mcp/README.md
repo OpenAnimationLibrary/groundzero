@@ -350,6 +350,52 @@ palette links. Style names cannot contain NUL or start with `|`. Palette keyfram
 use frames 0–65535 for vector levels and 0–999999 for Toonz raster levels. Consult
 the running catalog for the remaining operation-specific bounds.
 
+The `intake` toolset brings images in with every choice stated. Sources come from one
+directory in a granted root (`source_directory`): either `file_names` (1 to 256 plain
+names, drawings 1, 2, 3 … in that order) or a numbered sequence `<prefix>.<digits>.<ext>`
+(`sequence_prefix`, `sequence_extension`; drawing numbers are the frame numbers, 1 to
+999999, one padding width per sequence).
+
+- `intake.preflight` reads headers only, never decodes and changes nothing. Each file
+  row gives its format from the file's signature (PNG, JPEG, TIFF, GIF, BMP, WebP, PSD,
+  OpenEXR, SVG, MP4 and others by name), size, sample depth, pixel format, alpha
+  (`channel`, `transparency_chunk` or `none`), DPI from `pHYs`, colour metadata
+  (`gamma`, `srgb`, `icc_profile`: reported, never applied) and a `status`: `supported`
+  or the code an import would answer. The report adds the sequence's first and last
+  frame, gaps and repeated numbers, a summary (uniform size and DPI, alpha count), the
+  frame-rate handling (images carry no rate; one source frame is one row at the scene's
+  rate), the destination name's collision, whether a link is possible, the blockers and
+  a `plan_digest`. Rows are paged with `offset` and `limit` (default 64).
+- `intake.import` makes one RGBA8 level from up to 64 files and 64 megapixels; larger
+  sets answer `resource_limit` with the limit `inline_import` in its details. Every choice the
+  editor asks in a dialog is an argument: `storage` (`copy` writes a byte-identical
+  private copy of each file and returns the manifest of copies with their SHA-256;
+  `link` copies nothing and keeps the level's native path on the source sequence, for
+  sequences only), `on_existing` (`refuse`, or `reuse_identical`, which returns the
+  existing level with `outcome: reused` and no revision change when its recorded sources
+  have the same SHA-256, and `name_conflict` listing the differences otherwise),
+  `dpi_policy` (`source`, which needs one `pHYs` density in every file, or `value` with
+  `dpi`), `on_gap` (`refuse` by default, `hold` or `blank` for missing frames) and
+  `exposure` (`none`, or `new_column` from `start_frame`). Only PNG up to 8 bits per
+  sample is imported (`unsupported_format` names the format of anything else,
+  `unsupported_precision` refuses 16-bit); a header that disagrees with the decoded
+  image is `invalid_asset`. Passing the preflight's `plan_digest` refuses the import
+  with `source_changed` when a file changed since. Nothing is ever overwritten.
+- `intake.provenance` reads a level's import record: storage, source directory, each
+  drawing's source name, size and SHA-256, and whether each source still has the size and
+  modification time it had (`unchanged`, `modified`, `missing`, `unreachable`). The
+  drawings are decoded at import, so a later change of a source never changes the
+  document. Records travel with `scene.save_copy` (manifest key `intake`) and come back
+  with `scene.open`, where `level_path` reads `package`.
+
+`vector.export_svg` writes one vector drawing to a new `.svg` path through the native
+writer, as filled outlines or centerline strokes (`stroke_mode`). Only the verified
+subset is exported: solid styles and strokes without an opacity envelope; anything
+else is refused with `unsupported_content` before a file is written. The file is read
+back and its path count checked against the drawing. The result's `verified_subset`
+lists the losses: coordinates rounded to 0.1 units, zero-thickness strokes omitted,
+and averaged thickness in centerline mode.
+
 `vector.structure` reports stroke order and native group spans, including nested
 groups, with at most 4096 strokes/groups, depth 16, and 1 MiB of metadata. Spans
 expire when the document revision changes; native stroke IDs are not persistent
@@ -1077,7 +1123,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (118):
+- `core` toolset (119):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1102,15 +1148,17 @@ the adapter and the live editor bridge add the rest.
   `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
   `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
   `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
-  `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
-  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
-  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
-  `vector.transform`
+  `vector.edit`, `vector.export_svg`, `vector.fill`, `vector.group.create`,
+  `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
+  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
+  `vector.structure`, `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
 - `fx-finishing` toolset (1):
   `fx.recipe.list`
+- `intake` toolset (3):
+  `intake.import`, `intake.preflight`, `intake.provenance`
 - `lipsync` toolset (3):
   `lipsync.apply`, `lipsync.import`, `lipsync.inspect`
 - `rigging` toolset (10):

@@ -7097,6 +7097,98 @@
     },
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
    }
+  },
+  "intake.import": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "adds a level holding imported PNG drawings and records their provenance",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "source_directory": "${inputs}",
+     "file_names": [
+      "quadrants.png"
+     ],
+     "name": "I",
+     "storage": "copy",
+     "on_existing": "refuse",
+     "dpi_policy": "value",
+     "dpi": 120,
+     "exposure": "none"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "source_directory": "${inputs}",
+      "file_names": [
+       "missing.png"
+      ],
+      "name": "I",
+      "storage": "copy",
+      "on_existing": "refuse",
+      "dpi_policy": "value",
+      "dpi": 120,
+      "exposure": "none"
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "name_conflict",
+    "documented": "on_existing refuse: a repeat under a new operation_id is refused and changes nothing; reuse_identical returns the level without a revision change."
+   }
+  },
+  "vector.export_svg": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "vec",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes an SVG file and leaves the document as it was",
+   "bumps": "none; an export is a file, not document content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "path": "${workspace}/export.svg",
+     "stroke_mode": "outline"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "path": "/nonexistent-root/export.svg",
+      "stroke_mode": "outline"
+     },
+     "code": "path_denied"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/export.svg"
+   }
   }
  },
  "known_violations": []
