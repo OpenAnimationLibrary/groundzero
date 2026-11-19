@@ -210,7 +210,7 @@ handshake, since a cold start on a loaded machine spends most of that loading th
 executable. A worker that does not answer in time fails the call with a message that
 says the handshake timed out and after how many milliseconds.
 
-The adapter requires native automation protocol version 3. An older or newer
+The adapter requires native automation protocol version 4. An older or newer
 worker is refused with `INCOMPATIBLE_WORKER`.
 
 Ask the MCP host to list tools to see the capabilities of that binary. Tool input
@@ -792,12 +792,13 @@ A host ends with its worker: on macOS and Linux it exits when its parent process
 goes, and on Windows the worker holds it in a job object that closes with the worker.
 
 A read-only document's revision is always `"0"`. `scene.summary` (with optional
-`include_drawings: false`), `camera.inspect`, `level.inspect`, `cast.list`,
+`include_drawings: false` and paging, see below), `camera.inspect`, `level.inspect`, `cast.list`,
 `cast.usage`, `scene.dependencies`, `scene.validate`, `fx.graph`, `scene.inventory`,
 `scene.source_status`, `column.cells`, `drawing.inspect`, `palette.inspect`,
 `palette.pages`, `fx.parameter.get`, `animation.channels`, `animation.keys`,
 `animation.sample`, `vector.inspect`, `vector.structure`, `vector.opacity.inspect`,
-`raster.read_pixels`, `render.preview` and `render.submit` run in its host; the job and
+`raster.read_pixels`, `render.preview`, `render.submit` and `drawing.analysis.submit`
+run in its host; the job and
 artifact tools follow the job. Reads that decode drawings first re-check that level's
 pinned files and return `source_changed` if one changed.
 Production reads report `profile: "native-read-only-v1"`; cast rows add `kind`,
@@ -918,6 +919,28 @@ same source is refused, because the native column would join the two.
 source in the cast. `column.update` mutes a sound column with `visible: false`
 and `column.delete` removes it with its clips; sound columns have no opacity.
 `column.cells` and `column.expose` refuse sound columns and sources.
+`scene.summary` pages its `columns`, `levels` and `objects`: at most `limit` records of
+each (default 256, at most 1024) and 256 KiB per call. `pages` gives each list's
+`offset`, `total` and `next_offset`, null on its last page, to pass back as
+`columns_offset`, `levels_offset` or `objects_offset`; a single record above 1 MiB is
+`resource_limit` (use `include_drawings: false`). The writes that return a summary
+return its first page. A draft created with `scene.create` and a `project_id` reports
+`project {project_id, name, file_revision, file_path_rules_applied: false}`; every
+other document reports `project: null`.
+
+`project.create` writes a native project definition in a new workspace folder (its last
+component is the project name) from explicit `folders`, `file_path_rules` and
+`scene_defaults`, never from the editor's current project; it reads the definition back
+through a parse helper, publishes the folder without replacing anything and returns the
+`project.inspect` record with a `project_id`. An existing folder is `already_exists`, a
+name a listed or created project already has is `name_conflict`, and a failure before
+publication leaves nothing behind (`details.published: false`). `project.duplicate`
+copies a project's definition the same way: no scene or asset is copied
+(`assets_copied: false`) and folders still pointing outside the copy are listed in
+`shared_folders`. `scene.create` with a `project_id` uses the project's scene defaults
+unless settings are given; the draft's files are still written only as worker packages,
+never into the project's folders, and the editor's current project is never changed.
+
 `scene.summary` reports each column's `kind` and sound sources as format `sound`.
 `audio.inspect` reports sources with their format, digests and native frame
 count, columns with clips and source sample ranges, and the columns a mix
@@ -1066,8 +1089,8 @@ over budget. A cancellation ends the job at once and a rebuild in flight is aban
 worker does not wait for it at exit. A write
 to the document ends the job `failed` with `revision_changed`; `job.cancel` ends it
 `canceled` with the rows gathered so far. A second analysis while one runs is refused with
-`analysis_busy`. A read-only document refuses `drawing.analysis.submit` with
-`read_only_document` and `details.reason` `not_qualified`.
+`analysis_busy`. On a read-only document the analysis runs in its scene host and fails
+with `source_changed` when a pinned source file changed while it ran.
 
 `scene.check.submit` starts one scene check as an analysis job (`kind` `scene_check`,
 `lane` `analysis`). `check: "unused_styles"` lists the palette styles that no drawing of
@@ -1080,6 +1103,20 @@ support: one row per finding of the native compatibility report, with a `code` n
 which of its 19 rules fired, a `certainty` (`confirmed_loss`, `refusal_risk` or
 `unknown_support`), `severity`, `message`, `sheet_path`, `level_id`, `column_index` and
 `frame`. It loads every vector drawing, so `scene.validate` does not report it.
+`check: "media_decode"` (read-only documents only; an editable one is refused with
+`details.reason: editable_document`) decodes every image, level and sound file the scene
+uses, each frame of a sequence included: the worker copies each file it may read and
+starts parse helpers (10 seconds and 1 GiB each, up to 64 files) on the copies, so a
+crashing decoder ends one helper, and the files a failed helper did not answer are
+decoded again one per helper to name the file. One row per file gives `result`
+(`decoded`, `corrupt`, `unreadable`, `unsupported_format` for movies, PSD and every
+format without a decoder in the check, `too_large` above
+256 MiB, `missing`, `outside_roots`, `crashed`, `timeout`, `memory` or
+`skipped_budget`), with `frames_checked`, `width`, `height` and `message`. A PNG must
+have every chunk and its CRC, WAV and AIFF files the sample length their headers declare
+and two other image formats their end marker or declared length; the remaining formats
+are as strict as their native decoders. `max_files` (default 4096) and `max_bytes` (default 2 GiB) end
+the check incomplete with `file_budget` or `byte_budget`.
 `job.result` pages the rows (up to 256 per page) with a `summary`, `complete` and
 `reasons`. The work runs on the worker's main thread in steps that stop once 20 ms have
 passed, after the drawing or level in progress; `job.cancel` ends a check at once and
@@ -1291,7 +1328,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (121):
+- `core` toolset (123):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1310,10 +1347,10 @@ the adapter and the live editor bridge add the rest.
   `object.path.detach`, `operation.list`, `operation.status`, `palette.clone_style`,
   `palette.create_style`, `palette.inspect`, `palette.page.create`, `palette.page.move`,
   `palette.page.remove`, `palette.page.rename`, `palette.pages`, `palette.rename_style`,
-  `palette.style.move`, `palette.update_style`, `project.inspect`, `project.list`,
-  `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
-  `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
-  `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
+  `palette.style.move`, `palette.update_style`, `project.create`, `project.duplicate`,
+  `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`,
+  `raster.patch`, `raster.read_pixels`, `render.capabilities`, `render.preflight`,
+  `render.preview`, `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
   `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
   `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
   `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,

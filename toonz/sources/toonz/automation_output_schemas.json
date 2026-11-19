@@ -24589,6 +24589,397 @@
     ],
     "type": "object"
   },
+  "project.create": {
+    "additionalProperties": false,
+    "properties": {
+      "alternates": {
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
+      "file_path_rules": {
+        "additionalProperties": false,
+        "properties": {
+          "accept_non_alphabet_suffix": {
+            "type": "boolean"
+          },
+          "letter_count_for_suffix": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "no_separator_format_allowed": {
+            "type": "boolean"
+          },
+          "use_standard": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "file_revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "folder": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "folders": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alias": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "authority": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "coded_path": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "exists": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "resolved_path": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              ]
+            },
+            "scene_dependent": {
+              "type": "boolean"
+            },
+            "use_scene_path": {
+              "type": "boolean"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
+      "format": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "kind": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "name": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "project_file": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "project_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scene_defaults": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "camera_height_in": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "camera_height_px": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "camera_width_in": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "camera_width_px": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "frame_rate": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "version": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "required": [
+      "file_path_rules",
+      "file_revision",
+      "folder",
+      "folders",
+      "name",
+      "operation_id",
+      "project_file",
+      "project_id"
+    ],
+    "type": "object"
+  },
+  "project.duplicate": {
+    "additionalProperties": false,
+    "properties": {
+      "alternates": {
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
+      "assets_copied": {
+        "type": "boolean"
+      },
+      "file_path_rules": {
+        "additionalProperties": false,
+        "properties": {
+          "accept_non_alphabet_suffix": {
+            "type": "boolean"
+          },
+          "letter_count_for_suffix": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "no_separator_format_allowed": {
+            "type": "boolean"
+          },
+          "use_standard": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "file_revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "folder": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "folders": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alias": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "authority": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "coded_path": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "exists": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "resolved_path": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              ]
+            },
+            "scene_dependent": {
+              "type": "boolean"
+            },
+            "use_scene_path": {
+              "type": "boolean"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
+      "format": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "kind": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "name": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "project_file": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "project_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scene_defaults": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "camera_height_in": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "camera_height_px": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "camera_width_in": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "camera_width_px": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "frame_rate": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
+      },
+      "shared_folders": {
+        "items": {
+          "maxLength": 65536,
+          "minLength": 0,
+          "type": "string"
+        },
+        "maxItems": 1048576,
+        "minItems": 0,
+        "type": "array"
+      },
+      "source_project_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "version": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "required": [
+      "assets_copied",
+      "operation_id",
+      "project_id",
+      "shared_folders",
+      "source_project_id"
+    ],
+    "type": "object"
+  },
   "project.inspect": {
     "additionalProperties": false,
     "properties": {
@@ -29801,6 +30192,11 @@
         "minItems": 0,
         "type": "array"
       },
+      "limit": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
       "mode": {
         "maxLength": 65536,
         "minLength": 0,
@@ -29863,6 +30259,132 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "pages": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "levels": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "objects": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "project": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "file_path_rules_applied": {
+                "type": "boolean"
+              },
+              "file_revision": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "project_id": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
       },
       "revision": {
         "maxLength": 65536,
@@ -33575,6 +34097,11 @@
         "minItems": 0,
         "type": "array"
       },
+      "limit": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
       "mode": {
         "maxLength": 65536,
         "minLength": 0,
@@ -33637,6 +34164,132 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "pages": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "levels": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "objects": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "project": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "file_path_rules_applied": {
+                "type": "boolean"
+              },
+              "file_revision": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "project_id": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
       },
       "revision": {
         "maxLength": 65536,
@@ -34020,6 +34673,11 @@
         "minItems": 0,
         "type": "array"
       },
+      "limit": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
       "mode": {
         "maxLength": 65536,
         "minLength": 0,
@@ -34077,6 +34735,132 @@
         "maxItems": 1048576,
         "minItems": 0,
         "type": "array"
+      },
+      "pages": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "levels": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "objects": {
+            "additionalProperties": false,
+            "properties": {
+              "next_offset": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                ]
+              },
+              "offset": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "total": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "project": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "file_path_rules_applied": {
+                "type": "boolean"
+              },
+              "file_revision": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "name": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "project_id": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        ]
       },
       "revision": {
         "maxLength": 65536,

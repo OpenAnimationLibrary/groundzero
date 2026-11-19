@@ -173,6 +173,10 @@ QHash<TXsheet*, QJsonArray> sheetPaths(Document& document,
 // Refuse a new analysis job while one runs in this worker or any of its scene
 // hosts, or when they retain 32 (analysis_busy, resource_limit).
 void requireAnalysisCapacity(Context& context);
+// Send one read to the scene host of a read-only document and return its
+// result; host loss and refusals arrive as the host's errors.
+QJsonValue readFromSceneHost(Context& context, const QString& documentId,
+                             const QString& method, const QJsonObject& params);
 // Classify every level, column and effect of a loaded user scene.
 void classifyReadOnlyContent(Document& document);
 // Section 3.4 structure bounds: sheets, depth, effects and stage objects.
@@ -216,6 +220,11 @@ QJsonValue executeSceneInventory(Context& context, const QString& method,
 QJsonObject nativeProjectSummary(const QString& projectFile);
 // project.inspect with a project_id this worker issued.
 QJsonValue inspectGrantedProject(Context& context, const QString& projectId);
+// Register a project definition the worker wrote, as project.list would, and
+// return its project_id.
+QString registerWrittenProject(Context& context, const QString& projectFile);
+// Whether a listed or written project already has this name (any case).
+bool projectNameRegistered(Context& context, const QString& name);
 
 // Worker side.
 QJsonArray sceneAccessOperations();

@@ -132,16 +132,18 @@
      ]
     },
     "create": {
-     "disposition": "planned",
-     "outcome": "project.create_and_select"
+     "tools": [
+      "project.create"
+     ]
     },
     "modify": {
-     "disposition": "planned",
-     "outcome": "project.create_and_select"
+     "disposition": "unsupported",
+     "reason": "no tool changes an existing project's folders or scene defaults; project.create and project.duplicate write a project once"
     },
     "duplicate": {
-     "disposition": "planned",
-     "outcome": "project.portable_collection"
+     "tools": [
+      "project.duplicate"
+     ]
     },
     "reorder": {
      "disposition": "unsupported",
@@ -152,8 +154,10 @@
      "reason": "projects are user folders; no tool deletes one"
     },
     "persist": {
-     "disposition": "planned",
-     "outcome": "project.create_and_select"
+     "tools": [
+      "project.create"
+     ],
+     "evidence": "mcp_project_write_cases.py"
     },
     "recover": {
      "disposition": "planned",

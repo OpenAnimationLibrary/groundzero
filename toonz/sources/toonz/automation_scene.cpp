@@ -6,6 +6,7 @@
 #include "automation_drawing.h"
 #include "automation_files.h"
 #include "automation_object.h"
+#include "automation_projects.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
 #include "automation_scene_shared.h"
@@ -22,15 +23,21 @@
 #include "toonz/txsheet.h"
 
 #include <QDir>
+#include <QJsonDocument>
 #include <QSet>
 
 #include <cmath>
+#include <functional>
 #include <map>
 #include <vector>
 
 namespace GroundzeroAutomation {
 using namespace SceneShared;
 namespace {
+
+QJsonObject summaryOffsetSchema() {
+  return {{"type", "integer"}, {"minimum", 0}, {"maximum", 16384}};
+}
 
 QJsonObject arraySchema(const QJsonObject& items) {
   return {{"type", "array"},
@@ -55,19 +62,92 @@ QJsonObject describeObject(Document& document, TStageObject* object) {
           {"locked", object->isLocked()}};
 }
 
-QJsonObject describeScene(Document& document, bool includeDrawings = true) {
+constexpr int DefaultSummaryLimit = 256;
+constexpr qint64 MaxSummaryBytes  = 1024 * 1024;
+constexpr int MaxSummaryLimit     = 1024;
+constexpr int MaxSummaryOffset    = 16384;
+// Records stop being added to a page once it holds this many bytes; a page
+// always carries the first record of each list it continues.
+constexpr qint64 SummaryPageBytes = 256 * 1024;
+
+// Which part of each of the summary's three lists a call returns.
+struct SummaryPage final {
+  int limit   = DefaultSummaryLimit;
+  int columns = 0;
+  int levels  = 0;
+  int objects = 0;
+};
+
+SummaryPage summaryPage(const QJsonObject& params) {
+  return {
+      integerParam(params, "limit", 1, MaxSummaryLimit, DefaultSummaryLimit),
+      integerParam(params, "columns_offset", 0, MaxSummaryOffset, 0),
+      integerParam(params, "levels_offset", 0, MaxSummaryOffset, 0),
+      integerParam(params, "objects_offset", 0, MaxSummaryOffset, 0)};
+}
+
+// One list page: records [offset, next) of total, within the limit and the
+// shared byte budget. A null record (an empty column slot) is skipped.
+QJsonObject listPage(const QString& name, int total, int offset, int limit,
+                     qint64& bytes,
+                     const std::function<QJsonValue(int)>& record,
+                     QJsonArray& items) {
+  if (offset > total)
+    throw Error("invalid_params", name + "_offset is beyond the list.",
+                {{"total", total}});
+  int index = offset;
+  for (; index < total && items.size() < limit; ++index) {
+    const QJsonValue value = record(index);
+    if (value.isNull()) continue;
+    const qint64 size =
+        QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact).size();
+    if (!items.isEmpty() && bytes + size > SummaryPageBytes) break;
+    bytes += size;
+    items.append(value);
+  }
+  return {{"offset", offset},
+          {"total", total},
+          {"next_offset", index < total ? QJsonValue(index) : QJsonValue()}};
+}
+
+QJsonObject describeScene(Document& document, bool includeDrawings = true,
+                          const SummaryPage& page = SummaryPage()) {
   QJsonArray columns, levels, objects;
-  TXsheet* sheet = document.scene->getXsheet();
-  for (int index = 0; index < sheet->getColumnCount(); ++index)
-    if (TXshColumn* column = sheet->getColumn(index))
-      columns.append(describeColumn(document, column));
-  TLevelSet* cast = document.scene->getLevelSet();
-  for (int index = 0; index < cast->getLevelCount(); ++index)
-    levels.append(
-        describeLevel(document, cast->getLevel(index), includeDrawings));
-  for (int index = 0; index < tree(document)->getStageObjectCount(); ++index)
-    objects.append(
-        describeObject(document, tree(document)->getStageObject(index)));
+  TXsheet* sheet          = document.scene->getXsheet();
+  TLevelSet* cast         = document.scene->getLevelSet();
+  TStageObjectTree* stage = tree(document);
+  qint64 bytes            = 0;
+  QJsonObject pages{
+      {"columns",
+       listPage(
+           "columns", sheet->getColumnCount(), page.columns, page.limit, bytes,
+           [&](int index) -> QJsonValue {
+             TXshColumn* column = sheet->getColumn(index);
+             return column ? QJsonValue(describeColumn(document, column))
+                           : QJsonValue();
+           },
+           columns)},
+      {"levels",
+       listPage(
+           "levels", cast->getLevelCount(), page.levels, page.limit, bytes,
+           [&](int index) -> QJsonValue {
+             return describeLevel(document, cast->getLevel(index),
+                                  includeDrawings);
+           },
+           levels)},
+      {"objects", listPage(
+                      "objects", stage->getStageObjectCount(), page.objects,
+                      page.limit, bytes,
+                      [&](int index) -> QJsonValue {
+                        return describeObject(document,
+                                              stage->getStageObject(index));
+                      },
+                      objects)}};
+  if (bytes > MaxSummaryBytes)
+    throw Error("resource_limit",
+                "One summary record exceeds 1 MiB; pass include_drawings "
+                "false or use level.inspect.",
+                {{"limit", "page_bytes"}});
   return {
       {"document_id", document.id},
       {"revision", document.revisionText()},
@@ -84,7 +164,11 @@ QJsonObject describeScene(Document& document, bool includeDrawings = true) {
       {"access", document.readOnly ? "read_only" : "editable"},
       {"source", document.readOnly
                      ? QJsonValue(document.readOnly->summarySource())
-                     : QJsonValue()}};
+                     : QJsonValue()},
+      {"limit", page.limit},
+      {"pages", pages},
+      {"project", document.project.isEmpty() ? QJsonValue()
+                                             : QJsonValue(document.project)}};
 }
 
 struct Settings {
@@ -121,6 +205,23 @@ void applySettings(ToonzScene& scene, const Settings& settings) {
   setAutomationSoundFrameRate(scene, settings.fps);
 }
 
+// A project's scene defaults as explicit settings; a project without a
+// camera keeps the scene's.
+Settings projectSettings(const QJsonValue& defaults, ToonzScene& scene) {
+  const QJsonObject value = defaults.toObject();
+  QJsonObject params;
+  const std::pair<const char*, const char*> fields[]{
+      {"camera_width_px", "width_px"},
+      {"camera_height_px", "height_px"},
+      {"camera_width_in", "width_in"},
+      {"camera_height_in", "height_in"},
+      {"frame_rate", "frame_rate"}};
+  for (const auto& field : fields)
+    if (value.contains(field.first))
+      params.insert(field.second, value.value(field.first));
+  return readSettings(params, scene);
+}
+
 QJsonValue createScene(Context& context, const QJsonObject& params) {
   context.requireDocumentCapacity();
   const QString name = nameParam(params);
@@ -132,16 +233,23 @@ QJsonValue createScene(Context& context, const QJsonObject& params) {
   scene->setScenePath(TFilePath(
       QDir(context.workspace()).filePath(name + ".tnz").toStdWString()));
   applySettings(*scene, {1920, 1080, 16.0, 9.0, 24.0});
+  DraftProject project;
+  if (params.contains("project_id")) {
+    project = draftProject(context, requiredString(params, "project_id"));
+    applySettings(*scene, projectSettings(project.sceneDefaults, *scene));
+  }
   applySettings(*scene, readSettings(params, *scene));
   applyBackgroundColor(*scene, params);
   context.markMutationStarted();
   Document& document = context.addDocument(std::move(scene));
+  document.project   = project.binding;
   return describeScene(document);
 }
 
 QJsonValue sceneSummary(Context& context, const QJsonObject& params) {
   return describeScene(getDocument(context, params),
-                       boolParam(params, "include_drawings", true));
+                       boolParam(params, "include_drawings", true),
+                       summaryPage(params));
 }
 
 }  // namespace
@@ -729,14 +837,32 @@ void addSceneOperations(QJsonArray& catalog) {
       {}));
   catalog.append(operation(
       "scene.create",
-      "Create an isolated native scene. Timeline frames start at 0.",
-      merge(settings, {{"name", boundedNameSchema(128)}}), {"name"}, true));
+      "Create an isolated native scene. Timeline frames start at 0. "
+      "project_id (from project.list or project.create) binds the "
+      "draft to that project: its scene defaults become the "
+      "settings unless given explicitly, and summaries report the "
+      "binding; files are still written only as worker packages.",
+      merge(settings, {{"name", boundedNameSchema(128)},
+                       {"project_id", QJsonObject{{"type", "string"},
+                                                  {"minLength", 1},
+                                                  {"maxLength", 64}}}}),
+      {"name"}, true));
   catalog.append(
       operation("scene.summary",
                 "Inspect native scene, levels, columns and stage objects; "
-                "include_drawings false omits per-level drawing lists.",
+                "include_drawings false omits per-level drawing lists. Each "
+                "list is paged: at most limit records (default 256) and "
+                "256 KiB per call; pages names each list's next_offset, "
+                "null on its last page, to pass back as columns_offset, "
+                "levels_offset or objects_offset.",
                 merge(documentSchema(),
-                      {{"include_drawings", QJsonObject{{"type", "boolean"}}}}),
+                      {{"include_drawings", QJsonObject{{"type", "boolean"}}},
+                       {"limit", QJsonObject{{"type", "integer"},
+                                             {"minimum", 1},
+                                             {"maximum", MaxSummaryLimit}}},
+                       {"columns_offset", summaryOffsetSchema()},
+                       {"levels_offset", summaryOffsetSchema()},
+                       {"objects_offset", summaryOffsetSchema()}}),
                 {"document_id"}));
   catalog.append(operation(
       "scene.settings",

@@ -86,7 +86,7 @@ async function session(strict = false) {
   const request = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
     if (method === "automation.capabilities") {
       return {
-        protocol_version: 3,
+        protocol_version: 4,
         tools: [
           { ...tool, ...declared, toolset: "core" },
           { ...describe, toolset: "core" },
@@ -210,7 +210,7 @@ test.each([
 ])("rejects a catalog whose output schema or declarations are malformed", async (fields) => {
   const tools = [{ ...tool, ...fields, toolset: "core" }];
   await expectUnusableCatalog(
-    { protocol_version: 3, tools, toolsets: core([tool.name]) },
+    { protocol_version: 4, tools, toolsets: core([tool.name]) },
     /^INVALID_CATALOG$/u,
   );
 });
@@ -220,7 +220,7 @@ test("reads every page of the native tool catalog", async () => {
   const request = vi.fn(async (_method: string, params: Record<string, unknown> = {}) => {
     const offset = params["offset"] ?? 0;
     return {
-      protocol_version: 3,
+      protocol_version: 4,
       tools: [{ ...(offset === 0 ? tool : second), ...declared }],
       next_offset: offset === 0 ? 1 : null,
       toolsets: [{ name: "core", description: "Core tools", tools: [tool.name, second.name] }],
@@ -237,7 +237,7 @@ test("reads every page of the native tool catalog", async () => {
 
 test("refuses a catalog page that never ends", async () => {
   const request = vi.fn(async () => ({
-    protocol_version: 3,
+    protocol_version: 4,
     tools: [{ ...tool, ...declared }],
     next_offset: 1,
     toolsets: [{ name: "core", description: "Core tools", tools: [tool.name] }],
@@ -288,16 +288,16 @@ const core = (names: string[]) => [{ name: "core", description: "Core tools", to
 test.each([
   { protocol_version: 1, tools: [{ ...tool, ...declared }], toolsets: core([tool.name]) },
   {
-    protocol_version: 3,
+    protocol_version: 4,
     tools: [
       { ...tool, ...declared },
       { ...tool, ...declared },
     ],
     toolsets: core([tool.name]),
   },
-  { protocol_version: 3, tools: [{ name: "missing-schema" }], toolsets: core(["missing-schema"]) },
+  { protocol_version: 4, tools: [{ name: "missing-schema" }], toolsets: core(["missing-schema"]) },
   {
-    protocol_version: 3,
+    protocol_version: 4,
     tools: Array.from({ length: 1025 }, (_, i) => ({ ...tool, ...declared, name: `tool.${i}` })),
     toolsets: core(Array.from({ length: 1025 }, (_, i) => `tool.${i}`)),
   },
@@ -311,7 +311,7 @@ test("compiles and rejects invalid native schemas before accepting tool calls", 
     ...declared,
     inputSchema: { type: "object", properties: { name: { type: "not-a-schema-type" } } },
   };
-  const catalog = { protocol_version: 3, tools: [invalid], toolsets: core([tool.name]) };
+  const catalog = { protocol_version: 4, tools: [invalid], toolsets: core([tool.name]) };
   await expectUnusableCatalog(catalog, /^INVALID_CATALOG$/u);
 });
 

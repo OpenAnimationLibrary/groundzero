@@ -95,6 +95,9 @@ struct Document final {
   // Private copies of packages this document was loaded from; removed with
   // the document.
   QStringList privateCopies;
+  // The project a draft was created in (scene.create project_id): its
+  // identity only; the draft's native project stays the worker's private one.
+  QJsonObject project;
   // Selection handles issued for this document's drawings.
   std::shared_ptr<SelectionRegistry> selections;
 

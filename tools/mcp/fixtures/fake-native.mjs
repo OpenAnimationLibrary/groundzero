@@ -92,7 +92,7 @@ function respond(id, result) {
 const handlers = {
   "automation.capabilities": (id) =>
     respond(id, {
-      protocol_version: 3,
+      protocol_version: 4,
       tools: catalog,
       tool_count: catalog.length,
       next_offset: null,

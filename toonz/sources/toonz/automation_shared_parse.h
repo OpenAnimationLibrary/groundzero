@@ -2,7 +2,13 @@
 
 #include "automation.h"
 
+#include <QByteArray>
+#include <QElapsedTimer>
+
+#include <memory>
+
 class QFile;
+class QProcess;
 
 namespace GroundzeroAutomation {
 
@@ -64,6 +70,36 @@ struct HelperProbeRun final {
 //   The reply and how the helper ended; a crash, hang or memory growth ends
 //   only the helper.
 HelperProbeRun runProbeHelper(Context& context, const QString& kind);
+
+// A parse helper started without waiting for it, for jobs whose steps must
+// not block: poll() between steps reads its output and enforces the deadline,
+// memory and output bounds; a breach kills the helper.
+class ParseHelperRun final {
+public:
+  // Start this executable in helper mode `kind` in `directory`.
+  ParseHelperRun(Context& context, const QString& directory,
+                 const QString& kind);
+  ~ParseHelperRun();
+  ParseHelperRun(const ParseHelperRun&)            = delete;
+  ParseHelperRun& operator=(const ParseHelperRun&) = delete;
+
+  // Read new output and check the bounds; true while the helper runs.
+  bool poll();
+  // Remove and return the complete output lines read so far.
+  QList<QByteArray> takeLines();
+  // Empty after a clean exit; crashed, timeout or memory otherwise.
+  QString cause() const { return m_cause; }
+  // End the helper at once.
+  void kill();
+
+private:
+  std::unique_ptr<QProcess> m_process;
+  QElapsedTimer m_timer;
+  QByteArray m_output;
+  qint64 m_read = 0;
+  QString m_cause;
+  bool m_running = false;
+};
 
 // Return a process's physical memory footprint in bytes, or -1 if unknown.
 qint64 processMemoryBytes(qint64 processId);

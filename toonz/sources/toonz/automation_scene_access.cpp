@@ -972,42 +972,31 @@ QJsonValue listScenes(Context& context, const QJsonObject& params) {
 // ------------------------------------------------------------------ routing
 
 const QSet<QString>& forwardedTools() {
-  static const QSet<QString> tools = {"scene.summary",
-                                      "camera.inspect",
-                                      "camera.list",
-                                      "scene.properties.inspect",
-                                      "level.inspect",
-                                      "cast.list",
-                                      "cast.usage",
-                                      "scene.dependencies",
-                                      "scene.validate",
-                                      "fx.graph",
-                                      "render.preview",
-                                      "render.submit",
-                                      "render.preflight",
-                                      "scene.inventory",
-                                      "scene.check.submit",
-                                      "scene.source_status",
-                                      "column.cells",
-                                      "drawing.inspect",
-                                      "palette.inspect",
-                                      "palette.pages",
-                                      "fx.parameter.get",
-                                      "animation.channels",
-                                      "animation.keys",
-                                      "animation.sample",
-                                      "vector.inspect",
-                                      "vector.structure",
-                                      "vector.opacity.inspect",
-                                      "raster.read_pixels"};
+  static const QSet<QString> tools = {
+      "scene.summary",       "camera.inspect",
+      "camera.list",         "scene.properties.inspect",
+      "level.inspect",       "cast.list",
+      "cast.usage",          "scene.dependencies",
+      "scene.validate",      "fx.graph",
+      "render.preview",      "render.submit",
+      "render.preflight",    "scene.inventory",
+      "scene.check.submit",  "drawing.analysis.submit",
+      "scene.source_status", "column.cells",
+      "drawing.inspect",     "palette.inspect",
+      "palette.pages",       "fx.parameter.get",
+      "animation.channels",  "animation.keys",
+      "animation.sample",    "vector.inspect",
+      "vector.structure",    "vector.opacity.inspect",
+      "raster.read_pixels"};
   return tools;
 }
 
 // Reads that decode drawings: a changed level file refuses them.
 const QSet<QString>& decodingTools() {
   static const QSet<QString> tools = {
-      "drawing.inspect", "vector.inspect", "vector.structure",
-      "vector.opacity.inspect", "raster.read_pixels"};
+      "drawing.inspect",    "vector.inspect",
+      "vector.structure",   "vector.opacity.inspect",
+      "raster.read_pixels", "drawing.analysis.submit"};
   return tools;
 }
 
@@ -1310,6 +1299,13 @@ QJsonObject hostJobRecord(Context& context, const QString& id) {
 
 // One active analysis job and 32 retained per worker, hosts included. A host
 // job last seen running is asked again, which its host answers at once.
+QJsonValue readFromSceneHost(Context& context, const QString& documentId,
+                             const QString& method, const QJsonObject& params) {
+  SceneHost* host = hostForDocument(context, documentId);
+  if (!host) throw Error("internal_error", "The document has no scene host.");
+  return forward(context, *host, method, params);
+}
+
 void requireAnalysisCapacity(Context& context) {
   QString active;
   int retained = 0;
@@ -1358,8 +1354,13 @@ bool routeToSceneHost(Context& context, const QString& method,
       (method == "render.preview" || method == "render.submit" ||
        method == "assistance.neural.preview"))
     requireRenderCapacity(context);
-  if (context.sceneHosts && document && method == "scene.check.submit")
+  if (context.sceneHosts && document && method == "drawing.analysis.submit")
     requireAnalysisCapacity(context);
+  if (context.sceneHosts && document && method == "scene.check.submit") {
+    requireAnalysisCapacity(context);
+    // The worker decodes media in helpers it starts; a host starts none.
+    if (params.value("check") == "media_decode") return false;
+  }
   if (document) {
     SceneHost* host = hostForDocument(context, documentId);
     if (!host) throw Error("internal_error", "The document has no scene host.");
@@ -1407,6 +1408,24 @@ QJsonObject readOnlyCapabilities(Context&) {
 }
 
 void closeSceneHosts(Context& context) { context.sceneHosts.reset(); }
+
+QString registerWrittenProject(Context& context, const QString& projectFile) {
+  const QString id = projectIdForFile(projectFile);
+  auto& projects   = registry(context).projects;
+  if (!projects.contains(id) && projects.size() >= MaxRegistered)
+    throw Error("resource_limit",
+                "This worker has registered its project limit; start a new "
+                "worker.");
+  const QString folder = QFileInfo(projectFile).absolutePath();
+  projects.insert(id, {projectFile, folder, QFileInfo(folder).fileName()});
+  return id;
+}
+
+bool projectNameRegistered(Context& context, const QString& name) {
+  for (const ProjectEntry& project : registry(context).projects)
+    if (project.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+  return false;
+}
 
 QJsonValue inspectGrantedProject(Context& context, const QString& projectId) {
   const ProjectEntry project =

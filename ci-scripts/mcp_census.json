@@ -1,7 +1,7 @@
 {
  "schema_version": 1,
  "claims": {
-  "protocol_version": 3,
+  "protocol_version": 4,
   "fx_profile": "builtin-2d-v2",
   "fx_builtins": 31
  },
@@ -875,6 +875,16 @@
    "toolset": "core",
    "writes": true
   },
+  "project.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "project.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "project.inspect": {
    "origin": "worker",
    "toolset": "core",
@@ -1567,12 +1577,15 @@
   {
    "id": "project.create_and_select",
    "domain": "Projects and scenes",
-   "outcome": "Create, select and update explicit projects, aliases and folder defaults.",
-   "classification": "not_exposed",
-   "tools": [],
+   "outcome": "Create and duplicate explicit project definitions (folders, rules, scene defaults) in the workspace, verified by rereading, and select a project per draft; the editor's active project and in-place project edits stay out.",
+   "classification": "exposed",
+   "tools": [
+    "project.create",
+    "project.duplicate",
+    "scene.create"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W7"
+    "kind": "implemented"
    }
   },
   {

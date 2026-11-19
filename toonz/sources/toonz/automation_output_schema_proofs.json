@@ -676,6 +676,14 @@
     "handler": "updateStyle",
     "read": []
   },
+  "project.create": {
+    "handler": "createProject",
+    "read": []
+  },
+  "project.duplicate": {
+    "handler": "duplicateProject",
+    "read": []
+  },
   "project.inspect": {
     "handler": "inspectProject",
     "read": []
@@ -792,7 +800,16 @@
   },
   "scene.settings": {
     "handler": "updateSettings",
-    "read": []
+    "read": [
+      "camstand_visible",
+      "color_filter_id",
+      "column_id",
+      "last_frame",
+      "opacity",
+      "position",
+      "preview_visible",
+      "visible"
+    ]
   },
   "scene.source_status": {
     "handler": null,
@@ -804,7 +821,16 @@
   },
   "scene.summary": {
     "handler": "sceneSummary",
-    "read": []
+    "read": [
+      "camstand_visible",
+      "color_filter_id",
+      "column_id",
+      "last_frame",
+      "opacity",
+      "position",
+      "preview_visible",
+      "visible"
+    ]
   },
   "scene.validate": {
     "handler": null,

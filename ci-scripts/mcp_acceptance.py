@@ -357,7 +357,7 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_capabilities_are_strict_and_implemented(self) -> None:
         capabilities = self.capabilities()
-        self.assertEqual(capabilities["protocol_version"], 3)
+        self.assertEqual(capabilities["protocol_version"], 4)
         tools = capabilities["tools"]
         names = [tool["name"] for tool in tools]
         self.assertEqual(len(names), len(set(names)), "Duplicate advertised tool names")
@@ -719,7 +719,7 @@ class NativeAcceptance(unittest.TestCase):
         missing_id = self.worker.exchange(b'{"method":"automation.capabilities","params":{}}')
         self.assertIn("error", missing_id)
         self.assertIsNone(missing_id["id"])
-        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 3)
+        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 4)
         self.assertIn(
             "error",
             self.worker.exchange(
@@ -824,7 +824,7 @@ class NativeAcceptance(unittest.TestCase):
             ),
         )
         self.assertEqual(self.success("scene.summary", {"document_id": document}), before)
-        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 3)
+        self.assertEqual(self.success("automation.capabilities", {})["protocol_version"], 4)
 
     def test_exposures_animation_and_document_isolation(self) -> None:
         document, level, column = self.populated_scene()

@@ -189,7 +189,7 @@ def render_survives_its_volume_being_removed(case: NativeAcceptance) -> None:
     case.assertLess(time.monotonic() - started, LOSS_SECONDS)
     case.assertIn(ended["status"], {"failed", "canceled"}, ended)
     case.assertIs(ended["writers_closed"], True)
-    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 3)
+    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 4)
     case.assertEqual(case.failure("job.result", {"job_id": job})["code"], "artifacts_unavailable")
     # The workspace journal went with the volume, so no write is admitted any more.
     refused = case.failure("render.submit", case.write_params(document, SEQUENCE))

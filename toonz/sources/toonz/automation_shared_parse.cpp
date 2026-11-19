@@ -1,4 +1,5 @@
 #include "automation_shared_parse.h"
+#include "automation_media_decode.h"
 #include "automation_runtime.h"
 #include "automation_scene_host.h"
 #include "librarycommand.h"
@@ -363,6 +364,57 @@ QJsonObject interpret(const HelperRun& run, const QString& failureCode) {
 
 }  // namespace
 
+ParseHelperRun::ParseHelperRun(Context& context, const QString& directory,
+                               const QString& kind)
+    : m_process(std::make_unique<QProcess>()) {
+  configureHelper(*m_process, context, directory, kind);
+  m_timer.start();
+  m_process->start();
+  m_running = true;
+}
+
+ParseHelperRun::~ParseHelperRun() { kill(); }
+
+bool ParseHelperRun::poll() {
+  if (!m_running) return false;
+  const QByteArray chunk = m_process->readAllStandardOutput();
+  m_read += chunk.size();
+  m_output += chunk;
+  if (m_process->state() == QProcess::NotRunning) {
+    m_process->waitForFinished(0);
+    m_output += m_process->readAllStandardOutput();
+    m_cause   = m_process->error() == QProcess::FailedToStart
+                    ? QString("crashed")
+                    : exitCause(*m_process);
+    m_running = false;
+    return false;
+  }
+  const QString cause =
+      breach(*m_process, m_timer, m_read, SharedParseDeadlineMs);
+  if (cause.isEmpty()) return true;
+  kill();
+  m_cause = cause;
+  return false;
+}
+
+QList<QByteArray> ParseHelperRun::takeLines() {
+  QList<QByteArray> lines;
+  for (int end = m_output.indexOf('\n'); end >= 0;
+       end     = m_output.indexOf('\n')) {
+    lines.append(m_output.left(end));
+    m_output.remove(0, end + 1);
+  }
+  return lines;
+}
+
+void ParseHelperRun::kill() {
+  if (!m_running) return;
+  m_running = false;
+  m_cause   = "crashed";
+  m_process->kill();
+  m_process->waitForFinished(3000);
+}
+
 QJsonObject parseSharedFile(Context& context, const QString& kind,
                             const QByteArray& bytes,
                             const QString& failureCode) {
@@ -405,6 +457,7 @@ int runSharedParseHelper(Context& context, const QString& kind, QFile& output) {
 #ifdef BUILD_UI_PORT_TESTS
   injectChildFault(context.childFault);
 #endif
+  if (kind == "media") return runMediaDecodeHelper(context, output);
   const QJsonObject reply =
       kind == "gl_probe" ? graphicsProbeReply() : helperReply(context, kind);
   const QByteArray line =

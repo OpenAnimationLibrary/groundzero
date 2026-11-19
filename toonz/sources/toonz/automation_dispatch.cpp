@@ -2,6 +2,7 @@
 #include "automation_effects.h"
 #include "automation_grants.h"
 #include "automation_production.h"
+#include "automation_projects.h"
 #include "automation_scene_check.h"
 #include "automation_assistance.h"
 #include "automation_text.h"
@@ -429,6 +430,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(sheetOperations(), executeSheet, "sheet");
   add(levelLifecycleOperations(), executeLevelLifecycle, "sheet");
   add(sceneAccessOperations(), executeSceneAccess, "core");
+  add(projectWriteOperations(), executeProjectWrite, "core");
   add(sceneInventoryOperations(), executeSceneInventory, "core");
   add(fxOperations(), executeFx, "core");
   add(fxRecipeOperations(), executeFx, "fx-finishing");
@@ -616,7 +618,7 @@ QJsonObject Dispatcher::capabilities(const QJsonObject& params) const {
     page.append(descriptor);
   }
   return QJsonObject{
-      {"protocol_version", 3},
+      {"protocol_version", 4},
       {"worker", workerIdentity(m_context)},
       {"workspace", m_context.workspace()},
       {"tools", page},
