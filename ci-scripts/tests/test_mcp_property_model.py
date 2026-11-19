@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import json
+import random
 import sys
 import unittest
 from pathlib import Path
@@ -115,6 +116,43 @@ class NotModelledTest(unittest.TestCase):
         whole_curve = {"animation.copy_curve", "animation.retime_curve"}
         missing = writing - self.requested() - set(model.NOT_MODELLED) - whole_curve
         self.assertEqual(missing, set(), "add an operation or a NOT_MODELLED entry with a reason")
+
+    def test_listed_retime_variants_are_never_generated(self) -> None:
+        seen = set()
+        for seed in range(1, 120):
+            for step in model.generate(seed, 24):
+                if step["op"] == "cells_retime":
+                    operation = step["args"]["operation"]
+                    seen.add(operation["kind"])
+                    self.assertEqual(
+                        operation["inserted_blank_steps"]
+                        if "inserted_blank_steps" in operation
+                        else 0,
+                        0,
+                    )
+        self.assertIn("cells.retime/time_stretch", model.NOT_MODELLED_KINDS)
+        self.assertEqual(seen - set(model.RETIME_KINDS), set())
+        self.assertEqual(set(model.RETIME_KINDS) - seen, set())
+
+    def test_default_seeds_exercise_every_operation_and_retime_kind(self) -> None:
+        operations: set[str] = set()
+        kinds: set[str] = set()
+        refusals: set[str] = set()
+        for seed in cases.DEFAULT_SEEDS:
+            rng = random.Random(seed)
+            scene = model.new_scene()
+            for _ in range(cases.DEFAULT_LENGTH):
+                candidates = [op for op in model.OPERATIONS.values() if op.available(scene)]
+                op = rng.choices(candidates, [op.weight for op in candidates])[0]
+                args = op.choose(rng, scene)
+                refusal = op.effect(scene, args)
+                operations.add(op.name)
+                refusals.update([refusal] if refusal else [])
+                if op.name == "cells_retime":
+                    kinds.add(args["operation"]["kind"])
+        self.assertEqual(set(model.OPERATIONS) - operations, set())
+        self.assertEqual(set(model.RETIME_KINDS) - kinds, set())
+        self.assertTrue({"occupied_cells", "locked", "empty_level"} <= refusals, refusals)
 
 
 class ExpectedTest(unittest.TestCase):

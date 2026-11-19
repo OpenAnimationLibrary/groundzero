@@ -52,7 +52,33 @@ class Violation:
     row: str
 
 
-KNOWN_VIOLATIONS: dict[str, Violation] = {}
+KNOWN_VIOLATIONS: dict[str, Violation] = {
+    "KV-9": Violation(
+        name=(
+            "animation.sample does not follow the Bezier of a speed segment whose frame axis is "
+            "a quadratic in the curve parameter"
+        ),
+        tool="animation.set_keys, animation.sample",
+        call=(
+            "set_keys: key 6 value -70.5 speed_in_out outgoing {frame_delta 4, value_delta "
+            "32.75}; key 12 value -5.75 linear incoming {kind speed, frame_delta 0, "
+            "value_delta 34.5}; sample frames 7 to 11.9. The same happens with outgoing "
+            "frame_delta 0 and incoming frame_delta -4 on a span of 6"
+        ),
+        expected=(
+            "the cubic Bezier through (6, -70.5), (10, -37.75), (12, 28.75), (12, -5.75): about "
+            "-61.26 at 7 and 2.85 at 11.9, as for every incoming frame_delta from -0.001 to -6"
+        ),
+        observed=(
+            "-69.85 at 7, then -49.24 at 8 and 9 and -20.64 from 10 to 11.9: a stepped curve. "
+            "It occurs where 3 times the outgoing frame_delta minus 3 times the incoming one "
+            "equals twice the span, the cubic term of the frame axis; every other handle pair "
+            "matches the Bezier to 1e-5"
+        ),
+        answers=frozenset({"does not match the Bezier"}),
+        row="SCN-13 #1",
+    ),
+}
 
 
 def settle(case: NativeAcceptance, name: str, observed: Any, expected: Any) -> None:

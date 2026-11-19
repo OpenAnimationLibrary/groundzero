@@ -21,37 +21,56 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+import mcp_property_cells as sheet
+from mcp_property_curves import (
+    FRAME_GRID,
+    STEPS_THAT_FIT,
+    Key,
+    duplicate_keys,
+    insert_breakdown,
+    is_rich,
+    key_from_row,
+    key_record,
+    key_row,
+    move_keys,
+    ordered,
+    random_keys,
+    sample,
+    shape_is_defined,
+)
+
 Drawing = tuple[int, str]
 Step = dict[str, Any]
 Handles = dict[str, dict[str, str]]
 Request = tuple[str, dict[str, Any]]
 
 CHANNEL_UNITS = {"x": "inch", "y": "inch", "rotation": "degree", "scale": "scalar"}
-FRAME_GRID = 6
-STEPS_THAT_FIT = (1, 2, 3, 6)
-SAMPLE_FRAMES = [0, 0.5, 3, 5.99, 6, 8, 11.9, 12, 17.5, 30, 43, 100]
-CELL_HORIZON = 48
+SAMPLE_FRAMES = [0, 0.5, 3, 5.99, 6, 8, 11.9, 12, 17.5, 30, 43, 55.25, 100, 133.5, 250]
+CELL_HORIZON = 96
 OPACITY_LEVELS = 255
 EPSILON = 1e-9
 FRAME_RATES = (12, 24, 25, 29.97, 30, 48, 60)
 PIXELS = (16, 24, 32, 48, 64, 96, 128, 256)
 INCHES = (0.125, 0.25, 0.5, 1, 1.5, 2.5, 4)
+RETIME_KINDS = (
+    "reverse",
+    "swing",
+    "step",
+    "each",
+    "reframe",
+    "increase_step",
+    "decrease_step",
+    "reset_step",
+    "roll_up",
+    "roll_down",
+    "repeat",
+)
 SUFFIXES = ("", "a", "b", "ab", "zz", "abcdefgh")
 NAME_ALPHABET = "abcXYZ019 _-.<>&\"'中é "
 
 
 class ModelError(ValueError):
     """A step that cannot be applied to the model's state, as in a hand-edited sequence."""
-
-
-@dataclass
-class Key:
-    """One key of a curve: linear or constant, held for `step` frames at a time."""
-
-    frame: int
-    value: float
-    interpolation: str
-    step: int = 1
 
 
 @dataclass
@@ -75,6 +94,7 @@ class Scene:
     columns: list[Column] = field(default_factory=list)
     pegs: list[str] = field(default_factory=list)
     curves: dict[tuple[str, str], dict[int, Key]] = field(default_factory=dict)
+    cycles: set[tuple[str, str]] = field(default_factory=set)
     reopens: int = 0
     counter: int = 0
 
@@ -102,30 +122,6 @@ def quantized_opacity(value: float) -> int:
     return math.floor(value * OPACITY_LEVELS + 0.5)
 
 
-def sample(keys: list[Key], frame: float) -> float:
-    """Return a curve's value at a frame, from its keys alone.
-
-    Before the first key and after the last the curve holds that key's value. In a linear
-    segment a key's `step` above 1 holds the value at the segment's frame for `step` frames at
-    a time; a step of 1 follows the frame itself, fractions included. The generator only makes
-    segments whose length is a multiple of the step.
-    """
-    ordered = sorted(keys, key=lambda key: key.frame)
-    if frame <= ordered[0].frame:
-        return ordered[0].value
-    if frame >= ordered[-1].frame:
-        return ordered[-1].value
-    index = max(i for i, key in enumerate(ordered) if key.frame <= frame)
-    start, end = ordered[index], ordered[index + 1]
-    if start.interpolation == "constant":
-        return start.value
-    held = frame
-    if start.step > 1:
-        held = start.frame + start.step * math.floor((frame - start.frame) / start.step)
-    fraction = (held - start.frame) / (end.frame - start.frame)
-    return start.value + (end.value - start.value) * fraction
-
-
 def expected(scene: Scene) -> dict[str, Any]:
     """Return the observation a correct worker's read tools give for this scene."""
     columns = []
@@ -145,10 +141,16 @@ def expected(scene: Scene) -> dict[str, Any]:
     for (peg, channel), keys in scene.curves.items():
         if not keys:
             continue
-        ordered = sorted(keys.values(), key=lambda key: key.frame)
+        cycle = (peg, channel) in scene.cycles
+        items = ordered(keys)
+        defined = shape_is_defined(keys)
         curves[f"{peg}/{channel}"] = {
-            "keys": [[k.frame, k.value, k.interpolation, k.step] for k in ordered],
-            "samples": [sample(ordered, frame) for frame in SAMPLE_FRAMES],
+            "keys": [key_row(key) for key in items],
+            "cycle": cycle,
+            "samples": [sample(items, frame, cycle) for frame in SAMPLE_FRAMES]
+            if defined
+            else None,
+            "rich": is_rich(keys),
         }
     return {
         "frame_rate": scene.frame_rate,
@@ -331,8 +333,18 @@ def _peg_effect(scene: Scene, step: Step) -> str | None:
     return None
 
 
+def _plain_curves(scene: Scene) -> list[tuple[str, str]]:
+    """The (peg, channel) pairs whose curves hold no speed or ease segment."""
+    return [
+        (peg, channel)
+        for peg in scene.pegs
+        for channel in CHANNEL_UNITS
+        if not is_rich(scene.curves.get((peg, channel), {}))
+    ]
+
+
 def _keys_choice(rng: random.Random, scene: Scene) -> Step:
-    channel = _pick(rng, CHANNEL_UNITS)
+    peg, channel = _pick(rng, _plain_curves(scene))
     keys = []
     for index in rng.sample(range(8), rng.randint(1, 3)):
         keys.append(
@@ -343,7 +355,7 @@ def _keys_choice(rng: random.Random, scene: Scene) -> Step:
                 "step": _pick(rng, STEPS_THAT_FIT),
             }
         )
-    return {"peg": _pick(rng, scene.pegs), "channel": channel, "keys": keys}
+    return {"peg": peg, "channel": channel, "keys": keys}
 
 
 def _keys_effect(scene: Scene, step: Step) -> str | None:
@@ -356,7 +368,8 @@ def _keys_effect(scene: Scene, step: Step) -> str | None:
 
 
 def _delete_keys_choice(rng: random.Random, scene: Scene) -> Step:
-    peg, channel = _pick(rng, [name for name, keys in scene.curves.items() if keys])
+    plain = [name for name, keys in scene.curves.items() if keys and not is_rich(keys)]
+    peg, channel = _pick(rng, plain)
     frames = sorted(scene.curves[(peg, channel)])
     return {
         "peg": peg,
@@ -434,8 +447,419 @@ def _forget_column(step: Step, result: dict[str, Any], handles: Handles) -> None
     del handles["column"][step["column"]]
 
 
+def _targets(rng: random.Random, scene: Scene, most: int = 2) -> list[str]:
+    names = [column.name for column in scene.columns]
+    return rng.sample(names, rng.randint(1, min(most, len(names))))
+
+
+def _locked(scene: Scene, names: list[str]) -> bool:
+    return any(scene.column(name).locked for name in names)
+
+
+def _rows_of(scene: Scene, name: str) -> sheet.Rows:
+    stored: list[Any] = sheet.to_rows(scene.column(name).cells)
+    return [None if cell is None else (cell[0], cell[1][0], cell[1][1]) for cell in stored]
+
+
+def _store(scene: Scene, changes: dict[str, sheet.Rows]) -> None:
+    for name, rows in changes.items():
+        cells = sheet.to_cells(rows)
+        scene.column(name).cells = {row: (c[0], (c[1], c[2])) for row, c in cells.items()}
+
+
+def _run_choice(rng: random.Random, scene: Scene) -> dict[str, Any]:
+    levels = _drawn_levels(scene)
+    if not levels or rng.random() < 0.25:
+        return {"empty": True, "length": rng.randint(1, 3)}
+    level = _pick(rng, levels)
+    number, suffix = _pick(rng, scene.levels[level])
+    return {"level": level, "number": number, "suffix": suffix, "length": rng.randint(1, 4)}
+
+
+def _set_choice(rng: random.Random, scene: Scene) -> Step:
+    columns = []
+    for name in _targets(rng, scene):
+        runs = [_run_choice(rng, scene) for _ in range(rng.randint(1, 3))]
+        columns.append({"column": name, "start": rng.randint(0, 20), "runs": runs})
+    return {"columns": columns, "overwrite": rng.random() < 0.5}
+
+
+def _set_effect(scene: Scene, step: Step) -> str | None:
+    names = [item["column"] for item in step["columns"]]
+    if _locked(scene, names):
+        return "locked"
+    changes = {}
+    for item in step["columns"]:
+        rows = _rows_of(scene, item["column"])
+        if not step["overwrite"] and sheet.occupied(rows, item["start"], item["runs"]):
+            return "occupied_cells"
+        changes[item["column"]] = sheet.write_runs(rows, item["start"], item["runs"])
+    _store(scene, changes)
+    return None
+
+
+def _run_request(run: dict[str, Any], handles: Handles) -> dict[str, Any]:
+    if run.get("empty"):
+        return {"empty": True, "length": run["length"]}
+    drawing = {"number": run["number"], "suffix": run["suffix"]}
+    return {
+        "level_id": handles["level"][run["level"]],
+        "drawing_id": drawing,
+        "length": run["length"],
+    }
+
+
+def _set_request(step: Step, handles: Handles) -> Request:
+    columns = [
+        {
+            "column_id": handles["column"][item["column"]],
+            "start_frame": item["start"],
+            "runs": [_run_request(run, handles) for run in item["runs"]],
+        }
+        for item in step["columns"]
+    ]
+    return "cells.set", {"columns": columns, "overwrite": step["overwrite"]}
+
+
+def _interval_choice(rng: random.Random, scene: Scene) -> Step:
+    return {
+        "columns": _targets(rng, scene),
+        "start": rng.randint(0, 20),
+        "length": rng.randint(1, 5),
+    }
+
+
+_INTERVAL_EDITS = {
+    "cells.clear": sheet.clear,
+    "cells.remove": sheet.remove,
+    "cells.insert": sheet.insert,
+}
+
+
+def _interval_effect(tool: str) -> Callable[[Scene, Step], str | None]:
+    def effect(scene: Scene, step: Step) -> str | None:
+        if _locked(scene, step["columns"]):
+            return "locked"
+        edit = _INTERVAL_EDITS[tool]
+        changes = {
+            name: edit(_rows_of(scene, name), step["start"], step["length"])
+            for name in step["columns"]
+        }
+        _store(scene, changes)
+        return None
+
+    return effect
+
+
+def _interval_params(step: Step, handles: Handles) -> dict[str, Any]:
+    return {
+        "column_ids": [handles["column"][name] for name in step["columns"]],
+        "start_frame": step["start"],
+        "length": step["length"],
+    }
+
+
+def _interval_request(tool: str) -> Callable[[Step, Handles], Request]:
+    return lambda step, handles: (tool, _interval_params(step, handles))
+
+
+def _copy_choice(rng: random.Random, scene: Scene) -> Step:
+    source, destination = rng.sample([column.name for column in scene.columns], 2)
+    return {
+        "source": source,
+        "destination": destination,
+        "start": rng.randint(0, 12),
+        "length": rng.randint(1, 5),
+        "to": rng.randint(0, 20),
+        "placement": _pick(rng, ("insert", "replace")),
+        "after": _pick(rng, ("keep", "clear")),
+    }
+
+
+def _copy_effect(scene: Scene, step: Step) -> str | None:
+    if _locked(scene, [step["source"], step["destination"]]):
+        return "locked"
+    rows = _rows_of(scene, step["source"])
+    block = sheet.padded(list(rows), step["start"] + step["length"])[
+        step["start"] : step["start"] + step["length"]
+    ]
+    changes = {
+        step["destination"]: sheet.copy_block(
+            _rows_of(scene, step["destination"]), block, step["to"], step["placement"]
+        )
+    }
+    if step["after"] == "clear":
+        changes[step["source"]] = sheet.clear(rows, step["start"], step["length"])
+    _store(scene, changes)
+    return None
+
+
+def _copy_request(step: Step, handles: Handles) -> Request:
+    return "cells.copy", {
+        "source": {
+            "column_ids": [handles["column"][step["source"]]],
+            "start_frame": step["start"],
+            "length": step["length"],
+        },
+        "destination": {
+            "column_ids": [handles["column"][step["destination"]]],
+            "start_frame": step["to"],
+        },
+        "placement": step["placement"],
+        "source_after": step["after"],
+    }
+
+
+def _operation_choice(rng: random.Random, start: int, length: int) -> dict[str, Any]:
+    kind = _pick(rng, RETIME_KINDS)
+    operation: dict[str, Any] = {"kind": kind}
+    if kind in ("step", "each"):
+        operation["factor"] = rng.randint(2, 4)
+    if kind == "reframe":
+        drop = rng.random() < 0.5
+        operation.update(step=rng.randint(1, 4), blank_entries="drop" if drop else "keep")
+        operation.update(inserted_blank_steps=0, extend_over_hold=rng.random() < 0.4)
+    if kind == "repeat":
+        operation["until_frame"] = start + length - 1 + rng.randint(-1, 6)
+    return operation
+
+
+def _retime_choice(rng: random.Random, scene: Scene) -> Step:
+    start, length = rng.randint(0, 14), rng.randint(1, 6)
+    return {
+        "columns": _targets(rng, scene),
+        "start": start,
+        "length": length,
+        "operation": _operation_choice(rng, start, length),
+    }
+
+
+def _retime_effect(scene: Scene, step: Step) -> str | None:
+    if _locked(scene, step["columns"]):
+        return "locked"
+    refusal = sheet.retime_refusal(step["length"], step["start"], step["operation"])
+    if refusal:
+        return refusal
+    changes = {
+        name: sheet.retime(_rows_of(scene, name), step["start"], step["length"], step["operation"])
+        for name in step["columns"]
+    }
+    _store(scene, changes)
+    return None
+
+
+def _retime_request(step: Step, handles: Handles) -> Request:
+    operation = {key: value for key, value in step["operation"].items()}
+    return "cells.retime", {**_interval_params(step, handles), "operation": operation}
+
+
+def _replace_choice(rng: random.Random, scene: Scene) -> Step:
+    levels = [name for name, drawings in scene.levels.items() if drawings]
+    if len(levels) >= 2 and rng.random() < 0.5:
+        old, new = rng.sample(levels, 2)
+        shared = scene.levels[old] & scene.levels[new]
+        if shared:
+            mapping: dict[str, Any] = {"kind": "level", "from": old, "to": new}
+            return {**_interval_choice(rng, scene), "mapping": mapping}
+    level = _pick(rng, levels)
+    first = _pick(rng, scene.levels[level])
+    others = sorted(scene.levels[level] - {first}) if rng.random() < 0.85 else [first]
+    second = _pick(rng, others or [first])
+    pair = {"from": [level, *first], "to": [level, *second]}
+    return {**_interval_choice(rng, scene), "mapping": {"kind": "drawings", "pairs": [pair]}}
+
+
+def _replace_effect(scene: Scene, step: Step) -> str | None:
+    if _locked(scene, step["columns"]):
+        return "locked"
+    mapping = step["mapping"]
+    if mapping["kind"] == "drawings" and mapping["pairs"][0]["from"] == mapping["pairs"][0]["to"]:
+        return "invalid_params/pairs"
+    changes = {}
+    for name in step["columns"]:
+        rows = _rows_of(scene, name)
+        if mapping["kind"] == "level":
+            rows = _replace_level_rows(scene, rows, step, mapping)
+        else:
+            pair = mapping["pairs"][0]
+            rows = sheet.replace_pairs(
+                rows, step["start"], step["length"], [(tuple(pair["from"]), tuple(pair["to"]))]
+            )
+        changes[name] = rows
+    _store(scene, changes)
+    return None
+
+
+def _replace_level_rows(
+    scene: Scene, rows: sheet.Rows, step: Step, mapping: dict[str, Any]
+) -> sheet.Rows:
+    return sheet.replace_level(rows, step["start"], step["length"], mapping["from"], mapping["to"])
+
+
+def _replace_request(step: Step, handles: Handles) -> Request:
+    mapping = step["mapping"]
+    if mapping["kind"] == "level":
+        wire = {
+            "kind": "level",
+            "from_level_id": handles["level"][mapping["from"]],
+            "to_level_id": handles["level"][mapping["to"]],
+        }
+    else:
+        pair = mapping["pairs"][0]
+        side = lambda ref: {  # noqa: E731
+            "level_id": handles["level"][ref[0]],
+            "drawing_id": {"number": ref[1], "suffix": ref[2]},
+        }
+        wire = {"kind": "drawings", "pairs": [{"from": side(pair["from"]), "to": side(pair["to"])}]}
+    return "cells.replace", {**_interval_params(step, handles), "mapping": wire}
+
+
 def _chosen_pegs(scene: Scene) -> bool:
-    return any(keys for keys in scene.curves.values())
+    return any(keys and not is_rich(keys) for keys in scene.curves.values())
+
+
+def _empty_curves(scene: Scene) -> list[tuple[str, str]]:
+    return [
+        (peg, channel)
+        for peg in scene.pegs
+        for channel in CHANNEL_UNITS
+        if not scene.curves.get((peg, channel))
+    ]
+
+
+def _keyed_curves(scene: Scene, minimum: int = 1) -> list[tuple[str, str]]:
+    return [name for name, keys in scene.curves.items() if len(keys) >= minimum]
+
+
+def _rich_choice(rng: random.Random, scene: Scene) -> Step:
+    peg, channel = _pick(rng, _empty_curves(scene))
+    return {"peg": peg, "channel": channel, "keys": [key_row(k) for k in random_keys(rng)]}
+
+
+def _rich_effect(scene: Scene, step: Step) -> str | None:
+    if step["peg"] not in scene.pegs or scene.curves.get((step["peg"], step["channel"])):
+        raise ModelError("a rich curve is set on a channel that holds no key")
+    keys = [key_from_row(row) for row in step["keys"]]
+    scene.curves[(step["peg"], step["channel"])] = {key.frame: key for key in keys}
+    return None
+
+
+def _rich_request(step: Step, handles: Handles) -> Request:
+    records = [key_record(key_from_row(row)) for row in step["keys"]]
+    return "animation.set_keys", {**_curve_target(step, handles), "keys": records}
+
+
+def _cycle_choice(rng: random.Random, scene: Scene) -> Step:
+    peg, channel = _pick(rng, _keyed_curves(scene))
+    return {"peg": peg, "channel": channel, "enabled": rng.random() < 0.7}
+
+
+def _cycle_effect(scene: Scene, step: Step) -> str | None:
+    pair = (step["peg"], step["channel"])
+    if not scene.curves.get(pair):
+        raise ModelError("a curve without keys has no cycle to set")
+    (scene.cycles.add if step["enabled"] else scene.cycles.discard)(pair)
+    return None
+
+
+def _cycle_request(step: Step, handles: Handles) -> Request:
+    return "animation.set_cycle", {**_curve_target(step, handles), "enabled": step["enabled"]}
+
+
+def _key_frames(rng: random.Random, keys: dict[int, Key]) -> list[int]:
+    frames = sorted(keys)
+    chosen = rng.sample(frames, rng.randint(1, len(frames)))
+    return sorted(chosen)
+
+
+def _shift_choice(rng: random.Random, scene: Scene, duplicate: bool) -> Step:
+    peg, channel = _pick(rng, _keyed_curves(scene))
+    keys = scene.curves[(peg, channel)]
+    shift = duplicate_keys if duplicate else move_keys
+    step: Step = {"peg": peg, "channel": channel, "frames": [min(keys)]}
+    step.update(frame_offset=0, value_offset=0)
+    for _ in range(8):
+        frames = _key_frames(rng, keys)
+        frame_offset = FRAME_GRID * rng.randint(-4, 4)
+        value_offset = rng.choice([0, 0, rng.randint(-160, 160) / 4])
+        error, edited = shift(keys, frames, frame_offset, value_offset)
+        clear = error is None and shape_is_defined(edited)
+        refused = error is not None and "controls" not in error
+        if clear or refused:
+            step.update(frames=frames, frame_offset=frame_offset, value_offset=value_offset)
+            break
+    return _hostile(rng, step, keys)
+
+
+def _hostile(rng: random.Random, step: Step, keys: dict[int, Key]) -> Step:
+    """Sometimes ask for what no worker may do: an absent key, an offset past a bound."""
+    roll = rng.random()
+    if roll < 0.04:
+        step["frames"] = sorted({*step["frames"], max(keys) + 1})
+    elif roll < 0.07:
+        step["frame_offset"] = -1000000
+    elif roll < 0.1:
+        step["value_offset"] = 2000000
+    return step
+
+
+def _shift_effect(scene: Scene, step: Step, duplicate: bool) -> str | None:
+    pair = (step["peg"], step["channel"])
+    keys = scene.curves.get(pair)
+    if not keys:
+        raise ModelError("no keys to shift")
+    shift = duplicate_keys if duplicate else move_keys
+    error, edited = shift(keys, step["frames"], step["frame_offset"], step["value_offset"])
+    if error is None:
+        scene.curves[pair] = edited
+    return error
+
+
+def _shift_request(tool: str) -> Callable[[Step, Handles], Request]:
+    def request(step: Step, handles: Handles) -> Request:
+        fields = {key: step[key] for key in ("frames", "frame_offset", "value_offset")}
+        return tool, {**_curve_target(step, handles), **fields}
+
+    return request
+
+
+def _breakdown_choice(rng: random.Random, scene: Scene) -> Step:
+    peg, channel = _pick(rng, _keyed_curves(scene, 2))
+    keys = scene.curves[(peg, channel)]
+    items = ordered(keys)
+    index = rng.randrange(len(items) - 1)
+    first, last = items[index], items[index + 1]
+    stride = 1 if first.interpolation in ("speed_in_out", "ease_in_out") else first.step
+    frame = first.frame + stride * rng.randint(1, (last.frame - first.frame) // stride)
+    roll = rng.random()
+    if roll < 0.06:
+        frame = rng.choice(list(keys))
+    elif roll < 0.1:
+        frame = items[-1].frame + rng.randint(1, 5)
+    step: Step = {"peg": peg, "channel": channel, "frame": frame}
+    if rng.random() < 0.6:
+        step["favour_percent"] = rng.randint(-20, 40) * 5
+    else:
+        step["value"] = rng.randint(-400, 400) / 4
+    return step
+
+
+def _breakdown_effect(scene: Scene, step: Step) -> str | None:
+    pair = (step["peg"], step["channel"])
+    keys = scene.curves.get(pair)
+    if not keys:
+        raise ModelError("no keys to split")
+    error, edited = insert_breakdown(
+        keys, step["frame"], step.get("favour_percent"), step.get("value")
+    )
+    if error is None:
+        scene.curves[pair] = edited
+    return error
+
+
+def _breakdown_request(step: Step, handles: Handles) -> Request:
+    fields = {key: step[key] for key in ("frame", "favour_percent", "value") if key in step}
+    return "animation.insert_breakdown", {**_curve_target(step, handles), **fields}
 
 
 OPERATIONS: dict[str, Operation] = {
@@ -526,7 +950,7 @@ OPERATIONS: dict[str, Operation] = {
     "keys_set": Operation(
         "keys_set",
         10,
-        lambda scene: bool(scene.pegs),
+        lambda scene: bool(_plain_curves(scene)),
         _keys_choice,
         _keys_effect,
         _keys_request,
@@ -538,6 +962,102 @@ OPERATIONS: dict[str, Operation] = {
         _delete_keys_choice,
         _delete_keys_effect,
         _delete_keys_request,
+    ),
+    "curve_rich": Operation(
+        "curve_rich",
+        4,
+        lambda scene: bool(scene.pegs) and bool(_empty_curves(scene)),
+        _rich_choice,
+        _rich_effect,
+        _rich_request,
+    ),
+    "cycle_set": Operation(
+        "cycle_set",
+        3,
+        lambda scene: bool(_keyed_curves(scene)),
+        _cycle_choice,
+        _cycle_effect,
+        _cycle_request,
+    ),
+    "keys_move": Operation(
+        "keys_move",
+        4,
+        lambda scene: bool(_keyed_curves(scene)),
+        lambda rng, scene: _shift_choice(rng, scene, False),
+        lambda scene, step: _shift_effect(scene, step, False),
+        _shift_request("animation.move_keys"),
+    ),
+    "keys_duplicate": Operation(
+        "keys_duplicate",
+        3,
+        lambda scene: bool(_keyed_curves(scene)),
+        lambda rng, scene: _shift_choice(rng, scene, True),
+        lambda scene, step: _shift_effect(scene, step, True),
+        _shift_request("animation.duplicate_keys"),
+    ),
+    "breakdown_insert": Operation(
+        "breakdown_insert",
+        4,
+        lambda scene: bool(_keyed_curves(scene, 2)),
+        _breakdown_choice,
+        _breakdown_effect,
+        _breakdown_request,
+    ),
+    "cells_set": Operation(
+        "cells_set",
+        5,
+        lambda scene: bool(scene.columns),
+        _set_choice,
+        _set_effect,
+        _set_request,
+    ),
+    "cells_clear": Operation(
+        "cells_clear",
+        2,
+        lambda scene: bool(scene.columns),
+        _interval_choice,
+        _interval_effect("cells.clear"),
+        _interval_request("cells.clear"),
+    ),
+    "cells_remove": Operation(
+        "cells_remove",
+        2,
+        lambda scene: bool(scene.columns),
+        _interval_choice,
+        _interval_effect("cells.remove"),
+        _interval_request("cells.remove"),
+    ),
+    "cells_insert": Operation(
+        "cells_insert",
+        2,
+        lambda scene: bool(scene.columns),
+        _interval_choice,
+        _interval_effect("cells.insert"),
+        _interval_request("cells.insert"),
+    ),
+    "cells_copy": Operation(
+        "cells_copy",
+        3,
+        lambda scene: len(scene.columns) >= 2,
+        _copy_choice,
+        _copy_effect,
+        _copy_request,
+    ),
+    "cells_retime": Operation(
+        "cells_retime",
+        6,
+        lambda scene: bool(scene.columns),
+        _retime_choice,
+        _retime_effect,
+        _retime_request,
+    ),
+    "cells_replace": Operation(
+        "cells_replace",
+        3,
+        lambda scene: bool(_drawn_levels(scene)) and bool(scene.columns),
+        _replace_choice,
+        _replace_effect,
+        _replace_request,
     ),
     "save_reopen": Operation(
         "save_reopen",
@@ -555,38 +1075,25 @@ OPERATIONS: dict[str, Operation] = {
 # the reason. Generated sequences never call them, so nothing here is checked by the model:
 # their own cases are their only evidence until an operation replaces the entry.
 NOT_MODELLED: dict[str, str] = {
-    "animation.insert_breakdown": (
-        "the model's keys are linear or constant only; the split of speed and ease segments "
-        "and the favour arithmetic are not written independently yet"
-    ),
-    "animation.move_keys": (
-        "the refusals (key_exists, order_changed, controls) depend on handles the model's "
-        "keys do not have"
-    ),
-    "animation.duplicate_keys": (
-        "the incoming_kind_changed refusal depends on handle kinds the model's keys do not have"
-    ),
-    "animation.set_cycle": (
-        "the model's sampler holds the last key's value; the cyclic fold with drift is not "
-        "written yet"
-    ),
-    "cells.set": (
-        "not written yet; the model's cell map can carry runs, blanks and occupied_cells"
-    ),
-    "cells.clear": ("not written yet; the model's cell map can carry it"),
-    "cells.remove": (
-        "not written yet; it needs the shift of later cells in several columns at once"
-    ),
-    "cells.insert": ("not written yet; it needs the shift of later cells and the last-row refusal"),
-    "cells.copy": ("not written yet; it needs the copy and move modes and their overlap rules"),
-    "cells.retime": ("none of the twelve retime kinds is written independently yet"),
-    "cells.replace": ("not written yet; it needs level-to-level and drawing-pair replacement"),
     "column.move": ("not written yet; the model's column list can carry a block move"),
     "column.duplicate": ("not written yet; it needs the copied stage object, curves and FX branch"),
     "camera.create": ("the model has one camera; a camera list with roles is not written yet"),
     "camera.duplicate": ("the model has one camera; a camera list with roles is not written yet"),
     "camera.select": ("the model has one camera; output and preview roles are not written yet"),
     "camera.remove": ("the model has one camera; removal with role replacement is not written yet"),
+}
+
+
+# Retime variants of a modelled tool that no generated step asks for, each with the reason.
+NOT_MODELLED_KINDS: dict[str, str] = {
+    "cells.retime/time_stretch": (
+        "the rows after a stretch are not a function of the definition: stretching drawings 1 to "
+        "5 over 6 rows leaves a blank in row 1, and squeezing them to 2 rows shows 1 and 4"
+    ),
+    "cells.retime/reframe with inserted_blank_steps": (
+        "kept blank entries make the tool refuse (inconsistent_reframe); with them dropped the "
+        "blank rows it adds were not probed"
+    ),
 }
 
 
