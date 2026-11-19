@@ -230,8 +230,8 @@ test("reads every page of the native tool catalog", async () => {
   const names = (await client.listTools()).tools.map((listed) => listed.name);
   expect(names).toEqual([tool.name, second.name, ...TOOLSET_TOOLS.map((listed) => listed.name)]);
   expect(request.mock.calls).toEqual([
-    ["automation.capabilities", { limit: 64 }],
-    ["automation.capabilities", { limit: 64, offset: 1 }],
+    ["automation.capabilities", { limit: 64, declarations: true }],
+    ["automation.capabilities", { limit: 64, offset: 1, declarations: true }],
   ]);
 });
 
@@ -336,7 +336,9 @@ test("negotiates without the worker and reads its catalog once, on first use", a
   expect(request).not.toHaveBeenCalled();
   await client.listTools();
   await client.listTools();
-  expect(request.mock.calls).toEqual([["automation.capabilities", { limit: 64 }]]);
+  expect(request.mock.calls).toEqual([
+    ["automation.capabilities", { limit: 64, declarations: true }],
+  ]);
 });
 
 function liveCatalog() {

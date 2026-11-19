@@ -398,7 +398,8 @@ QJsonArray allTools(Dispatcher& dispatcher) {
   int offset = 0;
   for (;;) {
     const QJsonObject page =
-        result(dispatcher, "automation.capabilities", {{"offset", offset}});
+        result(dispatcher, "automation.capabilities",
+               {{"offset", offset}, {"declarations", true}});
     for (const QJsonValue& tool : page.value("tools").toArray())
       tools.append(tool);
     require(page.contains("next_offset"),
@@ -559,10 +560,15 @@ bool refusedAs(const QJsonObject& descriptor, const QString& code,
 
 void effectDeclarations(Context& context) {
   Dispatcher dispatcher(context);
-  const QJsonObject capabilities =
-      result(dispatcher, "automation.capabilities", {});
-  checkResult(catalogEntry(capabilities, "automation.capabilities"),
-              capabilities);
+  const QJsonObject page   = result(dispatcher, "automation.capabilities", {});
+  QJsonObject capabilities = page;
+  capabilities.insert("tools", allTools(dispatcher));
+  checkResult(catalogEntry(capabilities, "automation.capabilities"), page);
+  for (const QJsonValue& lean : page.value("tools").toArray())
+    require(!lean.toObject().contains("effects") &&
+                !lean.toObject().contains("errors") &&
+                !lean.toObject().contains("outputSchema"),
+            "A default catalog page carries no declarations");
   checkResult(catalogEntry(capabilities, "automation.list_documents"),
               result(dispatcher, "automation.list_documents", {}));
   const QJsonObject described =

@@ -380,13 +380,15 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
           "automation.capabilities",
           "Inspect this worker's protocol, toolsets and available native "
           "operations. The tool descriptors come a page at a time: repeat with "
-          "next_offset until it is null.",
+          "next_offset until it is null. A descriptor carries its effects, "
+          "error codes and output schema only with declarations: true.",
           {{"limit", QJsonObject{{"type", "integer"},
                                  {"minimum", 1},
                                  {"maximum", MaximumCapabilityPage}}},
            {"offset", QJsonObject{{"type", "integer"},
                                   {"minimum", 0},
-                                  {"maximum", MaximumCapabilityOffset}}}},
+                                  {"maximum", MaximumCapabilityOffset}}},
+           {"declarations", QJsonObject{{"type", "boolean"}}}},
           {}),
       capabilitiesResultSchema()));
   addWorkerOperation(withOutputSchema(
@@ -563,9 +565,14 @@ Dispatcher::Receipt Dispatcher::receiptKey(const QString& method,
 
 QJsonObject Dispatcher::capabilities(const QJsonObject& params) const {
   for (auto it = params.begin(); it != params.end(); ++it)
-    if (it.key() != "limit" && it.key() != "offset")
+    if (it.key() != "limit" && it.key() != "offset" &&
+        it.key() != "declarations")
       throw Error("invalid_params",
-                  "automation.capabilities accepts only limit and offset.");
+                  "automation.capabilities accepts only limit, offset and "
+                  "declarations.");
+  const QJsonValue declared = params.value("declarations");
+  if (!declared.isUndefined() && !declared.isBool())
+    throw Error("invalid_params", "declarations must be a boolean.");
   const int offset =
       integerParam(params, "offset", 0, MaximumCapabilityOffset, 0);
   const int limit = integerParam(params, "limit", 1, MaximumCapabilityPage,
@@ -574,8 +581,15 @@ QJsonObject Dispatcher::capabilities(const QJsonObject& params) const {
     throw Error("invalid_params", "offset exceeds the tool count.");
   const int end = std::min(offset + limit, int(m_catalog.size()));
   QJsonArray page;
-  for (int index = offset; index < end; ++index)
-    page.append(m_catalog.at(index));
+  for (int index = offset; index < end; ++index) {
+    QJsonObject descriptor = m_catalog.at(index).toObject();
+    // The default page stays small enough to read; the declarations are
+    // several times the size of the descriptors.
+    if (!declared.toBool(false))
+      for (const char* field : {"effects", "errors", "outputSchema"})
+        descriptor.remove(QLatin1String(field));
+    page.append(descriptor);
+  }
   return QJsonObject{
       {"protocol_version", 3},
       {"worker", workerIdentity(m_context)},

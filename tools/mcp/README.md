@@ -200,8 +200,10 @@ Every successful tool result carries its JSON as a text block as well as structu
 content, so a client that shows the model only text still has the data. A result and
 its structured copy must together fit 9 MiB, or the call fails with `RESULT_TOO_LARGE`.
 `automation.capabilities` describes the tools a page at a time (`limit` up to 64,
-default 16, and `offset`); repeat with `next_offset` until it is null. The adapter reads
-every page itself.
+default 16, and `offset`); repeat with `next_offset` until it is null. A descriptor
+carries its `effects`, `errors` and `outputSchema` only when the call passes
+`declarations: true`, which keeps the default page small. The adapter reads every page
+itself.
 
 The adapter waits up to 30 seconds from launching the native worker for its private
 handshake, since a cold start on a loaded machine spends most of that loading the
@@ -224,8 +226,8 @@ and annotations. The annotations follow from the tool's effects: `readOnlyHint`
 for reads, `destructiveHint` for writes that can overwrite, `idempotentHint`
 always, and `openWorldHint: false` because no tool reaches a network or an outside
 service. `tool.describe` with `{"names": [...]}` (1 to 16 tool names, the toolset
-tools included) returns each tool's full declaration; `automation.capabilities`
-returns all of them at once. A declaration gives:
+tools included) returns each tool's full declaration; `automation.capabilities` with
+`declarations: true` returns them a page at a time. A declaration gives:
 
 - `effects`: the class (`read`, `document_write`, `document_lifecycle`,
   `job_start`, `job_control` or `session`), the effect on documents, the files read

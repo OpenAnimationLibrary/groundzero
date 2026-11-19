@@ -100,7 +100,7 @@ const QHash<QString, Declaration>& declarations() {
        {ToolEffects{"job_start", "reads", {}, "starts", {}, false},
         {"analysis_busy", "not_found", "unsupported_type"}}},
       {"drawing.clone", {kAdd, {"already_exists", "unsupported_drawing_id"}}},
-      {"drawing.create", {kAdd, {"already_exists"}}},
+      {"drawing.create", {kAdd, {"already_exists", "unsupported_drawing_id"}}},
       {"drawing.inspect", {kInspect, {"not_found", "unsupported_type"}}},
       {"drawing.remove", {kEdit, {"has_dependents", "in_use", "not_found"}}},
       {"drawing.renumber",
@@ -578,8 +578,9 @@ QJsonObject effectsSchema() {
 QJsonObject descriptorSchema() {
   const QJsonObject boolean{{"type", "boolean"}};
   const QJsonObject object{{"type", "object"}};
-  QStringList required{"name",        "description", "toolset", "inputSchema",
-                       "annotations", "effects",     "errors"};
+  // Effects, errors and outputSchema come only when declarations are asked for.
+  QStringList required{"name", "description", "toolset", "inputSchema",
+                       "annotations"};
   return strictObject(
       {{"name", stringSchema(1, 128)},
        {"description", stringSchema(1, 8192)},

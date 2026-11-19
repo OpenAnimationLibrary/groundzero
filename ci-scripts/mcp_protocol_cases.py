@@ -23,6 +23,8 @@ WORKER_PREFIX = re.compile(r"\b(job|artifact)_[0-9a-f]{8}_")
 CLOCK_FIELDS = {"submitted_ms", "started_ms", "ended_ms", "requested_ms"}
 # A render snapshot package's manifest names the worker's own paths.
 MANIFEST = re.compile(r"\"snapshot_manifest_sha256\": \"[0-9a-f]{64}\"")
+# The launch authority's digest covers the workspace and roots, which differ per worker.
+AUTHORITY = re.compile(r"(\"authority\": \{\"digest\": )\"[0-9a-f]{64}\"")
 ACTIVE = {"preparing", "running", "finalizing"}
 CANCELLED_BY_CLIENT = "MCP_REQUEST_CANCELLED"
 TERMINAL = {"completed", "failed", "canceled", "deadline_exceeded"}
@@ -178,6 +180,7 @@ def _normalized(record: list[tuple[str, Any]], roots: dict[Path, str]) -> list[t
     text = UUID.sub(lambda match: handles.setdefault(match[0], f"<id-{len(handles)}>"), text)
     text = ELAPSED.sub('"elapsed_ms": "<elapsed>"', text)
     text = MANIFEST.sub('"snapshot_manifest_sha256": "<manifest>"', text)
+    text = AUTHORITY.sub(r'\1"<authority>"', text)
     return [tuple(item) for item in json.loads(text)]
 
 

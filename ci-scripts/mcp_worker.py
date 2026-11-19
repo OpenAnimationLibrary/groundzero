@@ -162,15 +162,18 @@ def _described(worker: Worker) -> list[dict[str, Any]]:
 def joined_capabilities(fetch: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
     """Return automation.capabilities with every page of tool descriptors joined.
 
+    The descriptors carry their declarations (effects, errors, output schema), which a
+    default page leaves out.
+
     Args:
         fetch: Calls automation.capabilities with the given paging arguments and returns its
             result.
     """
-    result = fetch({"limit": 64})
+    result = fetch({"limit": 64, "declarations": True})
     tools = list(result["tools"])
     page = result
     while page["next_offset"] is not None:
-        page = fetch({"limit": 64, "offset": page["next_offset"]})
+        page = fetch({"limit": 64, "offset": page["next_offset"], "declarations": True})
         tools.extend(page["tools"])
     return {**result, "tools": tools, "next_offset": None}
 

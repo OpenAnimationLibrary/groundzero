@@ -74,7 +74,10 @@ async function discover(
   requested: string[],
   domains: string[],
 ): Promise<ToolsetState> {
-  const first = await worker.request("automation.capabilities", { limit: CATALOG_PAGE });
+  const first = await worker.request("automation.capabilities", {
+    limit: CATALOG_PAGE,
+    declarations: true,
+  });
   if (!isObject(first) || first["protocol_version"] !== 3) {
     throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 3");
   }
@@ -99,6 +102,7 @@ async function catalogPages(worker: NativeApi, first: Record<string, unknown>): 
     const result = await worker.request("automation.capabilities", {
       limit: CATALOG_PAGE,
       offset: next,
+      declarations: true,
     });
     if (!isObject(result)) throw new WorkerError("INVALID_CATALOG", "Expected a tools page");
     page = result;
