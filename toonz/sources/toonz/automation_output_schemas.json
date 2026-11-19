@@ -23190,10 +23190,7 @@
                       ]
                     }
                   },
-                  "required": [
-                    "index",
-                    "kind"
-                  ],
+                  "required": [],
                   "type": "object"
                 },
                 "roles": {
@@ -23221,19 +23218,7 @@
                   "type": "boolean"
                 }
               },
-              "required": [
-                "curves_sha256",
-                "height_in",
-                "height_px",
-                "index",
-                "interest_rect",
-                "name",
-                "parent",
-                "roles",
-                "width_in",
-                "width_px",
-                "x_prevalence"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 4096,
@@ -23251,11 +23236,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "cameras",
-          "output_camera",
-          "preview_camera"
-        ],
+        "required": [],
         "type": "object"
       },
       "files": {
@@ -23536,13 +23517,7 @@
                   "type": "boolean"
                 }
               },
-              "required": [
-                "antialias_softness",
-                "color_space_gamma",
-                "premultiply",
-                "subsampling",
-                "white_transparent"
-              ],
+              "required": [],
               "type": "object"
             },
             "stroke_opacity_sha256": {
@@ -23613,10 +23588,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "color",
-                "name"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 1024,
@@ -23640,10 +23612,7 @@
                 "type": "integer"
               }
             },
-            "required": [
-              "aspect_ratio",
-              "size"
-            ],
+            "required": [],
             "type": "object"
           },
           "markers": {
@@ -23716,18 +23685,7 @@
                 "type": "boolean"
               }
             },
-            "required": [
-              "aspect_color",
-              "aspect_mode",
-              "aspect_ratio",
-              "bpp",
-              "frame_rate",
-              "linear_color_space",
-              "range",
-              "shrink",
-              "step",
-              "sync_color_settings"
-            ],
+            "required": [],
             "type": "object"
           },
           "preview": {
@@ -23790,18 +23748,7 @@
                 "type": "boolean"
               }
             },
-            "required": [
-              "aspect_color",
-              "aspect_mode",
-              "aspect_ratio",
-              "bpp",
-              "frame_rate",
-              "linear_color_space",
-              "range",
-              "shrink",
-              "step",
-              "sync_color_settings"
-            ],
+            "required": [],
             "type": "object"
           },
           "ruler_guides": {
@@ -23828,23 +23775,11 @@
                 "type": "array"
               }
             },
-            "required": [
-              "horizontal",
-              "vertical"
-            ],
+            "required": [],
             "type": "object"
           }
         },
-        "required": [
-          "background_color",
-          "color_filters",
-          "column_filters_on_render",
-          "field_guide",
-          "markers",
-          "output",
-          "preview",
-          "ruler_guides"
-        ],
+        "required": [],
         "type": "object"
       },
       "sheet": {
@@ -23908,19 +23843,14 @@
                       ]
                     }
                   },
-                  "required": [
-                    "index",
-                    "kind"
-                  ],
+                  "required": [],
                   "type": "object"
                 },
                 "preview_visible": {
                   "type": "boolean"
                 }
               },
-              "required": [
-                "kind"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 4096,
@@ -23933,10 +23863,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "columns",
-          "columns_sha256"
-        ],
+        "required": [],
         "type": "object"
       },
       "sound_columns": {
