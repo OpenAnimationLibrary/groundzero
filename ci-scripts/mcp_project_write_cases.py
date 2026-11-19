@@ -156,6 +156,17 @@ def drafts_bind_explicit_projects(case: NativeAcceptance) -> None:
             _inspect(case, project["project_id"])["file_revision"], project["file_revision"]
         )
     case.assertEqual(case.success("project.inspect", {})["mode"], private["mode"])
+    level = case.mutate("level.create", first["document_id"], name="Ink", format="vector")
+    case.mutate(
+        "drawing.create",
+        first["document_id"],
+        level_id=level["level_id"],
+        drawing_id={"number": 1, "suffix": ""},
+        format="vector",
+    )
+    case.mutate("scene.save_copy", first["document_id"], directory=str(case.workspace / "draft-a"))
+    art = case.workspace / "projects" / "DraftA" / "art"
+    case.assertEqual([path.name for path in art.iterdir()], ["scenes.xml"])
     plain = case.mutate("scene.create", None, name="Plain")
     case.assertIsNone(plain["project"])
     unknown = case.failure(
