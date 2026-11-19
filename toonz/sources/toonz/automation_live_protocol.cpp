@@ -183,15 +183,18 @@ QJsonObject commonWrite() {
           {"expected_fingerprint", patterned("^[0-9a-f]{64}$")}};
 }
 
-QJsonObject writeDescriptor(const QString& name, QJsonObject properties,
-                            QJsonArray required) {
+// `rule` states in words the condition between arguments that the handler
+// checks: MCP clients accept only a plain object at an input schema's root.
+QJsonObject writeDescriptor(const QString& name, const QString& rule,
+                            QJsonObject properties, QJsonArray required) {
   const QJsonObject common = commonWrite();
   for (auto it = common.constBegin(); it != common.constEnd(); ++it) {
     properties.insert(it.key(), it.value());
     required.append(it.key());
   }
   return descriptor(
-      name, "Edit one qualified existing native scalar with one undo entry.",
+      name,
+      "Edit one qualified existing native scalar with one undo entry. " + rule,
       properties, required, true);
 }
 
@@ -207,49 +210,28 @@ void checkString(const QString& value, const QJsonObject& schema) {
 }
 
 QJsonObject stageOperation() {
-  QJsonObject result =
-      writeDescriptor("live.stage.set_key_value",
-                      {{"object_id", stringSchema()},
-                       {"channel", choices({"x", "y", "rotation"})},
-                       {"frame", numberSchema(0, 999999, true)},
-                       {"value", numberSchema(-1000000, 1000000)},
-                       {"unit", choices({"inch", "degree"})}},
-                      {"object_id", "channel", "frame", "value", "unit"});
-  QJsonObject schema = result.value("inputSchema").toObject();
-  schema.insert(
-      "oneOf",
-      QJsonArray{QJsonObject{{"properties",
-                              QJsonObject{{"channel", choices({"x", "y"})},
-                                          {"unit", choices({"inch"})}}}},
-                 QJsonObject{{"properties",
-                              QJsonObject{{"channel", choices({"rotation"})},
-                                          {"unit", choices({"degree"})}}}}});
-  result.insert("inputSchema", schema);
-  return result;
+  return writeDescriptor(
+      "live.stage.set_key_value",
+      "Channels x and y take unit inch; rotation takes unit degree.",
+      {{"object_id", stringSchema()},
+       {"channel", choices({"x", "y", "rotation"})},
+       {"frame", numberSchema(0, 999999, true)},
+       {"value", numberSchema(-1000000, 1000000)},
+       {"unit", choices({"inch", "degree"})}},
+      {"object_id", "channel", "frame", "value", "unit"});
 }
 
 QJsonObject fxOperation() {
-  QJsonObject result =
-      writeDescriptor("live.fx.set_scalar_value",
-                      {{"fx_id", stringSchema()},
-                       {"parameter", choices({"value"})},
-                       {"location", choices({"default", "existing_key"})},
-                       {"frame", numberSchema(0, 999999, true)},
-                       {"value", numberSchema(0, 10000)},
-                       {"unit", choices({"fxLength_native"})}},
-                      {"fx_id", "parameter", "location", "value", "unit"});
-  QJsonObject schema = result.value("inputSchema").toObject();
-  schema.insert(
-      "oneOf",
-      QJsonArray{
-          QJsonObject{
-              {"properties", QJsonObject{{"location", choices({"default"})}}},
-              {"not", QJsonObject{{"required", QJsonArray{"frame"}}}}},
-          QJsonObject{{"properties",
-                       QJsonObject{{"location", choices({"existing_key"})}}},
-                      {"required", QJsonArray{"frame"}}}});
-  result.insert("inputSchema", schema);
-  return result;
+  return writeDescriptor(
+      "live.fx.set_scalar_value",
+      "frame is required with location existing_key and refused with default.",
+      {{"fx_id", stringSchema()},
+       {"parameter", choices({"value"})},
+       {"location", choices({"default", "existing_key"})},
+       {"frame", numberSchema(0, 999999, true)},
+       {"value", numberSchema(0, 10000)},
+       {"unit", choices({"fxLength_native"})}},
+      {"fx_id", "parameter", "location", "value", "unit"});
 }
 
 void checkConditionalParams(const QString& method, const QJsonObject& params) {

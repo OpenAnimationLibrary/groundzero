@@ -180,6 +180,19 @@ void schemas() {
               "invalid_params");
 }
 
+void plainSchemaRoots() {
+  const QJsonArray tools = capabilities("edit").value("tools").toArray();
+  require(tools.size() == 6, "The live catalog has six tools");
+  for (const QJsonValue& tool : tools) {
+    const QJsonObject schema = tool.toObject().value("inputSchema").toObject();
+    require(schema.value("type") == "object",
+            "A live input schema must be an object");
+    for (const char* keyword : {"oneOf", "anyOf", "allOf", "not", "$ref"})
+      require(!schema.contains(keyword),
+              "A live input schema has a combinator at its root");
+  }
+}
+
 void fxSchemas() {
   QJsonObject params = write(3).value("params").toObject();
   for (const char* field : {"object_id", "channel", "frame"})
@@ -441,6 +454,7 @@ void runAutomationLiveProtocolTests() {
       {"parser bounds", parserBounds},
       {"stage schemas", schemas},
       {"FX schemas", fxSchemas},
+      {"plain schema roots", plainSchemaRoots},
       {"shared replay", sharedReplay},
       {"queue deadline and disconnect", queueAndDeadline},
       {"reply pressure", replyPressure},
