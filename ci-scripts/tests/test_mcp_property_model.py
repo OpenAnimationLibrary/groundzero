@@ -18,7 +18,15 @@ import mcp_property_model as model
 CENSUS = json.loads((Path(__file__).resolve().parents[1] / "mcp_census.json").read_text())
 
 
-PREFIXES = ("animation.", "cells.", "column.", "camera.", "scene.output.", "scene.guides.", "object.")
+PREFIXES = (
+    "animation.",
+    "cells.",
+    "column.",
+    "camera.",
+    "scene.output.",
+    "scene.guides.",
+    "object.",
+)
 
 
 def keys(*rows: tuple[int, float, str, int]) -> list[model.Key]:
@@ -110,7 +118,9 @@ class NotModelledTest(unittest.TestCase):
             self.assertNotIn(tool, requested, f"{tool} has an operation: delete its entry")
             self.assertGreater(len(reason), 20, tool)
 
-    def test_every_writing_curve_cell_column_camera_and_object_tool_is_modelled_or_listed(self) -> None:
+    def test_every_writing_tool_of_the_modelled_families_is_modelled_or_listed(
+        self,
+    ) -> None:
         writing = {
             name
             for name, entry in CENSUS["tools"].items()
