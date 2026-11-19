@@ -54,8 +54,19 @@ jobs:
     # See: https://github.com/actions/runner-images/issues/13045
     # GHA (x86_64) SUNSETTING SUPPORT DEADLINE WARNING!!! `macos-15-intel` runner image will be the last available x86_64 image from Actions, and after (August 2027) the x86_64 architecture will not be supported on GitHub Actions.
     # Xref.: https://github.com/actions/runner-images/issues/13045
-    # TODO: Change macOS GHA Runner Image to (Apple Silicon) based image on/prior to sunsetting of `macos-15-intel` (x86_64) runner image (August 2027)
-    runs-on: macos-15-intel
+    # Apple Silicon builds on `macos-15` (arm64) next to Intel. Homebrew lives in
+    # /usr/local on Intel and /opt/homebrew on arm64, so paths go through
+    # `brew --prefix`. The Intel leg keeps its artifact and cache names (empty suffix).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            suffix: ''
+          - runner: macos-15
+            suffix: '-arm64'
+    name: macOS${{ matrix.suffix }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,7 +75,7 @@ jobs:
       - name: Clean Python symlinks
         run: |
           # Remove potentially conflicting Python symlinks
-          find /usr/local/bin -type l \( -name "python*" -o -name "pip*" -o -name "2to3*" -o -name "idle*" -o -name "pydoc*" \) \
+          find "$(brew --prefix)/bin" -type l \( -name "python*" -o -name "pip*" -o -name "2to3*" -o -name "idle*" -o -name "pydoc*" \) \
             -exec sh -c 'file -b "$1" | grep -q "symbolic link to .*Python.framework" && printf "Removing %s\n" "$1" && rm -- "$1"' sh {} \;
           # Ensure Homebrew Python is properly linked
           for py_version in python@3.11 python@3.12 python@3.13 python@3.14; do
@@ -89,6 +100,10 @@ jobs:
           }
 
           checkPkgAndInstall bison flex pkg-config glew lz4 libjpeg libpng lzo boost libusb libmypaint ccache jpeg-turbo ninja opencv@4 ffmpeg
+          # The bundled SuperLU has no arm64 slice (see WITH_SYSTEM_SUPERLU).
+          if [ "$(uname -m)" = arm64 ]; then
+            checkPkgAndInstall superlu
+          fi
 
           brew list --formula | grep '^qt' | grep -v '@5' | xargs -n1 brew unlink || true
 
@@ -118,26 +133,28 @@ jobs:
 
       - name: Set up cache
         run: |
-          export PATH="/usr/local/opt/ccache/libexec:$PATH"
+          export PATH="$(brew --prefix)/opt/ccache/libexec:$PATH"
           mkdir -p /Users/runner/.ccache
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: compiler_cache
         with:
           path: /Users/runner/.ccache
-          key: ${{ runner.os }}-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-
+          key: ${{ runner.os }}${{ matrix.suffix }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}${{ matrix.suffix }}-
 
       - name: Build libtiff
         run: |
           cd thirdparty/tiff-4.0.3
-          CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-lzma
+          # Same prefix as Homebrew (/usr/local on Intel, /opt/homebrew on arm64),
+          # where CMake finds it.
+          CFLAGS='-fPIC' CXXFLAGS='-fPIC' ./configure --disable-lzma --prefix="$(brew --prefix)"
           make -j "$(sysctl -n hw.ncpu)"
           make install  # Ensures CMake finds the installed lib (avoid linking issues)
       - name: Build
         id: build
         run: |
           set -o pipefail
-          export PKG_CONFIG_PATH="/usr/local/opt/jpeg-turbo/lib/pkgconfig:$PKG_CONFIG_PATH"
+          export PKG_CONFIG_PATH="$(brew --prefix jpeg-turbo)/lib/pkgconfig:$PKG_CONFIG_PATH"
           cd toonz
           rm -rf build  
           mkdir -p build
@@ -166,7 +183,7 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /Users/runner/.ccache
-          key: ${{ runner.os }}-${{ github.sha }}
+          key: ${{ runner.os }}${{ matrix.suffix }}-${{ github.sha }}
 
       # Retry transient artifact-service failures without rerunning the
       # build. Exhausting the retries still fails the job.
@@ -209,7 +226,7 @@ jobs:
         if: ${{ !inputs.baseline_only && always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ReferenceStyle-${{ runner.os }}-${{ github.sha }}
+          name: ReferenceStyle-${{ runner.os }}${{ matrix.suffix }}-${{ github.sha }}
           path: neural-evaluation/report
           if-no-files-found: warn
 
@@ -319,7 +336,7 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         with:
-          name: artist-workflow-macos
+          name: artist-workflow-macos${{ matrix.suffix }}
           path: |
             toonz/build/artist-workload-output.*
             toonz/build/ui-integration-output*.txt
@@ -336,7 +353,7 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         with:
-          name: artist-workflow-macos
+          name: artist-workflow-macos${{ matrix.suffix }}
           path: |
             toonz/build/artist-workload-output.*
             toonz/build/ui-integration-output*.txt
@@ -351,7 +368,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         with:
-          name: artist-workflow-macos
+          name: artist-workflow-macos${{ matrix.suffix }}
           path: |
             toonz/build/artist-workload-output.*
             toonz/build/ui-integration-output*.txt
@@ -389,7 +406,7 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         with:
-          name: macos-reliability-results
+          name: macos-reliability-results${{ matrix.suffix }}
           path: |
             toonz/build/reliability-tests.xml
             toonz/build/cast-workflow-metrics.json
@@ -408,7 +425,7 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         with:
-          name: macos-reliability-results
+          name: macos-reliability-results${{ matrix.suffix }}
           path: |
             toonz/build/reliability-tests.xml
             toonz/build/cast-workflow-metrics.json
@@ -425,7 +442,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         with:
-          name: macos-reliability-results
+          name: macos-reliability-results${{ matrix.suffix }}
           path: |
             toonz/build/reliability-tests.xml
             toonz/build/cast-workflow-metrics.json
@@ -469,7 +486,7 @@ jobs:
           cp ../../../stuff/doc/LICENSE/LICENSE_seexpr.txt OpenToonz.app/Contents/Resources/sdk/python/LICENSE_seexpr.txt
           mkdir -p OpenToonz.app/Contents/Resources/licenses
           cp ../licenses/Partio-LICENSE.txt OpenToonz.app/Contents/Resources/licenses/
-          /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -verbose=0 -always-overwrite \
+          "$(brew --prefix qt@5)/bin/macdeployqt" OpenToonz.app -verbose=0 -always-overwrite \
             -executable=OpenToonz.app/Contents/MacOS/lzocompress \
             -executable=OpenToonz.app/Contents/MacOS/lzodecompress \
             -executable=OpenToonz.app/Contents/MacOS/tcleanup \
@@ -492,8 +509,8 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
         run: |
           python3 ci-scripts/benchmark_bundle.py --build toonz/build --platform macos \
-            --qt-version "$(/usr/local/opt/qt@5/bin/qmake -query QT_VERSION)" \
-            --macdeployqt /usr/local/opt/qt@5/bin/macdeployqt \
+            --qt-version "$("$(brew --prefix qt@5)/bin/qmake" -query QT_VERSION)" \
+            --macdeployqt "$(brew --prefix qt@5)/bin/macdeployqt" \
             --revision "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
             --run-attempt "$GITHUB_RUN_ATTEMPT" --output benchmark-input.tar.gz
 
@@ -501,7 +518,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: benchmark-input-macos
+          name: benchmark-input-macos${{ matrix.suffix }}
           path: benchmark-input.tar.gz
           compression-level: 0
           if-no-files-found: error
@@ -511,7 +528,7 @@ jobs:
           cd toonz/build/toonz
           echo "Creating DMG..."
           ATTEMPT=1
-          until /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -dmg -verbose=0 && [ -f OpenToonz.dmg ]; do
+          until "$(brew --prefix qt@5)/bin/macdeployqt" OpenToonz.app -dmg -verbose=0 && [ -f OpenToonz.dmg ]; do
             echo "Attempt $ATTEMPT failed to build DMG."
             if [ $ATTEMPT -eq 10 ]; then
               echo ">>> DMG file creation failed after 10 attempts. Aborting!"
@@ -531,7 +548,7 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         with:
-          name: Opentoonz-${{ runner.os }}-${{ github.sha }}
+          name: Opentoonz-${{ runner.os }}${{ matrix.suffix }}-${{ github.sha }}
           path: toonz/build/toonz/OpenToonz.dmg
           if-no-files-found: error
           compression-level: 0
@@ -546,7 +563,7 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         with:
-          name: Opentoonz-${{ runner.os }}-${{ github.sha }}
+          name: Opentoonz-${{ runner.os }}${{ matrix.suffix }}-${{ github.sha }}
           path: toonz/build/toonz/OpenToonz.dmg
           if-no-files-found: error
           compression-level: 0
@@ -559,7 +576,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         timeout-minutes: 5
         with:
-          name: Opentoonz-${{ runner.os }}-${{ github.sha }}
+          name: Opentoonz-${{ runner.os }}${{ matrix.suffix }}-${{ github.sha }}
           path: toonz/build/toonz/OpenToonz.dmg
           if-no-files-found: error
           compression-level: 0
