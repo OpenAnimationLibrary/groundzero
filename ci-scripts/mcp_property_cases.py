@@ -40,9 +40,10 @@ from mcp_w2_cases import _declared, _raw
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
-# Chosen from seeds 1 to 399 because their sequences reopen a scene that holds cells and keys,
-# and meet an occupied, a locked or an empty-level refusal.
-DEFAULT_SEEDS = (369, 191, 217, 67, 392, 393, 254, 113)
+# Chosen from seeds 1 to 399 by a greedy cover of what the model's sequences do: every operation
+# and every refusal it answers, every retime kind and replace mapping, and a reopened scene that
+# holds cells. A test keeps the cover.
+DEFAULT_SEEDS = (87, 10, 56, 271, 94, 16, 245, 34, 399, 237, 276, 9, 21, 154, 157)
 DEFAULT_LENGTH = 24
 TOLERANCE = 1e-9
 LOG_NAME = "property-sequences.ndjson"

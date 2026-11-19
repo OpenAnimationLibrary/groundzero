@@ -457,8 +457,8 @@ def _locked(scene: Scene, names: list[str]) -> bool:
 
 
 def _rows_of(scene: Scene, name: str) -> sheet.Rows:
-    rows = sheet.to_rows(scene.column(name).cells)
-    return [None if cell is None else (cell[0], cell[1][0], cell[1][1]) for cell in rows]
+    stored: list[Any] = sheet.to_rows(scene.column(name).cells)
+    return [None if cell is None else (cell[0], cell[1][0], cell[1][1]) for cell in stored]
 
 
 def _store(scene: Scene, changes: dict[str, sheet.Rows]) -> None:

@@ -106,7 +106,9 @@ class EditTest(unittest.TestCase):
             {"unsupported_interpolation", "invalid_argument/incoming_kind_changed"},
         )
 
-    def test_a_copy_after_its_source_gets_the_sources_kind_of_segment_not_the_original(self) -> None:
+    def test_a_copy_after_its_source_gets_the_sources_kind_of_segment_not_the_original(
+        self,
+    ) -> None:
         keys = {
             0: Key(0, 0, "speed_in_out", 1, ("none",), ("speed", 2, 0), linked=False),
             6: Key(6, 10, "linear", 1, ("speed", -2, 0), None, linked=False),

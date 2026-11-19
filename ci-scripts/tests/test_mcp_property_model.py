@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import collections
 import json
+import random
 import sys
 import unittest
 from pathlib import Path
@@ -132,6 +133,26 @@ class NotModelledTest(unittest.TestCase):
         self.assertIn("cells.retime/time_stretch", model.NOT_MODELLED_KINDS)
         self.assertEqual(seen - set(model.RETIME_KINDS), set())
         self.assertEqual(set(model.RETIME_KINDS) - seen, set())
+
+    def test_default_seeds_exercise_every_operation_and_retime_kind(self) -> None:
+        operations: set[str] = set()
+        kinds: set[str] = set()
+        refusals: set[str] = set()
+        for seed in cases.DEFAULT_SEEDS:
+            rng = random.Random(seed)
+            scene = model.new_scene()
+            for _ in range(cases.DEFAULT_LENGTH):
+                candidates = [op for op in model.OPERATIONS.values() if op.available(scene)]
+                op = rng.choices(candidates, [op.weight for op in candidates])[0]
+                args = op.choose(rng, scene)
+                refusal = op.effect(scene, args)
+                operations.add(op.name)
+                refusals.update([refusal] if refusal else [])
+                if op.name == "cells_retime":
+                    kinds.add(args["operation"]["kind"])
+        self.assertEqual(set(model.OPERATIONS) - operations, set())
+        self.assertEqual(set(model.RETIME_KINDS) - kinds, set())
+        self.assertTrue({"occupied_cells", "locked", "empty_level"} <= refusals, refusals)
 
 
 class ExpectedTest(unittest.TestCase):
