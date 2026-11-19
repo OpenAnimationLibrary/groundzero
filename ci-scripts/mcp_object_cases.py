@@ -329,7 +329,11 @@ def object_delete_preflight_and_refusals(case: NativeAcceptance) -> None:
     change = moved["world_changes"][0]
     case.assertAlmostEqual(change["before"]["dx_inch"] - change["after"]["dx_inch"], 0.5, 6)
     case.assertFalse(change["preserved"])
-    _refused(case, "rig.dependents", document, "invalid_handle", target=target)
+    error = case.failure(
+        "rig.dependents",
+        {"document_id": document, "expected_revision": case.revisions[document], "target": target},
+    )
+    case.assertEqual(error["code"], "invalid_handle", error)
 
 
 def _table(case: NativeAcceptance, document: str) -> str:
