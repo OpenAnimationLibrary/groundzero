@@ -636,7 +636,8 @@ std::pair<int, int> drawingColumnRange(TXshColumn* column) {
   int first = 0;
   int last  = 0;
   column->getRange(first, last);
-  if (first < 0 || last > 1000000)
+  // Rows 0 to 999999, as TXsheet::maxRowCount admits on load.
+  if (first < 0 || last > 999999)
     throw Error("scene_limit",
                 "The scene exceeds the supported exposure limit.");
   return {first, last};

@@ -218,3 +218,67 @@ def sheet_record_keeps_middle_columns_and_reports_dropped_ones(case: NativeAccep
     case.assertEqual(saved["trailing_empty_columns_dropped"], [named, locked])
     columns = case.success("scene.summary", {"document_id": reopened})["columns"]
     case.assertEqual([column["name"] for column in columns], ["Artwork", "Gap", "Last"])
+
+
+@acceptance_case
+def admitted_rows_are_zero_to_999999_in_every_tool(case: NativeAcceptance) -> None:
+    """Exposures may use rows 0 to 999999, the native sheet's 1,000,000 rows; such a scene
+    saves and reopens, and every tool refuses a row past it the same way."""
+    document, level, column = case.populated_scene()
+    target = {"column_id": column["column_id"], "level_id": level["level_id"]}
+    case.mutate(
+        "column.expose",
+        document,
+        **target,
+        drawing_id=DRAWING_1,
+        start_frame=999999,
+        length=1,
+        overwrite=True,
+    )
+    _saved, reopened = save_and_reopen(case, document, "rows")
+    columns = case.success("scene.summary", {"document_id": reopened})["columns"]
+    last = case.success(
+        "column.cells",
+        {
+            "document_id": reopened,
+            "column_id": columns[0]["column_id"],
+            "start_frame": 999999,
+            "length": 1,
+        },
+    )["cells"]
+    case.assertFalse(last[0]["empty"])
+    late = {"column_id": column["column_id"], "start_frame": 999999, "length": 2}
+    exposure = {**late, "level_id": level["level_id"], "drawing_id": DRAWING_1, "overwrite": True}
+    error = case.handler_failure(
+        "column.expose", case.write_params(document, exposure), "invalid_params"
+    )
+    case.assertEqual(error["details"]["reason"], "frame_range")
+    error = case.failure("column.cells", {"document_id": document, **late})
+    case.assertEqual((error["code"], error["details"]["reason"]), ("invalid_params", "frame_range"))
+    beyond = {"start_frame": 1000000, "length": 1}
+    case.schema_failure("column.expose", case.write_params(document, {**exposure, **beyond}))
+    case.schema_failure("column.cells", {"document_id": document, **late, **beyond})
+
+
+@acceptance_case
+def camera_size_round_trips_at_full_precision(case: NativeAcceptance) -> None:
+    """A camera size in inches that six digits cannot hold is read back exactly after a
+    save, by the worker's reopen and by the editor's loader."""
+    document = case.create("Precision")
+    case.mutate("camera.update", document, width_in=1 / 3, height_in=2 / 7)
+    camera = case.success("camera.inspect", {"document_id": document})
+    case.assertEqual((camera["width_in"], camera["height_in"]), (1 / 3, 2 / 7))
+    saved, reopened = save_and_reopen(case, document, "precision")
+    camera = case.success("camera.inspect", {"document_id": reopened})
+    case.assertEqual((camera["width_in"], camera["height_in"]), (1 / 3, 2 / 7))
+    manifest = case.success("scene.package_info", {"path": saved["package_directory"]})
+    case.assertEqual(manifest["cameras"]["cameras"][0]["width_in"], 1 / 3)
+
+
+@acceptance_case
+def frame_count_follows_column_delete(case: NativeAcceptance) -> None:
+    """Deleting the only exposed column leaves a scene of zero frames."""
+    document, _level, column = case.populated_scene()
+    case.assertEqual(case.success("scene.summary", {"document_id": document})["frame_count"], 25)
+    case.mutate("column.delete", document, column_id=column["column_id"])
+    case.assertEqual(case.success("scene.summary", {"document_id": document})["frame_count"], 0)

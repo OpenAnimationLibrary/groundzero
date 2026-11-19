@@ -135,6 +135,8 @@ QJsonValue deleteColumn(Context& context, const QJsonObject& params) {
   document.columns.remove(id);
   document.objects.remove(objectId);
   document.scene->getXsheet()->removeColumn(index);
+  // removeColumn leaves the frame count of the removed cells in place.
+  document.scene->getXsheet()->updateFrameCount();
   return QJsonObject{{"column_id", id}, {"deleted", true}};
 }
 
