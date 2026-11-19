@@ -124,7 +124,7 @@ void testRefusedWriteIsReported(Context& context) {
   std::vector<CellPlan> plans{plan};
   bool refused = false;
   try {
-    applyCellPlans(document, plans);
+    applyCellPlans(context, document, plans);
   } catch (const Error& error) {
     refused = error.code == "native_error";
   }
@@ -151,7 +151,7 @@ void testDivergenceIsReported(Context& context) {
   std::vector<CellPlan> plans{plan};
   bool reported = false;
   try {
-    applyCellPlans(document, plans);
+    applyCellPlans(context, document, plans);
   } catch (const Error& error) {
     reported = error.code == "native_error" &&
                error.details.value("frame").toInt() == 0;

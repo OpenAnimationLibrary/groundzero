@@ -254,7 +254,7 @@ QJsonObject runPlans(Context& context, Document& document,
     if (!plan.before.equals(plan.after)) changed.push_back(plan);
   if (!changed.empty()) {
     context.markMutationStarted();
-    applyCellPlans(document, changed);
+    applyCellPlans(context, document, changed);
   }
   QJsonArray columns;
   int total = 0;

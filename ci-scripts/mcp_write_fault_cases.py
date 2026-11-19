@@ -164,3 +164,53 @@ def silent_native_refusal_is_a_typed_error(case: NativeAcceptance) -> None:
     _unchanged(case, document, revision)
     inspected = case.success("level.inspect", {"document_id": document, "level_id": level})
     case.assertEqual(inspected["drawings"], [])
+
+
+@acceptance_case(worker_only=FAULT_FLAG)
+def a_native_cell_write_that_refuses_is_a_typed_error(case: NativeAcceptance) -> None:
+    """TXsheet::setCells returns false for a cell it will not take. With that forced, each
+    tool that writes cells fails with a typed error naming the column and row, claims no
+    success and leaves the column's cells as they were. The worker answers partially_applied
+    with the native_error as its cause, as for any failure after a mutation began."""
+    _fault_worker(case, "set-cells", "--test-write-fault", "native:set-cells")
+    document = case.create("Refused cells")
+    level = case.mutate("level.create", document, name="Ink", format="vector")["level_id"]
+    drawing = {"number": 1, "suffix": ""}
+    case.mutate("drawing.create", document, level_id=level, drawing_id=drawing, format="vector")
+    column = case.mutate("column.create", document, name="C")["column_id"]
+    writes = {
+        "column.expose": {
+            "column_id": column,
+            "level_id": level,
+            "drawing_id": drawing,
+            "start_frame": 0,
+            "length": 3,
+        },
+        "cells.set": {
+            "columns": [
+                {
+                    "column_id": column,
+                    "start_frame": 0,
+                    "runs": [{"level_id": level, "drawing_id": drawing, "length": 3}],
+                }
+            ],
+            "overwrite": False,
+        },
+    }
+    for tool, params in writes.items():
+        with case.subTest(tool=tool):
+            case.revisions[document] = case.success("scene.summary", {"document_id": document})[
+                "revision"
+            ]
+            error = case.failure(tool, case.write_params(document, params))
+            case.assertEqual(error["code"], "partially_applied", error)
+            case.assertEqual(error["details"]["cause_code"], "native_error")
+            case.assertEqual(error["details"]["column_id"], column)
+            case.assertEqual(error["details"]["frame"], 0)
+            case.assertNotIn("success", error["message"].lower())
+            cells = case.success(
+                "column.cells",
+                {"document_id": document, "column_id": column, "start_frame": 0, "length": 3},
+            )["cells"]
+            case.assertTrue(all(cell["empty"] for cell in cells), cells)
+    case.assertEqual(case.success("scene.summary", {"document_id": document})["frame_count"], 0)

@@ -1,4 +1,5 @@
 #include "automation_cells.h"
+#include "automation_files.h"
 #include "automation_scene_shared.h"
 
 #include "toonz/toonzscene.h"
@@ -162,9 +163,10 @@ bool allEmpty(const std::vector<TXshCell>& cells) {
 
 // TXsheet::setCells returns false for a refused cell or a locked column; the
 // other primitives return nothing and are checked by the model comparison.
-bool applyNative(TXsheet& sheet, int index, const CellOp& op) {
+bool applyNative(TXsheet& sheet, int index, const CellOp& op, bool refused) {
   switch (op.kind) {
   case CellOp::Write:
+    if (refused) return false;
     if (allEmpty(op.cells)) {
       sheet.clearCells(op.row, index, int(op.cells.size()));
       return true;
@@ -188,7 +190,8 @@ bool applyNative(TXsheet& sheet, int index, const CellOp& op) {
 
 }  // namespace
 
-void applyCellPlans(Document& document, std::vector<CellPlan>& plans) {
+void applyCellPlans(Context& context, Document& document,
+                    std::vector<CellPlan>& plans) {
   TXsheet& sheet = *document.scene->getXsheet();
   for (CellPlan& plan : plans) {
     const int index      = plan.index;
@@ -196,7 +199,8 @@ void applyCellPlans(Document& document, std::vector<CellPlan>& plans) {
         TStageObjectId::ColumnId(index), false);
     const std::string name = object ? object->getName() : std::string();
     for (const CellOp& op : plan.ops)
-      if (!applyNative(sheet, index, op))
+      if (!applyNative(sheet, index, op,
+                       writeFaultFires(context, "native:set-cells")))
         throw Error("native_error",
                     "A preflighted native cell write was refused.",
                     {{"column_id", plan.columnId}, {"frame", op.row}});
@@ -284,7 +288,7 @@ QJsonValue exposeColumn(Context& context, const QJsonObject& params) {
     modelCellPlan(plan);
     std::vector<CellPlan> plans{plan};
     context.markMutationStarted();
-    applyCellPlans(document, plans);
+    applyCellPlans(context, document, plans);
   }
   return QJsonObject{{"column_id", document.idForColumn(column)},
                      {"start_frame", range.start},
