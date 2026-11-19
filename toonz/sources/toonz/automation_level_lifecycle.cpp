@@ -817,9 +817,7 @@ QJsonObject handleSchema() {
           {"pattern", "^[A-Za-z0-9_-]+$"}};
 }
 
-QJsonObject nameSchema() {
-  return {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}};
-}
+QJsonObject nameSchema() { return boundedNameSchema(128); }
 
 }  // namespace
 

@@ -583,9 +583,7 @@ QJsonValue listGroups(Context& context, const QJsonObject& params) {
                      {"groups", groups}};
 }
 
-QJsonObject nameSchema() {
-  return {{"type", "string"}, {"minLength", 1}, {"maxLength", 256}};
-}
+QJsonObject nameSchema() { return boundedNameSchema(256); }
 
 QJsonObject groupNumberSchema() {
   return {{"type", "integer"}, {"minimum", 1}, {"maximum", MaxGroupNumber}};
