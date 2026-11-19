@@ -40,6 +40,11 @@ public:
   static const double epsilon;
 
   static TTimerTicks ticks();
+
+  // Replaces the clock ticks() reads, so that a test can replay a recorded
+  // gesture with its recorded timing. nullptr restores the real clock.
+  typedef TTimerTicks (*TickSource)();
+  static void setTickSource(TickSource source);
 };
 
 

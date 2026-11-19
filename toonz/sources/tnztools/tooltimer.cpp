@@ -20,7 +20,14 @@ TToolTimer::TToolTimer()
   { m_timer.start(); }
 
  
+namespace {
+TToolTimer::TickSource tickSource = nullptr;
+}
+
+void TToolTimer::setTickSource(TickSource source) { tickSource = source; }
+
 TTimerTicks TToolTimer::ticks() {
+  if (tickSource) return tickSource();
   static TToolTimer timer;
   return timer.m_timer.nsecsElapsed();
 }
