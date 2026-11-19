@@ -560,10 +560,14 @@ QJsonObject journalDiscardedDetails(const QJsonObject& stored) {
           {"worker_instance_id", stored.value("w")}};
 }
 
-// The discard as the journal keeps it: the job's terminal record with a
-// discarded block, newest for its id, so a later worker neither lists nor
-// serves the job. Nothing when the journal never admitted the job.
-void journalDiscard(Context& context, const QString& id, QJsonObject record) {
+// The discard as the journal keeps it, newest for its id: the summary of the
+// job's terminal record (what job.list shows) with a discarded block, so a
+// later worker neither lists nor serves the job and the journal's index keeps
+// a few hundred bytes for it. Nothing when the journal never admitted the job.
+void journalDiscard(Context& context, const QString& id,
+                    const QJsonObject& terminal) {
+  QJsonObject record = jobSummary(terminal);
+  record.remove("observed_by");
   Journal* journal = workspaceJournal(context);
   if (!journal) return;
   const QJsonObject* stored = journal->job(id);

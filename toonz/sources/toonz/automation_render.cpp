@@ -419,6 +419,8 @@ public:
   bool stopping          = false;
   // When a poll answered off the application thread asked the job to stop.
   std::atomic<qint64> interruptMs{-1};
+  // The wall-clock budget's timer, owned by the application until it ends.
+  QTimer* deadlineTimer = nullptr;
 
   QString id() const override { return common.id; }
   JobLane lane() const override { return JobLane::Render; }
@@ -469,6 +471,8 @@ public:
   // Records the end time and every child process killed on the way there.
   void ended() {
     common.endedMs = now();
+    if (deadlineTimer) deadlineTimer->deleteLater();
+    deadlineTimer = nullptr;
     if (ffmpegForcedExits() > encoderExitsBefore) forced("encoder");
     if (neuralExecution && neuralExecution->helperWasKilled())
       forced("neural_helper");
@@ -659,16 +663,20 @@ public:
   }
 
   // Stops the job as cancellation does when its wall-clock budget runs out,
-  // unless it already ended or the caller canceled it first.
+  // unless it already ended or the caller canceled it first. The timer holds
+  // the job weakly and goes when the job ends, so a finished job that is
+  // discarded is freed at once, not when its budget would have run out.
   void scheduleDeadline(int milliseconds) {
-    const auto self = shared_from_this();
-    QTimer::singleShot(milliseconds, QCoreApplication::instance(),
-                       [self, milliseconds]() {
-                         Q_UNUSED(milliseconds);
-                         if (self->terminal() || self->cancellation) return;
-                         self->deadlineExceeded = true;
-                         self->requestStop();
-                       });
+    const std::weak_ptr<RenderJob> weak = shared_from_this();
+    deadlineTimer = new QTimer(QCoreApplication::instance());
+    deadlineTimer->setSingleShot(true);
+    QObject::connect(deadlineTimer, &QTimer::timeout, [weak]() {
+      const auto self = weak.lock();
+      if (!self || self->terminal() || self->cancellation) return;
+      self->deadlineExceeded = true;
+      self->requestStop();
+    });
+    deadlineTimer->start(milliseconds);
   }
 
   void expireNeural() {
