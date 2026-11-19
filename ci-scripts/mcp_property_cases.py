@@ -87,7 +87,10 @@ def differences(want: Any, got: Any, path: str = "") -> list[str]:
     numbers = all(
         isinstance(item, int | float) and not isinstance(item, bool) for item in (want, got)
     )
-    same = math.isclose(want, got, rel_tol=TOLERANCE, abs_tol=TOLERANCE) if numbers else want == got
+    if numbers:
+        same = math.isclose(want, got, rel_tol=TOLERANCE, abs_tol=TOLERANCE)
+    else:
+        same = type(want) is type(got) and want == got
     return [] if same else [f"{path}: expected {want!r}, the worker reads {got!r}"]
 
 
