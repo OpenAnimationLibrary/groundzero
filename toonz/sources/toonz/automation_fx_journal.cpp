@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_fx.h"
+#include "automation_effects.h"
 #include "automation_fx_journal.h"
 #include "automation_scene_host.h"
 
@@ -9,6 +10,7 @@
 #include "tfx.h"
 #include "tfxattributes.h"
 #include "tmacrofx.h"
+#include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
 #include "tparamset.h"
 #include "toonz/fxdag.h"
@@ -18,12 +20,13 @@
 #include "toonz/txsheet.h"
 #include "toonz/txshcolumn.h"
 
-#include <QCryptographicHash>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QUuid>
 
 #include <algorithm>
+#include <cstring>
 #include <deque>
 #include <limits>
 #include <map>
@@ -51,6 +54,24 @@ const char* const kKindNames[] = {"current_output", "node",         "edge",
 // Entity key -> state; an absent entity is null. Keys are
 // "<kind>\x1f<handle>[\x1f<port>]".
 using States = std::map<QString, QJsonValue>;
+
+// A 128-bit fingerprint: equal fingerprints mean equal states.
+struct Digest final {
+  quint64 a = 0;
+  quint64 b = 0;
+  bool operator==(const Digest& other) const {
+    return a == other.a && b == other.b;
+  }
+  bool operator!=(const Digest& other) const { return !(*this == other); }
+};
+
+// One entity of a snapshot: its fingerprint and its state, built only when
+// the fingerprint is new.
+struct Entity final {
+  Digest fingerprint;
+  QJsonValue state;
+};
+using Entities = QHash<QString, Entity>;
 
 struct Step final {
   quint64 revision = 0;
@@ -80,6 +101,58 @@ Kind keyKind(const QString& key) {
   throw Error("internal_error", "Unknown FX journal entity.");
 }
 
+// Two independent 64-bit lanes of a bijective mixer over 64-bit words: fast,
+// and wide enough that equal fingerprints mean equal inputs in practice.
+class Hasher final {
+public:
+  void word(quint64 value) {
+    m_digest.a = mix(m_digest.a ^ value);
+    m_digest.b = mix(m_digest.b + value + 0x9e3779b97f4a7c15ULL);
+  }
+  void number(double value) {
+    quint64 bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    word(bits);
+  }
+  void bytes(const void* data, size_t size) {
+    word(size);
+    const char* text = static_cast<const char*>(data);
+    for (size_t offset = 0; offset < size; offset += 8) {
+      quint64 chunk = 0;
+      std::memcpy(&chunk, text + offset, std::min<size_t>(8, size - offset));
+      word(chunk);
+    }
+  }
+  void text(const std::string& value) { bytes(value.data(), value.size()); }
+  void text(const std::wstring& value) {
+    bytes(value.data(), value.size() * sizeof(wchar_t));
+  }
+  void text(const QString& value) {
+    bytes(value.utf16(), value.size() * sizeof(char16_t));
+  }
+  void digest(const Digest& value) {
+    word(value.a);
+    word(value.b);
+  }
+  Digest result() const { return m_digest; }
+
+private:
+  static quint64 mix(quint64 value) {
+    value ^= value >> 30;
+    value *= 0xbf58476d1ce4e5b9ULL;
+    value ^= value >> 27;
+    value *= 0x94d049bb133111ebULL;
+    return value ^ (value >> 31);
+  }
+  Digest m_digest{0x243f6a8885a308d3ULL, 0x13198a2e03707344ULL};
+};
+
+QString hex(const Digest& digest) {
+  return QStringLiteral("%1%2")
+      .arg(digest.a, 16, 16, QLatin1Char('0'))
+      .arg(digest.b, 16, 16, QLatin1Char('0'));
+}
+
 }  // namespace
 
 class FxGraphJournal final {
@@ -87,51 +160,55 @@ public:
   bool started            = false;
   quint64 baseRevision    = 0;
   quint64 currentRevision = 0;
-  States current;
+  Entities current;
   std::deque<Step> steps;
   qint64 bytes = 0;
-  std::map<QString, quint64> sequence;
+  QHash<QString, quint64> sequence;
   quint64 nextSequence = 1;
-  std::map<QString, Order> order;
+  QHash<QString, Order> order;
   std::map<int, QString> groupHandles;
   std::map<QString, int> groupIds;
-  std::map<QString, QString> linkHandles;
+  QHash<QString, QString> linkHandles;
 };
 
 namespace {
 
-void addBytes(QCryptographicHash& hash, const QByteArray& bytes) {
-  const qint64 size = bytes.size();
-  hash.addData(reinterpret_cast<const char*>(&size), sizeof(size));
-  hash.addData(bytes);
-}
-
-void addNumber(QCryptographicHash& hash, double value) {
-  hash.addData(reinterpret_cast<const char*>(&value), sizeof(value));
-}
-
-void addKeyframe(QCryptographicHash& hash, const TDoubleKeyframe& key) {
+void addKeyframe(Hasher& hash, const TDoubleKeyframe& key) {
   for (double value :
        {double(key.m_type), double(key.m_prevType), key.m_frame, key.m_value,
         double(key.m_isKeyframe), double(key.m_step), key.m_speedIn.x,
         key.m_speedIn.y, key.m_speedOut.x, key.m_speedOut.y,
         double(key.m_linkedHandles), double(key.m_fileParams.m_fieldIndex),
         key.m_similarShapeOffset})
-    addNumber(hash, value);
-  addBytes(hash, QByteArray::fromStdString(key.m_expressionText));
-  addBytes(hash, QByteArray::fromStdString(key.m_unitName));
-  addBytes(hash,
-           QString::fromStdWString(key.m_fileParams.m_path.getWideString())
-               .toUtf8());
+    hash.number(value);
+  hash.text(key.m_expressionText);
+  hash.text(key.m_unitName);
+  hash.text(key.m_fileParams.m_path.getWideString());
+}
+
+bool addDiscrete(Hasher& hash, TParam* param) {
+  if (auto* integer = dynamic_cast<TIntParam*>(param)) {
+    hash.word(quint64(integer->getValue()));
+    return true;
+  }
+  if (auto* boolean = dynamic_cast<TBoolParam*>(param)) {
+    hash.word(boolean->getValue() ? 1 : 2);
+    return true;
+  }
+  if (auto* enumeration = dynamic_cast<TEnumParam*>(param)) {
+    hash.word(quint64(enumeration->getValue()));
+    return true;
+  }
+  return false;
 }
 
 // Every value and key field of a parameter, so that equal digests mean equal
 // parameters.
-void addParameter(QCryptographicHash& hash, TParam* param, int depth) {
+void addParameter(Hasher& hash, TParam* param, int depth) {
   if (depth > 16)
     throw Error("resource_limit", "Parameter nesting is too deep.");
   if (auto* number = dynamic_cast<TDoubleParam*>(param)) {
-    addNumber(hash, number->getDefaultValue());
+    hash.number(number->getDefaultValue());
     for (int index = 0; index < number->getKeyframeCount(); ++index)
       addKeyframe(hash, number->getKeyframe(index));
     return;
@@ -141,28 +218,27 @@ void addParameter(QCryptographicHash& hash, TParam* param, int depth) {
       addParameter(hash, set->getParam(index).getPointer(), depth + 1);
     return;
   }
+  if (addDiscrete(hash, param)) return;
   std::set<double> frames;
   param->getKeyframes(frames);
   frames.insert(0);
   for (double frame : frames) {
-    addNumber(hash, frame);
-    addBytes(hash, QByteArray::fromStdString(param->getValueAlias(frame, 17)));
+    hash.number(frame);
+    hash.text(param->getValueAlias(frame, 17));
   }
 }
 
-QString parameterDigest(TParam* param) {
-  QCryptographicHash hash(QCryptographicHash::Sha256);
-  addParameter(hash, param, 0);
-  return QString::fromLatin1(hash.result().left(16).toHex());
-}
+using ParameterDigests = std::vector<std::pair<QString, Digest>>;
 
-void addParameters(QJsonObject& digests, TFx* fx, const QString& prefix) {
+void addParameters(ParameterDigests& digests, TFx* fx, const QString& prefix) {
   TParamContainer* params = fx->getParams();
   for (int index = 0; index < params->getParamCount(); ++index) {
     const TParamVar* entry = params->getParamVar(index);
     if (entry->isHidden() || entry->isObsolete()) continue;
-    digests.insert(prefix + QString::fromStdString(entry->getName()),
-                   parameterDigest(entry->getParam()));
+    Hasher hash;
+    addParameter(hash, entry->getParam(), 0);
+    digests.push_back(
+        {prefix + QString::fromStdString(entry->getName()), hash.result()});
   }
 }
 
@@ -198,41 +274,76 @@ std::tuple<int, int, std::wstring> seenOrder(FxDag* graph, TFx* fx) {
   return {3, 0, fx->getFxId()};
 }
 
+// What a node's fingerprint covers, gathered once per snapshot.
+struct NodeFacts final {
+  QString id;
+  quint64 sequence = 0;
+  TFx* native      = nullptr;
+  bool terminal    = false;
+  QStringList ports;
+  QStringList sources;
+  ParameterDigests parameters;
+  QStringList members;
+  QJsonValue link;
+};
+
+// Builds the entities of the top sheet's graph. A node's JSON state is
+// rebuilt only when its fingerprint differs from the previous snapshot's.
 class Snapshotter final {
 public:
-  Snapshotter(Document& document, FxGraphJournal& journal)
+  Snapshotter(Document& document, FxGraphJournal& journal,
+              const Entities* previous = nullptr)
       : m_document(document)
       , m_journal(journal)
+      , m_previous(previous)
       , m_sheet(document.scene->getXsheet())
       , m_graph(m_sheet->getFxDag()) {
     for (auto it = document.effects.constBegin();
          it != document.effects.constEnd(); ++it)
-      m_handles.insert({it.value(), it.key()});
+      m_handles.insert(it.value(), it.key());
   }
 
-  States take() {
+  Entities take() {
     const std::vector<TFx*> nodes = sheetNodes(m_sheet);
     assignSequences(nodes);
-    for (TFx* fx : nodes) m_byNative.insert({nativeFx(fx), fx});
+    for (TFx* fx : nodes) m_byNative.insert(nativeFx(fx), fx);
+    collectRings(nodes);
     for (TFx* fx : nodes) addNode(fx);
     TFx* output = m_graph->getCurrentOutputFx();
-    if (output) put(entityKey(CurrentOutput), handle(output), {});
+    if (output) putValue(entityKey(CurrentOutput), handle(output), {});
     addGroups();
-    return std::move(m_states);
+    return std::move(m_entities);
   }
 
+private:
   QString handle(TFx* fx) {
-    const auto found = m_handles.find(fx);
-    if (found != m_handles.end()) return found->second;
+    const auto found = m_handles.constFind(fx);
+    if (found != m_handles.constEnd()) return found.value();
     const QString id = m_document.idForFx(fx);
-    m_handles.insert({fx, id});
+    m_handles.insert(fx, id);
     return id;
   }
 
-  QJsonValue linkedGroup(TFx* node) {
-    const QStringList members = ringMembers(node);
-    if (members.size() < 2) return QJsonValue();
-    return linkHandle(members.first());
+  quint64 sequenceOf(const QString& id) const {
+    return m_journal.sequence.value(id, std::numeric_limits<quint64>::max());
+  }
+
+  void assignSequences(const std::vector<TFx*>& nodes) {
+    std::vector<std::pair<std::tuple<int, int, std::wstring>, TFx*>> fresh;
+    for (TFx* fx : nodes)
+      if (!m_journal.sequence.contains(handle(fx)))
+        fresh.push_back({seenOrder(m_graph, fx), fx});
+    std::sort(fresh.begin(), fresh.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (const auto& entry : fresh)
+      m_journal.sequence.insert(handle(entry.second), m_journal.nextSequence++);
+  }
+
+  QString linkHandle(const QString& fxHandle) {
+    QString& link = m_journal.linkHandles[fxHandle];
+    if (link.isEmpty())
+      link = "fxlink_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    return link;
   }
 
   QStringList ringMembers(TFx* node) {
@@ -240,9 +351,9 @@ public:
     std::vector<std::pair<quint64, QString>> members;
     TFx* member = native;
     for (int guard = 0; guard < kMaximumRingMembers; ++guard) {
-      const auto owner = m_byNative.find(member);
-      if (owner != m_byNative.end()) {
-        const QString id = handle(owner->second);
+      const auto owner = m_byNative.constFind(member);
+      if (owner != m_byNative.constEnd()) {
+        const QString id = handle(owner.value());
         members.push_back({sequenceOf(id), id});
       }
       member = member->getLinkedFx();
@@ -254,35 +365,92 @@ public:
     return result;
   }
 
-private:
-  quint64 sequenceOf(const QString& id) {
-    const auto found = m_journal.sequence.find(id);
-    return found == m_journal.sequence.end()
-               ? std::numeric_limits<quint64>::max()
-               : found->second;
+  // Each parameter ring once: its group handle is the one registered for
+  // its member with the lowest creation sequence.
+  void collectRings(const std::vector<TFx*>& nodes) {
+    for (TFx* fx : nodes) {
+      TFx* native = nativeFx(fx);
+      if (native->getLinkedFx() == native || m_rings.contains(handle(fx)))
+        continue;
+      const QStringList members = ringMembers(fx);
+      if (members.size() < 2) continue;
+      const QString group = linkHandle(members.first());
+      for (const QString& member : members) m_rings.insert(member, group);
+      putValue(entityKey(LinkedGroup, group),
+               QJsonArray::fromStringList(members),
+               {LinkedGroup, sequenceOf(members.first()), 0});
+    }
   }
 
-  void assignSequences(const std::vector<TFx*>& nodes) {
-    std::vector<std::pair<std::tuple<int, int, std::wstring>, TFx*>> fresh;
-    for (TFx* fx : nodes)
-      if (!m_journal.sequence.count(handle(fx)))
-        fresh.push_back({seenOrder(m_graph, fx), fx});
-    std::sort(fresh.begin(), fresh.end(),
-              [](const auto& a, const auto& b) { return a.first < b.first; });
-    for (const auto& entry : fresh)
-      m_journal.sequence[handle(entry.second)] = m_journal.nextSequence++;
+  Digest fingerprintOf(const QJsonValue& value) {
+    Hasher hash;
+    hash.bytes(
+        QJsonDocument(QJsonArray{value})
+            .toJson(QJsonDocument::Compact)
+            .constData(),
+        QJsonDocument(QJsonArray{value}).toJson(QJsonDocument::Compact).size());
+    return hash.result();
   }
 
-  void put(const QString& key, const QJsonValue& state, const Order& order) {
-    m_states[key]        = state;
-    m_journal.order[key] = order;
+  void putValue(const QString& key, const QJsonValue& state,
+                const Order& order) {
+    Hasher hash;
+    if (state.isString()) hash.text(state.toString());
+    if (state.isBool()) hash.word(state.toBool() ? 1 : 2);
+    if (state.isArray() || state.isObject()) hash.digest(fingerprintOf(state));
+    m_entities.insert(key, Entity{hash.result(), state});
+    m_journal.order.insert(key, order);
   }
 
-  QString linkHandle(const QString& fxHandle) {
-    QString& link = m_journal.linkHandles[fxHandle];
-    if (link.isEmpty())
-      link = "fxlink_" + QUuid::createUuid().toString(QUuid::WithoutBraces);
-    return link;
+  NodeFacts facts(TFx* fx) {
+    NodeFacts node;
+    node.id       = handle(fx);
+    node.sequence = sequenceOf(node.id);
+    node.native   = nativeFx(fx);
+    node.terminal = m_graph->getTerminalFxs()->containsFx(fx);
+    for (int index = 0; index < fx->getInputPortCount(); ++index) {
+      node.ports.append(QString::fromStdString(fx->getInputPortName(index)));
+      TFx* source = fx->getInputPort(index)->getFx();
+      node.sources.append(source ? handle(source) : QString());
+    }
+    if (auto* macro = dynamic_cast<TMacroFx*>(fx)) {
+      for (const auto& member : macro->getFxs()) {
+        const QString key = QString::fromStdWString(member->getFxId());
+        node.members.append(key + ":" +
+                            QString::fromStdString(member->getFxType()));
+        addParameters(node.parameters, member.getPointer(), key + "/");
+      }
+    } else {
+      addParameters(node.parameters, node.native, {});
+    }
+    const auto ring = m_rings.constFind(node.id);
+    if (ring != m_rings.constEnd()) node.link = ring.value();
+    return node;
+  }
+
+  Digest fingerprint(TFx* fx, const NodeFacts& node) {
+    Hasher hash;
+    TFxAttributes* attributes = fx->getAttributes();
+    hash.text(node.native->getFxType());
+    hash.text(node.native->getName());
+    hash.word(attributes->isEnabled() &&
+              node.native->getAttributes()->isEnabled());
+    hash.word(node.terminal);
+    hash.word(dynamic_cast<TZeraryColumnFx*>(fx) != nullptr);
+    hash.word(dynamic_cast<TMacroFx*>(fx) != nullptr);
+    hash.number(attributes->getDagNodePos().x);
+    hash.number(attributes->getDagNodePos().y);
+    const QStack<int> groups = attributes->getGroupIdStack();
+    hash.word(quint64(groups.size()));
+    for (int id : groups) hash.word(quint64(id));
+    hash.text(node.link.toString());
+    for (const QString& port : node.ports) hash.text(port);
+    for (const auto& parameter : node.parameters) {
+      hash.text(parameter.first);
+      hash.digest(parameter.second);
+    }
+    for (const QString& member : node.members) hash.text(member);
+    return hash.result();
   }
 
   QJsonValue position(TFx* fx) {
@@ -298,96 +466,90 @@ private:
     return ids;
   }
 
-  QJsonObject parameters(TFx* fx, QJsonArray& members) {
+  QJsonObject nodeState(TFx* fx, const NodeFacts& node) {
     QJsonObject digests;
-    if (auto* macro = dynamic_cast<TMacroFx*>(fx)) {
-      for (const auto& member : macro->getFxs()) {
-        const QString key = QString::fromStdWString(member->getFxId());
-        members.append(key + ":" + QString::fromStdString(member->getFxType()));
-        addParameters(digests, member.getPointer(), key + "/");
-      }
-      return digests;
-    }
-    addParameters(digests, nativeFx(fx), {});
-    return digests;
+    for (const auto& parameter : node.parameters)
+      digests.insert(parameter.first, hex(parameter.second));
+    return {
+        {"type", QString::fromStdString(node.native->getFxType())},
+        {"name", QString::fromStdWString(node.native->getName())},
+        {"enabled", fx->getAttributes()->isEnabled() &&
+                        node.native->getAttributes()->isEnabled()},
+        {"terminal", node.terminal},
+        {"generator_wrapper", dynamic_cast<TZeraryColumnFx*>(fx) != nullptr},
+        {"macro", dynamic_cast<TMacroFx*>(fx) != nullptr},
+        {"position", position(fx)},
+        {"group_ids", groupIds(fx)},
+        {"linked_group_id", node.link},
+        {"port_names", QJsonArray::fromStringList(node.ports)},
+        {"parameters", digests},
+        {"macro_members", QJsonArray::fromStringList(node.members)}};
   }
 
   void addNode(TFx* fx) {
-    const QString id    = handle(fx);
-    const quint64 order = m_journal.sequence[id];
-    TFx* native         = nativeFx(fx);
-    const bool terminal = m_graph->getTerminalFxs()->containsFx(fx);
-    QJsonArray portNames, members;
-    for (int index = 0; index < fx->getInputPortCount(); ++index) {
-      const QString port = QString::fromStdString(fx->getInputPortName(index));
-      portNames.append(port);
-      TFx* source = fx->getInputPort(index)->getFx();
-      if (source)
-        put(entityKey(Edge, id, port), handle(source), {Edge, order, index});
-    }
-    if (terminal) put(entityKey(Terminal, id), true, {Terminal, order, 0});
-    const QJsonObject digests = parameters(fx, members);
-    put(entityKey(Node, id),
-        QJsonObject{{"type", QString::fromStdString(native->getFxType())},
-                    {"name", QString::fromStdWString(native->getName())},
-                    {"enabled", fx->getAttributes()->isEnabled() &&
-                                    native->getAttributes()->isEnabled()},
-                    {"terminal", terminal},
-                    {"generator_wrapper",
-                     dynamic_cast<TZeraryColumnFx*>(fx) != nullptr},
-                    {"macro", dynamic_cast<TMacroFx*>(fx) != nullptr},
-                    {"position", position(fx)},
-                    {"group_ids", groupIds(fx)},
-                    {"linked_group_id", linkedGroup(fx)},
-                    {"port_names", portNames},
-                    {"parameters", digests},
-                    {"macro_members", members}},
-        {Node, order, 0});
-    addLinkedGroup(fx);
+    const NodeFacts node = facts(fx);
+    for (int index = 0; index < node.ports.size(); ++index)
+      if (!node.sources[index].isEmpty())
+        putValue(entityKey(Edge, node.id, node.ports[index]),
+                 node.sources[index], {Edge, node.sequence, index});
+    if (node.terminal)
+      putValue(entityKey(Terminal, node.id), true,
+               {Terminal, node.sequence, 0});
+    const QString key      = entityKey(Node, node.id);
+    const Digest digest    = fingerprint(fx, node);
+    const Entity* previous = previousEntity(key);
+    const bool reuse       = previous && previous->fingerprint == digest;
+    m_entities.insert(
+        key, Entity{digest,
+                    reuse ? previous->state : QJsonValue(nodeState(fx, node))});
+    m_journal.order.insert(key, Order{Node, node.sequence, 0});
+    collectGroups(fx, node.sequence);
   }
 
-  void addLinkedGroup(TFx* fx) {
-    const QStringList members = ringMembers(fx);
-    if (members.size() < 2 || members.first() != handle(fx)) return;
-    put(entityKey(LinkedGroup, linkHandle(members.first())),
-        QJsonArray::fromStringList(members),
-        {LinkedGroup, m_journal.sequence[members.first()], 0});
+  const Entity* previousEntity(const QString& key) const {
+    if (!m_previous) return nullptr;
+    const auto found = m_previous->constFind(key);
+    return found == m_previous->constEnd() ? nullptr : &found.value();
+  }
+
+  void collectGroups(TFx* fx, quint64 order) {
+    const QStack<int> ids = fx->getAttributes()->getGroupIdStack();
+    if (ids.isEmpty()) return;
+    const QStack<std::wstring> names = fx->getAttributes()->getGroupNameStack();
+    for (int index = 0; index < ids.size(); ++index) {
+      GroupSeen& seen = m_groups[ids[index]];
+      ++seen.members;
+      if (order >= seen.first) continue;
+      seen.first = order;
+      seen.name  = QString::fromStdWString(names.value(index));
+    }
   }
 
   void addGroups() {
-    struct Seen final {
-      QString name;
-      int members   = 0;
-      quint64 first = std::numeric_limits<quint64>::max();
-    };
-    std::map<int, Seen> groups;
-    for (TFx* fx : sheetNodes(m_sheet)) {
-      const quint64 order   = m_journal.sequence[handle(fx)];
-      const QStack<int> ids = fx->getAttributes()->getGroupIdStack();
-      const QStack<std::wstring> names =
-          fx->getAttributes()->getGroupNameStack();
-      for (int index = 0; index < ids.size(); ++index) {
-        Seen& seen = groups[ids[index]];
-        ++seen.members;
-        if (order >= seen.first) continue;
-        seen.first = order;
-        seen.name  = QString::fromStdWString(names.value(index));
-      }
-    }
-    for (const auto& entry : groups)
-      put(entityKey(Group, automationFxGroupHandle(m_document, entry.first)),
+    for (const auto& entry : m_groups)
+      putValue(
+          entityKey(Group, automationFxGroupHandle(m_document, entry.first)),
           QJsonObject{{"name", entry.second.name},
                       {"member_count", entry.second.members}},
           {Group, entry.second.first, entry.first});
   }
 
+  struct GroupSeen final {
+    QString name;
+    int members   = 0;
+    quint64 first = std::numeric_limits<quint64>::max();
+  };
+
   Document& m_document;
   FxGraphJournal& m_journal;
+  const Entities* m_previous;
   TXsheet* m_sheet;
   FxDag* m_graph;
-  std::map<TFx*, QString> m_handles;
-  std::map<TFx*, TFx*> m_byNative;
-  States m_states;
+  QHash<TFx*, QString> m_handles;
+  QHash<TFx*, TFx*> m_byNative;
+  QHash<QString, QString> m_rings;
+  std::map<int, GroupSeen> m_groups;
+  Entities m_entities;
 };
 
 FxGraphJournal& journalOf(Document& document) {
@@ -427,16 +589,18 @@ void retain(FxGraphJournal& journal, Step step) {
   }
 }
 
-// The states that differ between two snapshots, with their state before.
-States changedBefore(const States& before, const States& after) {
+// The entities whose fingerprints differ between two snapshots, with their
+// state before.
+States changedBefore(const Entities& before, const Entities& after) {
   States changed;
-  for (const auto& entry : before) {
-    const auto found = after.find(entry.first);
-    if (found == after.end() || found->second != entry.second)
-      changed.insert(entry);
+  for (auto entry = before.constBegin(); entry != before.constEnd(); ++entry) {
+    const auto found = after.constFind(entry.key());
+    if (found == after.constEnd() || found->fingerprint != entry->fingerprint)
+      changed.insert({entry.key(), entry->state});
   }
-  for (const auto& entry : after)
-    if (!before.count(entry.first)) changed.insert({entry.first, QJsonValue()});
+  for (auto entry = after.constBegin(); entry != after.constEnd(); ++entry)
+    if (!before.contains(entry.key()))
+      changed.insert({entry.key(), QJsonValue()});
   return changed;
 }
 
@@ -615,10 +779,8 @@ std::vector<QString> ordered(const FxGraphJournal& journal,
                              const States& states) {
   std::vector<std::pair<Order, QString>> keys;
   for (const auto& entry : states) {
-    const auto found  = journal.order.find(entry.first);
-    const Order order = found == journal.order.end()
-                            ? Order{keyKind(entry.first), 0, 0}
-                            : found->second;
+    const Order order =
+        journal.order.value(entry.first, Order{keyKind(entry.first), 0, 0});
     keys.push_back({order, entry.first});
   }
   std::sort(keys.begin(), keys.end());
@@ -628,8 +790,8 @@ std::vector<QString> ordered(const FxGraphJournal& journal,
 }
 
 QJsonValue currentState(const FxGraphJournal& journal, const QString& key) {
-  const auto found = journal.current.find(key);
-  return found == journal.current.end() ? QJsonValue() : found->second;
+  const auto found = journal.current.constFind(key);
+  return found == journal.current.constEnd() ? QJsonValue() : found->state;
 }
 
 QJsonObject stepResult(const FxGraphJournal& journal, const Step& step,
@@ -756,6 +918,50 @@ void prepareFxGraphJournal(Context& context, const QString& documentId) {
     journalOf(*document);
 }
 
+namespace {
+#ifdef BUILD_UI_PORT_TESTS
+bool verifyUnchangedSteps = true;
+#endif
+
+#ifdef BUILD_UI_PORT_TESTS
+void requireUnchanged(Document& document, FxGraphJournal& journal,
+                      const QString& tool) {
+  const Entities after =
+      Snapshotter(document, journal, &journal.current).take();
+  if (!changedBefore(journal.current, after).empty())
+    throw Error("internal_error",
+                tool +
+                    " changed the FX graph, but its effect declaration "
+                    "says it cannot: set fxGraph in its row of "
+                    "automation_effects.cpp.");
+}
+#endif
+
+// A write whose effect declaration says it cannot change the FX graph keeps
+// the journal's revisions continuous with an empty step and takes no
+// snapshot. Test builds take the snapshot anyway and refuse a declaration
+// that is wrong.
+void recordUnchangedStep(Document& document, FxGraphJournal& journal,
+                         const QString& tool) {
+#ifdef BUILD_UI_PORT_TESTS
+  if (verifyUnchangedSteps) requireUnchanged(document, journal, tool);
+#else
+  Q_UNUSED(tool);
+#endif
+  Step step;
+  step.revision           = document.revision;
+  journal.currentRevision = document.revision;
+  retain(journal, std::move(step));
+}
+
+void resetIfDiscontinuous(FxGraphJournal& journal, quint64 revision) {
+  if (journal.currentRevision + 1 == revision) return;
+  journal.steps.clear();
+  journal.bytes        = 0;
+  journal.baseRevision = revision - 1;
+}
+}  // namespace
+
 void recordFxGraphStep(Context& context, const QString& documentId,
                        const QString& tool, const QJsonObject& params,
                        bool advanced, QJsonObject* result) {
@@ -768,16 +974,16 @@ void recordFxGraphStep(Context& context, const QString& documentId,
     if (reports) result->insert("graph_delta", QJsonValue());
     return;
   }
-  Step step;
-  step.revision = document->revision;
-  States after  = Snapshotter(*document, journal).take();
-  step.before   = changedBefore(journal.current, after);
-  if (journal.currentRevision + 1 != document->revision) {
-    journal.steps.clear();
-    journal.bytes        = 0;
-    journal.baseRevision = document->revision - 1;
+  resetIfDiscontinuous(journal, document->revision);
+  if (!changesFxGraph(tool)) {
+    recordUnchangedStep(*document, journal, tool);
+    return;
   }
-  journal.current         = std::move(after);
+  Step step;
+  step.revision   = document->revision;
+  Entities after  = Snapshotter(*document, journal, &journal.current).take();
+  step.before     = changedBefore(journal.current, after);
+  journal.current = std::move(after);
   journal.currentRevision = document->revision;
   const QJsonObject delta = stepResult(journal, step, tool, params);
   retain(journal, std::move(step));
@@ -829,9 +1035,10 @@ QJsonObject automationFxDeltaWindow(Document& document) {
 quint64 automationFxSequence(Document& document, TFx* fx) {
   FxGraphJournal& journal = journalOf(document);
   const QString id        = document.idForFx(fx);
-  auto found              = journal.sequence.find(id);
-  if (found != journal.sequence.end()) return found->second;
-  return journal.sequence[id] = journal.nextSequence++;
+  const auto found        = journal.sequence.constFind(id);
+  if (found != journal.sequence.constEnd()) return found.value();
+  journal.sequence.insert(id, journal.nextSequence);
+  return journal.nextSequence++;
 }
 
 QString automationFxGroupHandle(Document& document, int nativeGroupId) {
@@ -855,14 +1062,21 @@ int automationFxGroupIdOrZero(Document& document, const QString& handle) {
 QJsonObject automationFxGraphView(Document& document) {
   FxGraphJournal& journal = journalOf(document);
   QJsonObject nodes, linked, groups;
-  for (const auto& entry : Snapshotter(document, journal).take()) {
-    const QStringList parts = keyParts(entry.first);
-    const Kind kind         = keyKind(entry.first);
-    if (kind == Node) nodes.insert(parts.value(1), entry.second);
-    if (kind == LinkedGroup) linked.insert(parts.value(1), entry.second);
-    if (kind == Group) groups.insert(parts.value(1), entry.second);
+  const Entities entities =
+      Snapshotter(document, journal, &journal.current).take();
+  for (auto entry = entities.constBegin(); entry != entities.constEnd();
+       ++entry) {
+    const QStringList parts = keyParts(entry.key());
+    const Kind kind         = keyKind(entry.key());
+    if (kind == Node) nodes.insert(parts.value(1), entry->state);
+    if (kind == LinkedGroup) linked.insert(parts.value(1), entry->state);
+    if (kind == Group) groups.insert(parts.value(1), entry->state);
   }
   return {{"nodes", nodes}, {"linked_groups", linked}, {"groups", groups}};
 }
+
+#ifdef BUILD_UI_PORT_TESTS
+void setFxJournalVerification(bool verify) { verifyUnchangedSteps = verify; }
+#endif
 
 }  // namespace GroundzeroAutomation

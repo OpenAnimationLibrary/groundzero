@@ -425,33 +425,135 @@ QJsonObject graphEntry(Document& document, TFx* fx, FxDag* graph) {
 }
 
 // sheet_path names a sub-xsheet instance; without it, the current sheet.
+constexpr int kDefaultGraphPage   = 64;
+constexpr int kMaximumGraphPage   = 512;
+constexpr int kMaximumPageBytes   = 1024 * 1024;
+constexpr int kMaximumGraphNodes  = 4096;
+constexpr int kReadOnlyGraphNodes = 16384;
+
+// A page after the first, or any page naming expected_revision, is bound to
+// the revision the caller started from.
+void requireGraphRevision(Document& document, const QJsonObject& params,
+                          int offset) {
+  const bool named = params.contains("expected_revision");
+  if (!named && offset == 0) return;
+  if (named &&
+      params.value("expected_revision").toString() == document.revisionText())
+    return;
+  throw Error("stale_revision",
+              named ? "The document changed since the first page; read "
+                      "fx.graph again from offset 0."
+                    : "Pages after the first need expected_revision.",
+              {{"revision", document.revisionText()}});
+}
+
+// Every node a document counts toward its limit: effects and macro members.
+int countedNodes(const std::vector<TFx*>& effects) {
+  int count = 0;
+  for (TFx* fx : effects) {
+    ++count;
+    if (auto* macro = dynamic_cast<TMacroFx*>(fx))
+      count += static_cast<int>(macro->getFxs().size());
+  }
+  return count;
+}
+
+// Why an effect's parameters cannot be written, at most eight reasons.
+QJsonArray editConstraints(Document& document, TFx* fx,
+                           const QJsonObject& entry) {
+  QJsonArray constraints;
+  auto add = [&constraints](const char* kind, const QJsonValue& via) {
+    constraints.append(QJsonObject{
+        {"kind", kind}, {"via", via}, {"parameters", QJsonValue()}});
+  };
+  if (auto* column = dynamic_cast<TColumnFx*>(fx)) {
+    TStageObject* object = columnObject(document, column);
+    if ((object && object->isLocked()) ||
+        (column->getXshColumn() && column->getXshColumn()->isLocked()))
+      add("locked_column", entry.value("column_id"));
+  }
+  const QJsonValue admission = entry.value("admission");
+  if (admission.isObject() && !admission.toObject().value("editable").toBool())
+    add("outside_profile", QJsonValue());
+  return constraints;
+}
+
+// The schematic and linked groups that have a member on this page.
+QJsonArray pageGroups(const QJsonArray& groups, const QSet<QString>& page) {
+  QJsonArray result;
+  for (const QJsonValue& value : groups)
+    for (const QJsonValue& member : value.toObject().value("fx_ids").toArray())
+      if (page.contains(member.toString())) {
+        result.append(value);
+        break;
+      }
+  return result;
+}
+
+QJsonObject graphPage(Document& document, TXsheet* sheet, int offset,
+                      int limit) {
+  FxDag* graph   = sheet->getFxDag();
+  const bool top = sheet == document.scene->getXsheet();
+  const QJsonObject view =
+      top ? automationFxGraphView(document) : QJsonObject();
+  const std::vector<TFx*> ordered = creationOrder(document, sheet);
+  QJsonArray effects;
+  QSet<QString> page;
+  for (size_t index = offset; index < ordered.size() && effects.size() < limit;
+       ++index) {
+    QJsonObject entry = graphEntry(document, ordered[index], graph);
+    if (top) addLayout(entry, view);
+    entry.insert("edit_constraints",
+                 editConstraints(document, ordered[index], entry));
+    page.insert(entry.value("fx_id").toString());
+    effects.append(entry);
+  }
+  const int next = offset + effects.size();
+  QJsonObject result{
+      {"document_id", document.id},
+      {"revision", document.revisionText()},
+      {"effects", effects},
+      {"total_effects", static_cast<int>(ordered.size())},
+      {"node_count", countedNodes(ordered)},
+      {"offset", offset},
+      {"limit", limit},
+      {"next_offset", next < static_cast<int>(ordered.size()) ? QJsonValue(next)
+                                                              : QJsonValue()},
+      {"limits", QJsonObject{{"nodes", document.readOnly ? kReadOnlyGraphNodes
+                                                         : kMaximumGraphNodes},
+                             {"page_bytes", kMaximumPageBytes}}},
+      {"linked_groups",
+       top ? pageGroups(linkedGroups(view), page) : QJsonArray()}};
+  if (top)
+    result.insert("groups", pageGroups(automationFxGroups(document), page));
+  return result;
+}
+
+// sheet_path names a sub-xsheet instance; without it, the current sheet.
+// Effects come a page at a time in creation order; next_offset is null on
+// the last page.
 QJsonValue inspectGraph(Document& document, const QJsonObject& params) {
   TXsheet* sheet =
       params.contains("sheet_path")
           ? resolveSheetPath(document, params.value("sheet_path").toArray())
           : document.scene->getXsheet();
+  const int offset = integerParam(params, "offset", 0, 16384, 0);
+  const int limit =
+      integerParam(params, "limit", 1, kMaximumGraphPage, kDefaultGraphPage);
+  requireGraphRevision(document, params, offset);
   if (!document.readOnly) validateAutomationFxGraph(*document.scene);
-  FxDag* graph   = sheet->getFxDag();
-  const bool top = sheet == document.scene->getXsheet();
-  const QJsonObject view =
-      top ? automationFxGraphView(document) : QJsonObject();
-  QJsonArray effects;
-  for (TFx* fx : creationOrder(document, sheet)) {
-    QJsonObject entry = graphEntry(document, fx, graph);
-    if (top) addLayout(entry, view);
-    effects.append(entry);
-  }
-  TFx* output = graph->getCurrentOutputFx();
-  QJsonObject result{
-      {"effects", effects},
-      {"xsheet_fx_id", document.idForFx(graph->getXsheetFx())},
-      {"current_output_fx_id",
-       output ? QJsonValue(document.idForFx(output)) : QJsonValue()},
-      {"delta_window", automationFxDeltaWindow(document)}};
-  if (top) {
-    result.insert("groups", automationFxGroups(document));
-    result.insert("linked_groups", linkedGroups(view));
-  }
+  FxDag* graph       = sheet->getFxDag();
+  TFx* output        = graph->getCurrentOutputFx();
+  QJsonObject result = graphPage(document, sheet, offset, limit);
+  result.insert("xsheet_fx_id", document.idForFx(graph->getXsheetFx()));
+  result.insert("current_output_fx_id",
+                output ? QJsonValue(document.idForFx(output)) : QJsonValue());
+  result.insert("delta_window", automationFxDeltaWindow(document));
+  if (QJsonDocument(result).toJson(QJsonDocument::Compact).size() >
+      kMaximumPageBytes)
+    throw Error("resource_limit",
+                "This fx.graph page exceeds 1 MiB; ask for a smaller limit.",
+                {{"limit", "page_bytes"}});
   return result;
 }
 
@@ -1430,6 +1532,18 @@ QJsonObject revisionSchema() {
           {"pattern", "[0-9]{1,20}"}};
 }
 
+QJsonObject graphSchema() {
+  return {
+      {"document_id", stringSchema()},
+      {"sheet_path", sheetPathSchema()},
+      {"expected_revision",
+       QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 80}}},
+      {"offset",
+       QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 16384}}},
+      {"limit",
+       QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 512}}}};
+}
+
 QJsonObject deltaSchema() {
   return {
       {"document_id", stringSchema()},
@@ -1474,9 +1588,10 @@ QJsonArray fxOperations() {
           "fx.graph",
           "Inspect graph, generator columns, ports, terminals, and "
           "current output; sheet_path inspects a sub-xsheet instance "
-          "named by scene.inventory.",
-          {{"document_id", stringSchema()}, {"sheet_path", sheetPathSchema()}},
-          {"document_id"}),
+          "named by scene.inventory. Effects come in creation order, 64 a "
+          "page by default (limit up to 512); repeat with next_offset and "
+          "expected_revision until next_offset is null.",
+          graphSchema(), {"document_id"}),
       operation(
           "fx.graph.delta",
           "Report what changed in the top sheet's FX graph between "

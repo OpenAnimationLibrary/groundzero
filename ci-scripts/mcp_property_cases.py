@@ -673,6 +673,16 @@ def names_beyond_the_length_limit_are_refused_by_the_schema(case: NativeAcceptan
                 case.schema_failure(tool, request)
 
 
+def _example_string(schema: dict[str, Any]) -> str:
+    """The first sample string that its schema's pattern accepts whole."""
+    if "pattern" not in schema:
+        return "ab"
+    for candidate in ("a", "0", "fxgroup_00000000-0000-0000-0000-000000000000"):
+        if re.fullmatch(schema["pattern"], candidate):
+            return candidate
+    return "a"
+
+
 def _example(schema: dict[str, Any]) -> Any:
     """A value that satisfies the part of a schema these tools use."""
     kind = schema.get("type")
@@ -688,7 +698,7 @@ def _example(schema: dict[str, Any]) -> Any:
     if kind == "array":
         return [_example(schema["items"])] * schema.get("minItems", 0)
     if kind == "string":
-        return "ab" if "pattern" not in schema else "a"
+        return _example_string(schema)
     if kind in {"integer", "number"}:
         return schema.get("minimum", 1)
     return False

@@ -9140,6 +9140,16 @@
   "fx.connect": {
     "additionalProperties": false,
     "properties": {
+      "column_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "column_index": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
       "diagnostics": {
         "items": {
           "additionalProperties": false,
@@ -9179,6 +9189,9 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "generator_wrapper": {
+        "type": "boolean"
       },
       "graph_delta": {
         "oneOf": [
@@ -10748,6 +10761,144 @@
           }
         ]
       },
+      "macro": {
+        "additionalProperties": false,
+        "properties": {
+          "input_mapping": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "member_key": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "member_port": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "port": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "source_fx_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 65536,
+                      "minLength": 0,
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 1048576,
+            "minItems": 0,
+            "type": "array"
+          },
+          "members": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "member_key": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "native_fx_version": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "ports": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "connected": {
+                        "type": "boolean"
+                      },
+                      "control": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "maxLength": 65536,
+                        "minLength": 0,
+                        "type": "string"
+                      },
+                      "source_fx_id": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "maxLength": 65536,
+                            "minLength": 0,
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "source_member_key": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "maxLength": 65536,
+                            "minLength": 0,
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "type": {
+                        "maxLength": 65536,
+                        "minLength": 0,
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "type": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 1048576,
+            "minItems": 0,
+            "type": "array"
+          },
+          "root_member_key": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "name": {
         "maxLength": 65536,
         "minLength": 0,
@@ -10778,16 +10929,18 @@
               "minLength": 0,
               "type": "string"
             },
+            "source_fx_id": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
             "type": {
               "maxLength": 65536,
               "minLength": 0,
               "type": "string"
             }
           },
-          "required": [
-            "name",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -11512,7 +11665,39 @@
   "fx.disconnect": {
     "additionalProperties": false,
     "properties": {
+      "column_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "column_index": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
       "diagnostics": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "port": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
         "maxItems": 1048576,
         "minItems": 0,
         "type": "array"
@@ -11529,6 +11714,9 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "generator_wrapper": {
+        "type": "boolean"
       },
       "graph_delta": {
         "oneOf": [
@@ -12350,6 +12538,11 @@
               "minLength": 0,
               "type": "string"
             },
+            "source_fx_id": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
             "type": {
               "maxLength": 65536,
               "minLength": 0,
@@ -12402,6 +12595,28 @@
         "type": "number"
       },
       "diagnostics": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "port": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
         "maxItems": 1048576,
         "minItems": 0,
         "type": "array"
@@ -13074,6 +13289,144 @@
           }
         ]
       },
+      "macro": {
+        "additionalProperties": false,
+        "properties": {
+          "input_mapping": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "member_key": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "member_port": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "port": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "source_fx_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 65536,
+                      "minLength": 0,
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 1048576,
+            "minItems": 0,
+            "type": "array"
+          },
+          "members": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "member_key": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "native_fx_version": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "ports": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "connected": {
+                        "type": "boolean"
+                      },
+                      "control": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "maxLength": 65536,
+                        "minLength": 0,
+                        "type": "string"
+                      },
+                      "source_fx_id": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "maxLength": 65536,
+                            "minLength": 0,
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "source_member_key": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "maxLength": 65536,
+                            "minLength": 0,
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "type": {
+                        "maxLength": 65536,
+                        "minLength": 0,
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "type": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 1048576,
+            "minItems": 0,
+            "type": "array"
+          },
+          "root_member_key": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "name": {
         "maxLength": 65536,
         "minLength": 0,
@@ -13104,16 +13457,18 @@
               "minLength": 0,
               "type": "string"
             },
+            "source_fx_id": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
             "type": {
               "maxLength": 65536,
               "minLength": 0,
               "type": "string"
             }
           },
-          "required": [
-            "name",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -13174,6 +13529,28 @@
         "type": "number"
       },
       "diagnostics": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "port": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
         "maxItems": 1048576,
         "minItems": 0,
         "type": "array"
@@ -13846,6 +14223,144 @@
           }
         ]
       },
+      "macro": {
+        "additionalProperties": false,
+        "properties": {
+          "input_mapping": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "member_key": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "member_port": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "port": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "source_fx_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "maxLength": 65536,
+                      "minLength": 0,
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 1048576,
+            "minItems": 0,
+            "type": "array"
+          },
+          "members": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "member_key": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "native_fx_version": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "ports": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "connected": {
+                        "type": "boolean"
+                      },
+                      "control": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "maxLength": 65536,
+                        "minLength": 0,
+                        "type": "string"
+                      },
+                      "source_fx_id": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "maxLength": 65536,
+                            "minLength": 0,
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "source_member_key": {
+                        "oneOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "maxLength": 65536,
+                            "minLength": 0,
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "type": {
+                        "maxLength": 65536,
+                        "minLength": 0,
+                        "type": "string"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "type": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 1048576,
+            "minItems": 0,
+            "type": "array"
+          },
+          "root_member_key": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "name": {
         "maxLength": 65536,
         "minLength": 0,
@@ -13887,10 +14402,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "name",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -13962,6 +14474,11 @@
           "retained_steps"
         ],
         "type": "object"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
       },
       "effects": {
         "items": {
@@ -14041,6 +14558,61 @@
                 "type": "object"
               },
               "maxItems": 1048576,
+              "minItems": 0,
+              "type": "array"
+            },
+            "edit_constraints": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "linked_parameters",
+                      "macro_member",
+                      "locked_column",
+                      "outside_profile",
+                      "expression_driven"
+                    ],
+                    "type": "string"
+                  },
+                  "parameters": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "maxLength": 64,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 64,
+                        "minItems": 0,
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "via": {
+                    "oneOf": [
+                      {
+                        "maxLength": 128,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "via",
+                  "parameters"
+                ],
+                "type": "object"
+              },
+              "maxItems": 8,
               "minItems": 0,
               "type": "array"
             },
@@ -14299,7 +14871,7 @@
           "required": [],
           "type": "object"
         },
-        "maxItems": 1048576,
+        "maxItems": 512,
         "minItems": 0,
         "type": "array"
       },
@@ -14360,6 +14932,30 @@
         "minItems": 0,
         "type": "array"
       },
+      "limit": {
+        "maximum": 512,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "limits": {
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "maximum": 16384,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page_bytes": {
+            "const": 1048576,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nodes",
+          "page_bytes"
+        ],
+        "type": "object"
+      },
       "linked_groups": {
         "items": {
           "additionalProperties": false,
@@ -14390,13 +14986,59 @@
         "maxItems": 1024,
         "type": "array"
       },
+      "next_offset": {
+        "oneOf": [
+          {
+            "maximum": 16384,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "node_count": {
+        "maximum": 16384,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "offset": {
+        "maximum": 16384,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "total_effects": {
+        "maximum": 16384,
+        "minimum": 0,
+        "type": "integer"
+      },
       "xsheet_fx_id": {
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
       }
     },
-    "required": [],
+    "required": [
+      "current_output_fx_id",
+      "delta_window",
+      "document_id",
+      "effects",
+      "limit",
+      "limits",
+      "linked_groups",
+      "next_offset",
+      "node_count",
+      "offset",
+      "revision",
+      "total_effects",
+      "xsheet_fx_id"
+    ],
     "type": "object"
   },
   "fx.graph.delta": {
@@ -18693,7 +19335,39 @@
       "node": {
         "additionalProperties": false,
         "properties": {
+          "column_id": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "column_index": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
           "diagnostics": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "message": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "port": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
             "maxItems": 1048576,
             "minItems": 0,
             "type": "array"
@@ -18705,6 +19379,9 @@
             "maxLength": 65536,
             "minLength": 0,
             "type": "string"
+          },
+          "generator_wrapper": {
+            "type": "boolean"
           },
           "macro": {
             "additionalProperties": false,
@@ -18741,10 +19418,7 @@
                       ]
                     }
                   },
-                  "required": [
-                    "member_key",
-                    "source_fx_id"
-                  ],
+                  "required": [],
                   "type": "object"
                 },
                 "maxItems": 1048576,
@@ -18818,9 +19492,7 @@
                             "type": "string"
                           }
                         },
-                        "required": [
-                          "source_fx_id"
-                        ],
+                        "required": [],
                         "type": "object"
                       },
                       "maxItems": 1048576,
@@ -18833,9 +19505,7 @@
                       "type": "string"
                     }
                   },
-                  "required": [
-                    "member_key"
-                  ],
+                  "required": [],
                   "type": "object"
                 },
                 "maxItems": 1048576,
@@ -23097,6 +23767,28 @@
         "type": "number"
       },
       "diagnostics": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "message": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "port": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
         "maxItems": 1048576,
         "minItems": 0,
         "type": "array"
@@ -23948,10 +24640,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "name",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,
@@ -24012,6 +24701,11 @@
               "type": "string"
             },
             "message": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "port": {
               "maxLength": 65536,
               "minLength": 0,
               "type": "string"
@@ -24801,10 +25495,7 @@
                         "type": "string"
                       }
                     },
-                    "required": [
-                      "name",
-                      "type"
-                    ],
+                    "required": [],
                     "type": "object"
                   },
                   "maxItems": 1048576,
@@ -24817,13 +25508,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "enabled",
-                "name",
-                "native_fx_version",
-                "ports",
-                "type"
-              ],
+              "required": [],
               "type": "object"
             },
             "maxItems": 1048576,
@@ -24880,10 +25565,7 @@
               "type": "string"
             }
           },
-          "required": [
-            "name",
-            "type"
-          ],
+          "required": [],
           "type": "object"
         },
         "maxItems": 1048576,

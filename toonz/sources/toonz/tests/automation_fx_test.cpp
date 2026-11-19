@@ -876,15 +876,38 @@ void testGraphJournalWindow(Context& context) {
   context.removeDocument(document.id);
 }
 
-// P-2: the cost of one recorded step on a graph of many effects.
+qint64 medianMicroseconds(std::vector<qint64> times) {
+  std::sort(times.begin(), times.end());
+  return times[times.size() / 2];
+}
+
+// A write whose effect declaration says it cannot change the FX graph, as
+// the dispatcher records it.
+qint64 unchangedStepMicroseconds(Context& context, Document& document) {
+  QElapsedTimer timer;
+  timer.start();
+  ++document.revision;
+  QJsonObject result;
+  recordFxGraphStep(context, document.id, "level.create", {}, true, &result);
+  return timer.nsecsElapsed() / 1000;
+}
+
+// P-2: the cost of one recorded step at the document's FX node limit, for an
+// FX write and for a write that cannot change the graph (the shipping path,
+// without the test-build check).
 void testGraphJournalCost(Context& context) {
   Document& document = context.addDocument(std::make_unique<ToonzScene>());
   QString blur;
-  for (int index = 0; index < 1024; ++index)
+  for (int index = 0; index < 4090; ++index)
     blur = call(context, document, "fx.create", {{"type", "STD_blurFx"}})
                .value("fx_id")
                .toString();
-  std::vector<qint64> times;
+  QElapsedTimer baseline;
+  baseline.start();
+  prepareFxGraphJournal(context, document.id);
+  const qint64 baselineMicroseconds = baseline.nsecsElapsed() / 1000;
+  std::vector<qint64> fxTimes, otherTimes;
+  setFxJournalVerification(false);
   for (int index = 0; index < 21; ++index) {
     QElapsedTimer timer;
     timer.start();
@@ -892,17 +915,22 @@ void testGraphJournalCost(Context& context) {
                   {{"fx_id", blur},
                    {"parameter", "value"},
                    {"value", index % 2 ? 1 : 2}});
-    times.push_back(timer.nsecsElapsed() / 1000);
+    fxTimes.push_back(timer.nsecsElapsed() / 1000);
+    otherTimes.push_back(unchangedStepMicroseconds(context, document));
   }
-  std::sort(times.begin(), times.end());
-  std::fprintf(stderr,
-               "fx journal step at 1024 effects: median %lld us, worst %lld "
-               "us\n",
-               static_cast<long long>(times[times.size() / 2]),
-               static_cast<long long>(times.back()));
-  require(times[times.size() / 2] < 250000,
-          "A journal step at 1024 effects must stay well under a quarter "
-          "second");
+  setFxJournalVerification(true);
+  std::fprintf(
+      stderr,
+      "fx journal at %d effects: baseline %lld us; FX write median "
+      "%lld us, worst %lld us; other write median %lld us\n",
+      4090, static_cast<long long>(baselineMicroseconds),
+      static_cast<long long>(medianMicroseconds(fxTimes)),
+      static_cast<long long>(*std::max_element(fxTimes.begin(), fxTimes.end())),
+      static_cast<long long>(medianMicroseconds(otherTimes)));
+  require(medianMicroseconds(fxTimes) < 50000,
+          "A journal step at the FX node limit must stay near 20 ms");
+  require(medianMicroseconds(otherTimes) < 1000,
+          "A write that cannot change the graph must not snapshot it");
   context.removeDocument(document.id);
 }
 

@@ -303,7 +303,9 @@ TPointD requestedPosition(const QJsonValue& value) {
       std::abs(y) > 1e6)
     throw Error("invalid_params",
                 "Positions are finite and within 1,000,000 of the origin.");
-  return TPointD(x, y);
+  // The scene file keeps six significant digits; store what reloads exactly.
+  return TPointD(QString::number(x, 'g', 6).toDouble(),
+                 QString::number(y, 'g', 6).toDouble());
 }
 
 QJsonValue positionValue(const TPointD& point) {
@@ -407,7 +409,7 @@ QJsonArray fxGraphOperations() {
   rename["name"]      = boundedNameSchema(256, true);
   QJsonObject layout  = document;
   layout["positions"] = layoutSchema();
-  return {
+  QJsonArray operations{
       operation("fx.group.create",
                 "Group effects in the FX schematic as the editor's Group "
                 "command does: the new group is the outermost group of every "
@@ -425,6 +427,7 @@ QJsonArray fxGraphOperations() {
                 "the editor places it when it opens the scene. Positions "
                 "change no render.",
                 layout, {"document_id", "positions"}, true)};
+  return operations;
 }
 
 QJsonValue executeFxGraph(Context& context, Document& document,

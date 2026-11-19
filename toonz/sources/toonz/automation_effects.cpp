@@ -29,6 +29,13 @@ const ToolEffects kEdit{"document_write", "writes", {}, "none", {}, true};
 const ToolEffects kAdd{"document_write", "writes", {}, "none", {}, false};
 const ToolEffects kEditFromFile{"document_write", "writes", {"reads_roots"},
                                 "none",           {},       true};
+// Writes that can change the FX graph (see ToolEffects::fxGraph).
+const ToolEffects kFxEdit{
+    "document_write", "writes", {}, "none", {}, true, true};
+const ToolEffects kFxAdd{
+    "document_write", "writes", {}, "none", {}, false, true};
+const ToolEffects kFxEditFromFile{
+    "document_write", "writes", {"reads_roots"}, "none", {}, true, true};
 const ToolEffects kImport{
     "document_write", "writes", {"reads_roots", "writes_private"},
     "none",           {},       false};
@@ -100,7 +107,7 @@ const QHash<QString, Declaration>& declarations() {
        {kEdit, {"audio_overlap", "incompatible_column", "timing_conflict"}}},
       {"audio.clip.remove", {kEdit, {"locked", "not_found"}}},
       {"audio.clip.update", {kEdit, {"not_found"}}},
-      {"audio.column.create", {kAdd, {}}},
+      {"audio.column.create", {kFxAdd, {}}},
       {"audio.column.set_volume", {kEdit, {"locked"}}},
       {"audio.import",
        {kImport, {"invalid_asset", "name_conflict", "unsupported_format"}}},
@@ -152,15 +159,15 @@ const QHash<QString, Declaration>& declarations() {
       {"cast.list", {kInspect, {"stale_revision"}}},
       {"cast.usage", {kInspect, {"stale_revision"}}},
       {"column.cells", {kInspect, {"incompatible_column"}}},
-      {"column.create", {kAdd, {"unsupported_target"}}},
+      {"column.create", {kFxAdd, {"unsupported_target"}}},
       {"column.delete",
-       {kEdit,
+       {kFxEdit,
         {"has_dependents", "incompatible_column", "locked",
          "unsupported_target"}}},
       {"column.duplicate",
-       {kAdd, {"incompatible_column", "unsupported_target"}}},
+       {kFxAdd, {"incompatible_column", "unsupported_target"}}},
       {"column.kinds", {kInspectWorker, {}}},
-      {"column.move", {kEdit, {"unsupported_target"}}},
+      {"column.move", {kFxEdit, {"unsupported_target"}}},
       {"column.expose",
        {kEdit,
         {"incompatible_column", "locked", "missing_drawing",
@@ -178,37 +185,41 @@ const QHash<QString, Declaration>& declarations() {
         {"already_exists", "locked", "not_found", "unsupported_drawing_id"}}},
       {"fx.catalog", {kInspectWorker, {}}},
       {"fx.connect",
-       {kEdit, {"GRAPH_CYCLE", "NATIVE_FAILURE", "UNKNOWN_PORT"}}},
-      {"fx.create", {kAdd, {"UNSUPPORTED_FX"}}},
-      {"fx.delete", {kEdit, {"UNSUPPORTED_FX"}}},
-      {"fx.disconnect", {kEdit, {"UNKNOWN_PORT"}}},
-      {"fx.duplicate", {kAdd, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
-      {"fx.enabled.set", {kEdit, {"UNSUPPORTED_FX", "locked"}}},
+       {kFxEdit, {"GRAPH_CYCLE", "NATIVE_FAILURE", "UNKNOWN_PORT"}}},
+      {"fx.create", {kFxAdd, {"UNSUPPORTED_FX"}}},
+      {"fx.delete", {kFxEdit, {"UNSUPPORTED_FX"}}},
+      {"fx.disconnect", {kFxEdit, {"UNKNOWN_PORT"}}},
+      {"fx.duplicate",
+       {kFxAdd, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
+      {"fx.enabled.set", {kFxEdit, {"UNSUPPORTED_FX", "locked"}}},
       {"fx.graph", {kInspect, {"invalid_handle"}}},
       {"fx.graph.delta",
        {kInspect, {"delta_unavailable", "invalid_handle", "stale_revision"}}},
       {"fx.group.create",
-       {kAdd,
+       {kFxAdd,
         {"NATIVE_FAILURE", "STALE_ENTITY", "invalid_group", "locked",
          "resource_limit"}}},
       {"fx.group.remove",
-       {kEdit, {"INVALID_GRAPH", "NATIVE_FAILURE", "locked", "unknown_group"}}},
+       {kFxEdit,
+        {"INVALID_GRAPH", "NATIVE_FAILURE", "locked", "unknown_group"}}},
       {"fx.group.rename",
-       {kEdit, {"INVALID_GRAPH", "NATIVE_FAILURE", "locked", "unknown_group"}}},
-      {"fx.layout.set", {kEdit, {"NATIVE_FAILURE", "STALE_ENTITY", "locked"}}},
-      {"fx.macro.create", {kEdit, {"INVALID_MACRO", "invalid_handle"}}},
-      {"fx.macro.expand", {kEdit, {"INVALID_MACRO"}}},
-      {"fx.output.select", {kEdit, {"INVALID_OUTPUT"}}},
+       {kFxEdit,
+        {"INVALID_GRAPH", "NATIVE_FAILURE", "locked", "unknown_group"}}},
+      {"fx.layout.set",
+       {kFxEdit, {"NATIVE_FAILURE", "STALE_ENTITY", "locked"}}},
+      {"fx.macro.create", {kFxEdit, {"INVALID_MACRO", "invalid_handle"}}},
+      {"fx.macro.expand", {kFxEdit, {"INVALID_MACRO"}}},
+      {"fx.output.select", {kFxEdit, {"INVALID_OUTPUT"}}},
       {"fx.parameter.get",
        {kInspect, {"UNSUPPORTED_FX", "UNSUPPORTED_PARAMETER"}}},
       {"fx.parameter.set",
-       {kEdit,
+       {kFxEdit,
         {"INVALID_PARAMS", "OUT_OF_RANGE", "PARAMETER_CONSTRAINT",
          "UNKNOWN_PARAMETER", "UNSUPPORTED_FX"}}},
       {"fx.parameter.set_key",
-       {kEdit, {"NOT_ANIMATABLE", "OUT_OF_RANGE", "UNKNOWN_PARAMETER"}}},
+       {kFxEdit, {"NOT_ANIMATABLE", "OUT_OF_RANGE", "UNKNOWN_PARAMETER"}}},
       {"fx.preset.apply",
-       {kEditFromFile,
+       {kFxEditFromFile,
         {"INCOMPATIBLE_PRESET", "INVALID_PARAMS", "INVALID_PRESET",
          "PRESET_READ_FAILED", "RESOURCE_LIMIT", "UNREGISTERED_PRESET"}}},
       {"fx.preset.save",
@@ -216,8 +227,8 @@ const QHash<QString, Declaration>& declarations() {
         {"ALREADY_EXISTS", "INVALID_PARAMS", "MISSING_PARENT",
          "PRESET_WRITE_FAILED", "RESOURCE_LIMIT", "publication_unsupported"}}},
       {"fx.recipe.list", {kInspectWorker, {}}},
-      {"fx.rename", {kEdit, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
-      {"fx.terminal.set", {kEdit, {}}},
+      {"fx.rename", {kFxEdit, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
+      {"fx.terminal.set", {kFxEdit, {}}},
       {"hook.delete",
        {kEdit, {"has_dependents", "locked", "missing_key", "not_found"}}},
       {"hook.inspect", {kInspect, {"unsupported_level"}}},
@@ -651,6 +662,11 @@ QJsonObject declaredTool(const QJsonObject& descriptor) {
 QStringList declaredToolNames() { return declarations().keys(); }
 
 QStringList outputSchemaNames() { return successSchemas().keys(); }
+
+bool changesFxGraph(const QString& tool) {
+  const auto found = declarations().constFind(tool);
+  return found != declarations().constEnd() && found->effects.fxGraph;
+}
 
 bool advancesRevision(const QJsonObject& descriptor) {
   static const QSet<QString> advancing{"writes", "creates", "discards"};

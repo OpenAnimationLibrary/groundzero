@@ -198,7 +198,8 @@ def fx_implicit_terminal_changes_are_reported(case: NativeAcceptance) -> None:
 
 def _states(case: NativeAcceptance, document: str) -> dict[str, Any]:
     """An independent view of the graph from fx.graph and fx.parameter.get."""
-    graph = case.success("fx.graph", {"document_id": document})
+    graph = case.success("fx.graph", {"document_id": document, "limit": 512})
+    case.assertIsNone(graph["next_offset"])
     nodes, edges, terminals, parameters = {}, {}, set(), {}
     for effect in graph["effects"]:
         effect_id = effect["fx_id"]

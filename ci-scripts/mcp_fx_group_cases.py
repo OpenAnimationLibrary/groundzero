@@ -63,11 +63,21 @@ def fx_positions_survive_reopen(case: NativeAcceptance) -> None:
     case.assertEqual(
         [placed[item["fx_id"]] for item in positions], [item["position"] for item in positions]
     )
+    fine = case.mutate(
+        "fx.layout.set",
+        document,
+        positions=[{"fx_id": artwork, "position": {"x": 0.123456789, "y": 7}}],
+    )
+    case.assertEqual(fine["positions"][0]["position"], {"x": 0.123457, "y": 7})
     reopened, package = _reopen(case, document, "placed")
     case.assertIn("dagNodePos", (package / "scene.tnz").read_text(errors="replace"))
     effects = _by_name(_graph(case, reopened))
     case.assertEqual(effects["Original blur"]["position"], {"x": 120.5, "y": -40})
     case.assertEqual(effects["Card"]["position"], {"x": -1000000, "y": 1000000})
+    column = next(
+        effect for effect in _graph(case, reopened)["effects"] if effect.get("column_index") == 0
+    )
+    case.assertEqual(column["position"], {"x": 0.123457, "y": 7})
     case.assertEqual(fx._pixels(case, reopened, 0), before)
     for bad in ({"x": 1000001, "y": 0}, {"x": 0}):
         error = case.failure(

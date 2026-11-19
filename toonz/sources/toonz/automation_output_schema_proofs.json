@@ -20,8 +20,8 @@
   "animation.duplicate_keys": {
     "handler": "duplicateKeys",
     "read": [
-      "frame",
-      "created_frames"
+      "created_frames",
+      "frame"
     ]
   },
   "animation.insert_breakdown": {
@@ -250,9 +250,9 @@
     "read": [
       "available",
       "cell_tools",
+      "creatable",
       "create_tool",
       "create_toolset",
-      "creatable",
       "delete_tool",
       "duplicable",
       "kind",
@@ -265,9 +265,9 @@
     "handler": "moveColumns",
     "read": [
       "column_id",
+      "level_id",
       "position_after",
-      "position_before",
-      "level_id"
+      "position_before"
     ]
   },
   "column.update": {
@@ -534,15 +534,35 @@
   "fx.graph": {
     "handler": null,
     "read": [
+      "current_output_fx_id",
+      "delta_window",
+      "document_id",
+      "editable",
+      "effects",
       "fx_ids",
       "group_id",
+      "kind",
+      "limit",
+      "limits",
+      "linked_groups",
       "member_count",
       "name",
+      "next_offset",
+      "node_count",
+      "nodes",
+      "offset",
       "oldest_from_revision",
+      "page_bytes",
+      "parameters",
       "parent_group_id",
+      "position",
       "retained_bytes",
       "retained_steps",
+      "revision",
+      "total_effects",
+      "via",
       "x",
+      "xsheet_fx_id",
       "y"
     ]
   },

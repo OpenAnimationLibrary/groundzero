@@ -417,18 +417,27 @@ revisions, sub-sheets and one step over 256 KiB answer `delta_unavailable` with 
 and `fx.graph` stays the fallback. Every result names `evidence_kind: "structural"`: a delta
 says what changed in the graph, not what a render looks like.
 
-`fx.graph` lists effects in creation order with `position` (`null` when the editor places
-the node itself), `group_ids` (innermost first) and `linked_group_id`, and adds `groups`
-(id, name, members, member count, enclosing group) and `linked_groups`. The `fx-graph`
+`fx.graph` lists effects in creation order, 64 a page by default (`limit` up to 512, page
+at most 1 MiB): repeat with `offset` set to `next_offset` and `expected_revision` set to the
+first page's `revision` until `next_offset` is null; a changed document answers
+`stale_revision`. Each page reports `total_effects`, `node_count` and `limits`. Effects
+carry `position` (`null` when the editor places the node itself), `group_ids` (innermost
+first), `linked_group_id` and `edit_constraints` (`locked_column`, `outside_profile`), and
+the page lists the `groups` (id, name, members, member count, enclosing group) and
+`linked_groups` that have a member on it. The `fx-graph`
 toolset edits the schematic: `fx.group.create` makes a new outermost group of 2–512 effects
 (a macro brings its members) with the editor's default name `Group <n>`, refusing
 duplicates, the Xsheet node and outputs, a selection that would split an existing group
 (`invalid_group` with `reason`), stacks deeper than 16 and more than 1024 groups;
 `fx.group.remove` ungroups and `fx.group.rename` renames one group everywhere it is
-carried; `fx.layout.set` sets up to 256 positions within ±1,000,000, or `null` to unplace.
-None of them changes a connection or a render, and all survive save and reopen. A grouped
+carried; `fx.layout.set` sets up to 256 positions within ±1,000,000, or `null` to unplace,
+keeping six significant digits as the scene file does. None of them changes a connection or
+a render. Packages record positions, group stacks and names, parameter links and grown port
+groups with the macro fingerprint, so `scene.save_copy` and `scene.open` refuse a scene that
+would not read back the same. A grouped
 effect cannot join a macro (`INVALID_MACRO`, `reason: grouped_member`); `fx.rename` also
 renames a macro, and a new macro takes its root's position.
+
 
 PNG inputs support up to 8 bits per channel, 8192 pixels per axis, and 16,777,216
 pixels per image. Vector drawings are limited to 4096 strokes and 32768 control

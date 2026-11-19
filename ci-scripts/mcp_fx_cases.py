@@ -225,3 +225,74 @@ def fx_native_connection_refusal_keeps_the_previous_link(case: NativeAcceptance)
     case.assertEqual(case.failure("fx.connect", request)["details"], details)
     _connect(case, document, output, second)
     _assert_preview(case, document, OTHER_COLOR)
+
+
+def _first_parameter(entry: dict[str, Any], animatable: bool) -> dict[str, Any] | None:
+    for parameter in entry["parameters"]:
+        if parameter["supported"] and (not animatable or parameter["animatable"]):
+            if not animatable or parameter["schema"].get("type") in ("number", "array"):
+                return parameter
+    return None
+
+
+def _parameter_writes(case: NativeAcceptance, document: str, effect: str, entry: dict) -> None:
+    plain = _first_parameter(entry, False)
+    if plain is not None and not plain["keyframes"]:
+        case.mutate(
+            "fx.parameter.set",
+            document,
+            fx_id=effect,
+            parameter=plain["name"],
+            value=plain["value"],
+        )
+    keyed = _first_parameter(entry, True)
+    if keyed is not None:
+        case.mutate(
+            "fx.parameter.set_key",
+            document,
+            fx_id=effect,
+            parameter=keyed["name"],
+            frame=1,
+            value=keyed["value"],
+        )
+    case.success("fx.parameter.get", {"document_id": document, "fx_id": effect, "frame": 1})
+
+
+def _node_writes(case: NativeAcceptance, document: str, effect: str) -> None:
+    """Writes whose results describe the effect, so its diagnostics too: an effect with
+    unconnected required inputs reports them."""
+    for enabled in (True, False):
+        case.mutate("fx.terminal.set", document, fx_id=effect, enabled=enabled)
+        case.mutate("fx.enabled.set", document, fx_id=effect, enabled=not enabled)
+
+
+def _type_writes(case: NativeAcceptance, document: str, card: str, entry: dict) -> None:
+    effect = case.mutate("fx.create", document, type=entry["type"], name="Typed")["fx_id"]
+    _node_writes(case, document, effect)
+    for port in entry["ports"]:
+        case.mutate("fx.connect", document, fx_id=effect, port=port["name"], source_fx_id=card)
+    _node_writes(case, document, effect)
+    case.mutate("fx.rename", document, fx_id=effect, name=f"{entry['type']} node")
+    _parameter_writes(case, document, effect, entry)
+    position = {"x": 10, "y": 20}
+    case.mutate("fx.layout.set", document, positions=[{"fx_id": effect, "position": position}])
+    copy = case.mutate("fx.duplicate", document, fx_id=effect)["fx_id"]
+    for port in entry["ports"]:
+        case.mutate("fx.disconnect", document, fx_id=effect, port=port["name"])
+    for node in (copy, effect):
+        case.mutate("fx.delete", document, fx_id=node)
+
+
+@acceptance_case
+def fx_every_admitted_type_meets_every_write_result_schema(case: NativeAcceptance) -> None:
+    """Every admitted effect type goes through create, connect, terminal, enable, rename,
+    parameter, layout, duplicate, disconnect and delete; the harness checks each result
+    against its tool's output schema, so a result shape one type produces cannot slip by."""
+    catalog = case.success("fx.catalog", {})["effects"]
+    available = [entry for entry in catalog if entry["available"]]
+    case.assertGreaterEqual(len(available), 31)
+    document = case.create("Every type")
+    card = _card(case, document, "Source card")
+    for entry in available:
+        with case.subTest(type=entry["type"]):
+            _type_writes(case, document, card, entry)

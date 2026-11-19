@@ -57,6 +57,13 @@ int automationFxGroupIdOrZero(Document& document, const QString& handle);
 // order; "groups" maps a schematic group handle to its name and member count.
 QJsonObject automationFxGraphView(Document& document);
 
+#ifdef BUILD_UI_PORT_TESTS
+// Test builds snapshot after every write and refuse one whose effect
+// declaration wrongly says it cannot change the FX graph; false measures the
+// shipping path, which does not.
+void setFxJournalVerification(bool verify);
+#endif
+
 // The schematic groups of the top sheet, for fx.graph: id, name, members in
 // creation order, member count and the enclosing group.
 QJsonArray automationFxGroups(Document& document);
