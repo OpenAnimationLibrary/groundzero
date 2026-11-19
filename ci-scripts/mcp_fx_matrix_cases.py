@@ -317,11 +317,13 @@ def compare(case: NativeAcceptance, results: dict[str, dict[str, Any]]) -> list[
 def fx_matrix_cells_match_their_record(case: NativeAcceptance) -> None:
     """Render every admitted type as PNG and MP4 and compare each with the stored matrix cell."""
     catalog = case.success("fx.catalog", {})
-    types = admitted_types()
-    case.assertEqual([effect["type"] for effect in catalog["effects"]], types)
+    types = [effect["type"] for effect in catalog["effects"]]
+    data = load_data()
+    case.assertEqual(
+        sorted(data["cells"]), sorted(types), "the matrix grid is not the live catalog"
+    )
     case.assertEqual(sorted(NATIVE_PRESETS), sorted(types))
     platform = host_platform()
-    data = load_data()
     if data["platforms"][platform].get("latest_run") is None:
         case.skipTest(f"no run is recorded for {platform}: its cells stay not tested")
     results, _identity_text = measure(case, types, case.media_tools)
