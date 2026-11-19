@@ -21,15 +21,30 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from mcp_property_curves import (
+    FRAME_GRID,
+    STEPS_THAT_FIT,
+    Key,
+    duplicate_keys,
+    insert_breakdown,
+    is_rich,
+    key_from_row,
+    key_record,
+    key_row,
+    move_keys,
+    ordered,
+    random_keys,
+    sample,
+    shape_is_defined,
+)
+
 Drawing = tuple[int, str]
 Step = dict[str, Any]
 Handles = dict[str, dict[str, str]]
 Request = tuple[str, dict[str, Any]]
 
 CHANNEL_UNITS = {"x": "inch", "y": "inch", "rotation": "degree", "scale": "scalar"}
-FRAME_GRID = 6
-STEPS_THAT_FIT = (1, 2, 3, 6)
-SAMPLE_FRAMES = [0, 0.5, 3, 5.99, 6, 8, 11.9, 12, 17.5, 30, 43, 100]
+SAMPLE_FRAMES = [0, 0.5, 3, 5.99, 6, 8, 11.9, 12, 17.5, 30, 43, 55.25, 100, 133.5, 250]
 CELL_HORIZON = 48
 OPACITY_LEVELS = 255
 EPSILON = 1e-9
@@ -42,16 +57,6 @@ NAME_ALPHABET = "abcXYZ019 _-.<>&\"'中é "
 
 class ModelError(ValueError):
     """A step that cannot be applied to the model's state, as in a hand-edited sequence."""
-
-
-@dataclass
-class Key:
-    """One key of a curve: linear or constant, held for `step` frames at a time."""
-
-    frame: int
-    value: float
-    interpolation: str
-    step: int = 1
 
 
 @dataclass
@@ -75,6 +80,7 @@ class Scene:
     columns: list[Column] = field(default_factory=list)
     pegs: list[str] = field(default_factory=list)
     curves: dict[tuple[str, str], dict[int, Key]] = field(default_factory=dict)
+    cycles: set[tuple[str, str]] = field(default_factory=set)
     reopens: int = 0
     counter: int = 0
 
@@ -102,30 +108,6 @@ def quantized_opacity(value: float) -> int:
     return math.floor(value * OPACITY_LEVELS + 0.5)
 
 
-def sample(keys: list[Key], frame: float) -> float:
-    """Return a curve's value at a frame, from its keys alone.
-
-    Before the first key and after the last the curve holds that key's value. In a linear
-    segment a key's `step` above 1 holds the value at the segment's frame for `step` frames at
-    a time; a step of 1 follows the frame itself, fractions included. The generator only makes
-    segments whose length is a multiple of the step.
-    """
-    ordered = sorted(keys, key=lambda key: key.frame)
-    if frame <= ordered[0].frame:
-        return ordered[0].value
-    if frame >= ordered[-1].frame:
-        return ordered[-1].value
-    index = max(i for i, key in enumerate(ordered) if key.frame <= frame)
-    start, end = ordered[index], ordered[index + 1]
-    if start.interpolation == "constant":
-        return start.value
-    held = frame
-    if start.step > 1:
-        held = start.frame + start.step * math.floor((frame - start.frame) / start.step)
-    fraction = (held - start.frame) / (end.frame - start.frame)
-    return start.value + (end.value - start.value) * fraction
-
-
 def expected(scene: Scene) -> dict[str, Any]:
     """Return the observation a correct worker's read tools give for this scene."""
     columns = []
@@ -145,10 +127,16 @@ def expected(scene: Scene) -> dict[str, Any]:
     for (peg, channel), keys in scene.curves.items():
         if not keys:
             continue
-        ordered = sorted(keys.values(), key=lambda key: key.frame)
+        cycle = (peg, channel) in scene.cycles
+        items = ordered(keys)
+        defined = shape_is_defined(keys)
         curves[f"{peg}/{channel}"] = {
-            "keys": [[k.frame, k.value, k.interpolation, k.step] for k in ordered],
-            "samples": [sample(ordered, frame) for frame in SAMPLE_FRAMES],
+            "keys": [key_row(key) for key in items],
+            "cycle": cycle,
+            "samples": [sample(items, frame, cycle) for frame in SAMPLE_FRAMES]
+            if defined
+            else None,
+            "rich": is_rich(keys),
         }
     return {
         "frame_rate": scene.frame_rate,
@@ -331,8 +319,18 @@ def _peg_effect(scene: Scene, step: Step) -> str | None:
     return None
 
 
+def _plain_curves(scene: Scene) -> list[tuple[str, str]]:
+    """The (peg, channel) pairs whose curves hold no speed or ease segment."""
+    return [
+        (peg, channel)
+        for peg in scene.pegs
+        for channel in CHANNEL_UNITS
+        if not is_rich(scene.curves.get((peg, channel), {}))
+    ]
+
+
 def _keys_choice(rng: random.Random, scene: Scene) -> Step:
-    channel = _pick(rng, CHANNEL_UNITS)
+    peg, channel = _pick(rng, _plain_curves(scene))
     keys = []
     for index in rng.sample(range(8), rng.randint(1, 3)):
         keys.append(
@@ -343,7 +341,7 @@ def _keys_choice(rng: random.Random, scene: Scene) -> Step:
                 "step": _pick(rng, STEPS_THAT_FIT),
             }
         )
-    return {"peg": _pick(rng, scene.pegs), "channel": channel, "keys": keys}
+    return {"peg": peg, "channel": channel, "keys": keys}
 
 
 def _keys_effect(scene: Scene, step: Step) -> str | None:
@@ -356,7 +354,8 @@ def _keys_effect(scene: Scene, step: Step) -> str | None:
 
 
 def _delete_keys_choice(rng: random.Random, scene: Scene) -> Step:
-    peg, channel = _pick(rng, [name for name, keys in scene.curves.items() if keys])
+    plain = [name for name, keys in scene.curves.items() if keys and not is_rich(keys)]
+    peg, channel = _pick(rng, plain)
     frames = sorted(scene.curves[(peg, channel)])
     return {
         "peg": peg,
@@ -435,7 +434,151 @@ def _forget_column(step: Step, result: dict[str, Any], handles: Handles) -> None
 
 
 def _chosen_pegs(scene: Scene) -> bool:
-    return any(keys for keys in scene.curves.values())
+    return any(keys and not is_rich(keys) for keys in scene.curves.values())
+
+
+def _empty_curves(scene: Scene) -> list[tuple[str, str]]:
+    return [
+        (peg, channel)
+        for peg in scene.pegs
+        for channel in CHANNEL_UNITS
+        if not scene.curves.get((peg, channel))
+    ]
+
+
+def _keyed_curves(scene: Scene, minimum: int = 1) -> list[tuple[str, str]]:
+    return [name for name, keys in scene.curves.items() if len(keys) >= minimum]
+
+
+def _rich_choice(rng: random.Random, scene: Scene) -> Step:
+    peg, channel = _pick(rng, _empty_curves(scene))
+    return {"peg": peg, "channel": channel, "keys": [key_row(k) for k in random_keys(rng)]}
+
+
+def _rich_effect(scene: Scene, step: Step) -> str | None:
+    if step["peg"] not in scene.pegs or scene.curves.get((step["peg"], step["channel"])):
+        raise ModelError("a rich curve is set on a channel that holds no key")
+    keys = [key_from_row(row) for row in step["keys"]]
+    scene.curves[(step["peg"], step["channel"])] = {key.frame: key for key in keys}
+    return None
+
+
+def _rich_request(step: Step, handles: Handles) -> Request:
+    records = [key_record(key_from_row(row)) for row in step["keys"]]
+    return "animation.set_keys", {**_curve_target(step, handles), "keys": records}
+
+
+def _cycle_choice(rng: random.Random, scene: Scene) -> Step:
+    peg, channel = _pick(rng, _keyed_curves(scene))
+    return {"peg": peg, "channel": channel, "enabled": rng.random() < 0.7}
+
+
+def _cycle_effect(scene: Scene, step: Step) -> str | None:
+    pair = (step["peg"], step["channel"])
+    if not scene.curves.get(pair):
+        raise ModelError("a curve without keys has no cycle to set")
+    (scene.cycles.add if step["enabled"] else scene.cycles.discard)(pair)
+    return None
+
+
+def _cycle_request(step: Step, handles: Handles) -> Request:
+    return "animation.set_cycle", {**_curve_target(step, handles), "enabled": step["enabled"]}
+
+
+def _key_frames(rng: random.Random, keys: dict[int, Key]) -> list[int]:
+    frames = sorted(keys)
+    chosen = rng.sample(frames, rng.randint(1, len(frames)))
+    return sorted(chosen)
+
+
+def _shift_choice(rng: random.Random, scene: Scene, duplicate: bool) -> Step:
+    peg, channel = _pick(rng, _keyed_curves(scene))
+    keys = scene.curves[(peg, channel)]
+    shift = duplicate_keys if duplicate else move_keys
+    step: Step = {"peg": peg, "channel": channel, "frames": [min(keys)]}
+    step.update(frame_offset=0, value_offset=0)
+    for _ in range(8):
+        frames = _key_frames(rng, keys)
+        frame_offset = FRAME_GRID * rng.randint(-4, 4)
+        value_offset = rng.choice([0, 0, rng.randint(-160, 160) / 4])
+        error, edited = shift(keys, frames, frame_offset, value_offset)
+        clear = error is None and shape_is_defined(edited)
+        refused = error is not None and "controls" not in error
+        if clear or refused:
+            step.update(frames=frames, frame_offset=frame_offset, value_offset=value_offset)
+            break
+    return _hostile(rng, step, keys)
+
+
+def _hostile(rng: random.Random, step: Step, keys: dict[int, Key]) -> Step:
+    """Sometimes ask for what no worker may do: an absent key, an offset past a bound."""
+    roll = rng.random()
+    if roll < 0.04:
+        step["frames"] = sorted({*step["frames"], max(keys) + 1})
+    elif roll < 0.07:
+        step["frame_offset"] = -1000000
+    elif roll < 0.1:
+        step["value_offset"] = 2000000
+    return step
+
+
+def _shift_effect(scene: Scene, step: Step, duplicate: bool) -> str | None:
+    pair = (step["peg"], step["channel"])
+    keys = scene.curves.get(pair)
+    if not keys:
+        raise ModelError("no keys to shift")
+    shift = duplicate_keys if duplicate else move_keys
+    error, edited = shift(keys, step["frames"], step["frame_offset"], step["value_offset"])
+    if error is None:
+        scene.curves[pair] = edited
+    return error
+
+
+def _shift_request(tool: str) -> Callable[[Step, Handles], Request]:
+    def request(step: Step, handles: Handles) -> Request:
+        fields = {key: step[key] for key in ("frames", "frame_offset", "value_offset")}
+        return tool, {**_curve_target(step, handles), **fields}
+
+    return request
+
+
+def _breakdown_choice(rng: random.Random, scene: Scene) -> Step:
+    peg, channel = _pick(rng, _keyed_curves(scene, 2))
+    keys = scene.curves[(peg, channel)]
+    items = ordered(keys)
+    index = rng.randrange(len(items) - 1)
+    first, last = items[index], items[index + 1]
+    stride = 1 if first.interpolation in ("speed_in_out", "ease_in_out") else first.step
+    frame = first.frame + stride * rng.randint(1, (last.frame - first.frame) // stride)
+    roll = rng.random()
+    if roll < 0.06:
+        frame = rng.choice(list(keys))
+    elif roll < 0.1:
+        frame = items[-1].frame + rng.randint(1, 5)
+    step: Step = {"peg": peg, "channel": channel, "frame": frame}
+    if rng.random() < 0.6:
+        step["favour_percent"] = rng.randint(-20, 40) * 5
+    else:
+        step["value"] = rng.randint(-400, 400) / 4
+    return step
+
+
+def _breakdown_effect(scene: Scene, step: Step) -> str | None:
+    pair = (step["peg"], step["channel"])
+    keys = scene.curves.get(pair)
+    if not keys:
+        raise ModelError("no keys to split")
+    error, edited = insert_breakdown(
+        keys, step["frame"], step.get("favour_percent"), step.get("value")
+    )
+    if error is None:
+        scene.curves[pair] = edited
+    return error
+
+
+def _breakdown_request(step: Step, handles: Handles) -> Request:
+    fields = {key: step[key] for key in ("frame", "favour_percent", "value") if key in step}
+    return "animation.insert_breakdown", {**_curve_target(step, handles), **fields}
 
 
 OPERATIONS: dict[str, Operation] = {
@@ -526,7 +669,7 @@ OPERATIONS: dict[str, Operation] = {
     "keys_set": Operation(
         "keys_set",
         10,
-        lambda scene: bool(scene.pegs),
+        lambda scene: bool(_plain_curves(scene)),
         _keys_choice,
         _keys_effect,
         _keys_request,
@@ -538,6 +681,46 @@ OPERATIONS: dict[str, Operation] = {
         _delete_keys_choice,
         _delete_keys_effect,
         _delete_keys_request,
+    ),
+    "curve_rich": Operation(
+        "curve_rich",
+        4,
+        lambda scene: bool(scene.pegs) and bool(_empty_curves(scene)),
+        _rich_choice,
+        _rich_effect,
+        _rich_request,
+    ),
+    "cycle_set": Operation(
+        "cycle_set",
+        3,
+        lambda scene: bool(_keyed_curves(scene)),
+        _cycle_choice,
+        _cycle_effect,
+        _cycle_request,
+    ),
+    "keys_move": Operation(
+        "keys_move",
+        4,
+        lambda scene: bool(_keyed_curves(scene)),
+        lambda rng, scene: _shift_choice(rng, scene, False),
+        lambda scene, step: _shift_effect(scene, step, False),
+        _shift_request("animation.move_keys"),
+    ),
+    "keys_duplicate": Operation(
+        "keys_duplicate",
+        3,
+        lambda scene: bool(_keyed_curves(scene)),
+        lambda rng, scene: _shift_choice(rng, scene, True),
+        lambda scene, step: _shift_effect(scene, step, True),
+        _shift_request("animation.duplicate_keys"),
+    ),
+    "breakdown_insert": Operation(
+        "breakdown_insert",
+        4,
+        lambda scene: bool(_keyed_curves(scene, 2)),
+        _breakdown_choice,
+        _breakdown_effect,
+        _breakdown_request,
     ),
     "save_reopen": Operation(
         "save_reopen",
@@ -554,23 +737,7 @@ OPERATIONS: dict[str, Operation] = {
 # Writing tools of the modelled families that no operation above carries out yet, each with
 # the reason. Generated sequences never call them, so nothing here is checked by the model:
 # their own cases are their only evidence until an operation replaces the entry.
-NOT_MODELLED: dict[str, str] = {
-    "animation.insert_breakdown": (
-        "the model's keys are linear or constant only; the split of speed and ease segments "
-        "and the favour arithmetic are not written independently yet"
-    ),
-    "animation.move_keys": (
-        "the refusals (key_exists, order_changed, controls) depend on handles the model's "
-        "keys do not have"
-    ),
-    "animation.duplicate_keys": (
-        "the incoming_kind_changed refusal depends on handle kinds the model's keys do not have"
-    ),
-    "animation.set_cycle": (
-        "the model's sampler holds the last key's value; the cyclic fold with drift is not "
-        "written yet"
-    ),
-}
+NOT_MODELLED: dict[str, str] = {}
 
 
 def generate(seed: int, length: int) -> list[Step]:

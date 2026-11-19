@@ -65,7 +65,7 @@ def length_to_run() -> int:
     return int(os.environ.get("GZ_PROPERTY_LENGTH", DEFAULT_LENGTH))
 
 
-def differences(want: Any, got: Any, path: str = "") -> list[str]:
+def differences(want: Any, got: Any, path: str = "", tolerance: float = TOLERANCE) -> list[str]:
     """List where two observations differ; numbers agree within a tiny tolerance."""
     if isinstance(want, dict) and isinstance(got, dict):
         found = []
@@ -75,23 +75,71 @@ def differences(want: Any, got: Any, path: str = "") -> list[str]:
                     f"{path}/{key}: {'missing' if key in want else 'unexpected'} in worker"
                 )
             else:
-                found.extend(differences(want[key], got[key], f"{path}/{key}"))
+                found.extend(differences(want[key], got[key], f"{path}/{key}", tolerance))
         return found
     if isinstance(want, list) and isinstance(got, list):
         if len(want) != len(got):
             return [f"{path}: {len(want)} items expected, the worker has {len(got)}"]
         found = []
         for index, (left, right) in enumerate(zip(want, got, strict=True)):
-            found.extend(differences(left, right, f"{path}[{index}]"))
+            found.extend(differences(left, right, f"{path}[{index}]", tolerance))
         return found
     numbers = all(
         isinstance(item, int | float) and not isinstance(item, bool) for item in (want, got)
     )
     if numbers:
-        same = math.isclose(want, got, rel_tol=TOLERANCE, abs_tol=TOLERANCE)
+        same = math.isclose(want, got, rel_tol=tolerance, abs_tol=tolerance)
     else:
         same = type(want) is type(got) and want == got
     return [] if same else [f"{path}: expected {want!r}, the worker reads {got!r}"]
+
+
+def observed_row(key: dict[str, Any]) -> list[Any]:
+    """A key as animation.keys reports it, in the row form the model uses."""
+    incoming = key["incoming"]
+    kinds = {"none": ["none"]}
+    if incoming["kind"] == "speed":
+        kinds["speed"] = ["speed", incoming["frame_delta"], incoming["value_delta"]]
+    if incoming["kind"] == "ease":
+        kinds["ease"] = ["ease", incoming["frames"]]
+    outgoing = key.get("outgoing")
+    if outgoing is not None:
+        outgoing = (
+            ["speed", outgoing["frame_delta"], outgoing["value_delta"]]
+            if "frame_delta" in outgoing
+            else ["ease", outgoing["frames"]]
+        )
+    return [
+        key["frame"],
+        key["value"],
+        key["interpolation"],
+        key["step"],
+        kinds[incoming["kind"]],
+        outgoing,
+    ]
+
+
+RICH_TOLERANCE = 1e-6
+
+
+def compare_observations(want: dict[str, Any], got: dict[str, Any]) -> list[str]:
+    """Compare what the model expects with what the worker reads, curve by curve.
+
+    A curve with a speed or ease segment is compared to 1e-6, since its value comes from solving
+    a Bezier; a curve whose handles cross has no modelled shape, so its samples are not compared.
+    """
+    found = differences({**want, "curves": {}}, {**got, "curves": {}})
+    if set(want["curves"]) != set(got["curves"]):
+        return found + [f"/curves: expected {sorted(want['curves'])}, got {sorted(got['curves'])}"]
+    for name, curve in want["curves"].items():
+        actual = dict(got["curves"][name])
+        wanted = {key: value for key, value in curve.items() if key != "rich"}
+        if wanted["samples"] is None:
+            actual["samples"] = wanted["samples"] = None
+        found += differences(
+            wanted, actual, f"/curves/{name}", RICH_TOLERANCE if curve["rich"] else TOLERANCE
+        )
+    return found
 
 
 @dataclass
@@ -183,12 +231,14 @@ class Session:
         for peg in pegs:
             for channel, unit in CHANNEL_UNITS.items():
                 target = {"object_id": peg["object_id"], "channel": channel, "unit": unit}
-                keys = self.read("animation.keys", target)["keys"]
+                record = self.read("animation.keys", target)
+                keys = record["keys"]
                 if not keys:
                     continue
                 values = self.read("animation.sample", {**target, "frames": SAMPLE_FRAMES})
                 curves[f"{peg['name']}/{channel}"] = {
-                    "keys": [[k["frame"], k["value"], k["interpolation"], k["step"]] for k in keys],
+                    "keys": [observed_row(key) for key in keys],
+                    "cycle": record["cycle"],
                     "samples": [item["value"] for item in values["values"]],
                 }
         return curves
@@ -206,7 +256,7 @@ class Session:
             messages = self._outcome(operation.name, step, response, error, before)
             if not messages and operation.reopens and error is None:
                 self._reopen(response["result"])
-            messages += differences(expected(self.model), self.observe())
+            messages += compare_observations(expected(self.model), self.observe())
         except (AssertionError, RuntimeError) as problem:
             messages = [f"{type(problem).__name__}: {problem}"]
         return Failure(index, operation.name, messages) if messages else None
@@ -220,7 +270,11 @@ class Session:
         before: str,
     ) -> list[str]:
         if error is not None:
-            code = response.get("error", {}).get("code", "success")
+            failure = response.get("error", {})
+            code = failure.get("code", "success")
+            wanted, _, reason = error.partition("/")
+            if reason and code == wanted:
+                code = f"{code}/{failure.get('details', {}).get('reason')}"
             same = self.case.revisions[self.document] == before
             return [] if code == error and same else [f"{name}: expected error {error}, got {code}"]
         if "error" in response:
@@ -261,6 +315,12 @@ def replay(case: NativeAcceptance, steps: list[dict[str, Any]]) -> Failure | Non
         session.close()
 
 
+def _same_failure(original: Failure, other: Failure) -> bool:
+    """Whether a shorter sequence fails at the same operation and in the same place."""
+    head = original.messages[0].split(":")[0]
+    return other.operation == original.operation and other.messages[0].split(":")[0] == head
+
+
 def shrink(
     case: NativeAcceptance, steps: list[dict[str, Any]], failure: Failure
 ) -> tuple[list[dict[str, Any]], Failure]:
@@ -276,7 +336,7 @@ def shrink(
     while index < len(kept) - 1 and case.operations < WRITE_BUDGET:
         trial = kept[:index] + kept[index + 1 :]
         outcome = replay(case, trial)
-        if outcome is not None and not outcome.messages[0].startswith("not a valid step"):
+        if outcome is not None and _same_failure(found, outcome):
             kept, found = trial[: outcome.index + 1], outcome
         else:
             index += 1
