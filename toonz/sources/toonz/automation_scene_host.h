@@ -200,6 +200,23 @@ QJsonObject loadReadOnlyDocument(Context& context, const QString& documentId,
 // A fresh render snapshot of a read-only document, loaded the same way.
 std::unique_ptr<ToonzScene> loadReadOnlySnapshot(Context& context,
                                                  Document& document);
+// A fresh snapshot of a read-only document as a document of its own, loaded
+// and classified the same way but registered nowhere; the import job converts
+// it.
+std::unique_ptr<Document> loadImportSnapshot(Context& context,
+                                             Document& document);
+// The package a completed scene_import job of one of this worker's scene
+// hosts placed in its host directory, and the package id the job reported.
+// Throws unknown_job, import_not_ready (details.status), invalid_params for a
+// job of another kind, or scene_host_failed.
+struct ImportedPackage final {
+  QString directory;
+  QString packageId;
+};
+ImportedPackage importedPackage(Context& context, const QString& jobId);
+// Count one more document adopted from an import job; job records forwarded
+// from its host report the count.
+void noteAdoption(Context& context, const QString& jobId);
 // Internal host methods; never in the public catalog.
 QJsonValue executeSceneHost(Context& context, const QString& method,
                             const QJsonObject& params);

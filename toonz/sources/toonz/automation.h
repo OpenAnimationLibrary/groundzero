@@ -88,6 +88,11 @@ struct Document final {
   // Private copies of packages this document was loaded from; removed with
   // the document.
   QStringList privateCopies;
+  // An imported document's provenance and the private copy of its source
+  // scene (inside one of privateCopies); every package saved from the
+  // document carries both. Empty for a document that was not imported.
+  QJsonObject provenance;
+  QString sourceScene;
   // Selection handles issued for this document's drawings.
   std::shared_ptr<SelectionRegistry> selections;
 

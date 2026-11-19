@@ -208,7 +208,13 @@ private:
     std::vector<ImportItem> styles;
     const std::unique_ptr<TPalette> palette = keptPalette(level, styles);
     QString detail;
-    const QString limit = drawingProfileLimit(level, palette.get(), detail);
+    QString limit = drawingProfileLimit(level, palette.get(), detail);
+    if (limit.isEmpty() && m_names.count(level->getName())) {
+      limit = "format";
+      detail =
+          "The name repeats a kept level's; a package holds one level "
+          "of each name.";
+    }
     if (!limit.isEmpty()) {
       m_dropped.insert(level);
       add("level_not_admitted", "emptied",
@@ -225,6 +231,7 @@ private:
           levelItem(level, QString("%1-bit channels become 8-bit RGBA.")
                                .arg(state.bitDepth)));
     m_kept.push_back(level);
+    m_names.insert(level->getName());
     if (level->getType() == OVL_XSHLEVEL)
       ++m_plan.conversions["level_reencoded_lossless"];
     if (level->getType() != PLI_XSHLEVEL &&
@@ -447,6 +454,7 @@ private:
   std::set<TFx*> m_droppedFx;
   std::set<TXshColumn*> m_droppedColumns;
   std::vector<TXshSimpleLevel*> m_kept;
+  std::set<std::wstring> m_names;
 };
 
 QJsonValue optionalText(const QString& value, int maximum) {
@@ -598,27 +606,78 @@ QByteArray importPlanShape(const ImportPlan& plan) {
       .toJson(QJsonDocument::Compact);
 }
 
+QJsonArray importBlockers(const ImportPlan& plan, int limit) {
+  return blockerArray(plan, limit, itemObject);
+}
+
+QJsonObject importEditableOperation() {
+  const auto text = [](int maximum) {
+    return QJsonObject{
+        {"type", "string"}, {"minLength", 1}, {"maxLength", maximum}};
+  };
+  QJsonObject kinds{
+      {"type", "string"},
+      {"enum",
+       QJsonArray{
+           "unrecognized_scene_tag", "sub_xsheet", "fx_not_admitted",
+           "fx_value_out_of_range", "level_not_admitted", "level_load_failed",
+           "raster_depth_reduced", "empty_level", "style_not_admitted",
+           "column_not_admitted", "exposure_not_admitted", "sound_not_admitted",
+           "camera_not_active", "motion_path_not_admitted", "rig_not_admitted",
+           "storyboard_not_admitted", "cast_organization", "library_origin"}}};
+  QJsonObject digest = text(69);
+  digest.insert("pattern", "^plan:[0-9a-f]{64}$");
+  QJsonObject descriptor = operation(
+      "scene.import_editable",
+      "Start a scene_import job that converts a read-only document into a "
+      "verified editable worker package inside its scene host, applying "
+      "exactly the losses of the quoted plan; every loss kind of the plan "
+      "must be in accept_losses. The source files and the read-only "
+      "document never change and the source scene is attached to the "
+      "package. Open the result with scene.open {import_job_id} once the "
+      "job is completed.",
+      {{"document_id", text(128)},
+       {"expected_revision", text(80)},
+       {"plan_digest", digest},
+       {"accept_losses", QJsonObject{{"type", "array"},
+                                     {"items", kinds},
+                                     {"minItems", 0},
+                                     {"maxItems", 18}}}},
+      {"document_id", "expected_revision", "plan_digest", "accept_losses"},
+      true);
+  descriptor.insert("mutates_document", false);
+  QJsonObject annotations = descriptor.value("annotations").toObject();
+  annotations.insert("destructiveHint", false);
+  descriptor.insert("annotations", annotations);
+  return descriptor;
+}
+
 QJsonArray importOperations() {
-  return {operation(
-      "scene.import_plan",
-      "Plan the import of a read-only document as an editable worker "
-      "package: every item an editable copy could not hold, by loss kind and "
-      "effect with samples, the blockers that refuse the import, the "
-      "lossless conversions and the size of the result, with a plan_digest "
-      "for scene.import_editable to quote. The source scene is always "
-      "attached to the package. Runs in the document's scene host and "
-      "changes nothing.",
-      {{"document_id",
-        QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
-       {"sample_limit",
-        QJsonObject{
-            {"type", "integer"}, {"minimum", 1}, {"maximum", MaximumSamples}}}},
-      {"document_id"})};
+  return {
+      importEditableOperation(),
+      operation(
+          "scene.import_plan",
+          "Plan the import of a read-only document as an editable worker "
+          "package: every item an editable copy could not hold, by loss kind "
+          "and "
+          "effect with samples, the blockers that refuse the import, the "
+          "lossless conversions and the size of the result, with a plan_digest "
+          "for scene.import_editable to quote. The source scene is always "
+          "attached to the package. Runs in the document's scene host and "
+          "changes nothing.",
+          {{"document_id",
+            QJsonObject{
+                {"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
+           {"sample_limit", QJsonObject{{"type", "integer"},
+                                        {"minimum", 1},
+                                        {"maximum", MaximumSamples}}}},
+          {"document_id"})};
 }
 
 QJsonValue executeImport(Context& context, const QString& method,
                          const QJsonObject& params) {
   if (method == "scene.import_plan") return importPlan(context, params);
+  if (method == "scene.import_editable") return startImportJob(context, params);
   throw Error("method_not_found", "The import operation is not available.");
 }
 

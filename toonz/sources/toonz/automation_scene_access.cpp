@@ -58,6 +58,8 @@ struct SceneHostRegistry final {
   // The last record each host reported for its jobs.
   QHash<QString, QJsonObject> records;
   QHash<QString, QString> artifacts;
+  // Documents adopted from each import job.
+  QHash<QString, int> adoptions;
   quint64 requests = 0;
 
   ~SceneHostRegistry();
@@ -516,6 +518,10 @@ QStringList hostArguments(const Context& context, const QString& directory,
     arguments << "--test-child-fault" << context.childFault;
   if (!context.pathSwap.isEmpty())
     arguments << "--test-path-swap" << context.pathSwap;
+  // Import jobs run in hosts; their fault points take the worker's fault.
+  if (context.writeFault.startsWith("import:"))
+    arguments << "--test-write-fault"
+              << context.writeFault + ':' + context.writeFaultMode;
 #endif
   return arguments;
 }
@@ -972,21 +978,34 @@ QJsonValue listScenes(Context& context, const QJsonObject& params) {
 // ------------------------------------------------------------------ routing
 
 const QSet<QString>& forwardedTools() {
-  static const QSet<QString> tools = {
-      "scene.summary",      "camera.inspect",
-      "level.inspect",      "cast.list",
-      "cast.usage",         "scene.dependencies",
-      "scene.validate",     "fx.graph",
-      "render.preview",     "render.submit",
-      "render.preflight",   "scene.inventory",
-      "scene.check.submit", "scene.source_status",
-      "scene.import_plan",  "column.cells",
-      "drawing.inspect",    "palette.inspect",
-      "palette.pages",      "fx.parameter.get",
-      "animation.channels", "animation.keys",
-      "animation.sample",   "vector.inspect",
-      "vector.structure",   "vector.opacity.inspect",
-      "raster.read_pixels"};
+  static const QSet<QString> tools = {"scene.summary",
+                                      "camera.inspect",
+                                      "level.inspect",
+                                      "cast.list",
+                                      "cast.usage",
+                                      "scene.dependencies",
+                                      "scene.validate",
+                                      "fx.graph",
+                                      "render.preview",
+                                      "render.submit",
+                                      "render.preflight",
+                                      "scene.inventory",
+                                      "scene.check.submit",
+                                      "scene.source_status",
+                                      "scene.import_plan",
+                                      "scene.import_editable",
+                                      "column.cells",
+                                      "drawing.inspect",
+                                      "palette.inspect",
+                                      "palette.pages",
+                                      "fx.parameter.get",
+                                      "animation.channels",
+                                      "animation.keys",
+                                      "animation.sample",
+                                      "vector.inspect",
+                                      "vector.structure",
+                                      "vector.opacity.inspect",
+                                      "raster.read_pixels"};
   return tools;
 }
 
@@ -1131,16 +1150,32 @@ void recordRoutes(Context& context, SceneHost& host, const QJsonValue& value) {
         artifact.toObject().value("artifact_id").toString(), host.documentId);
 }
 
+// A host cannot see adoptions, which happen in the worker: an import job's
+// record reports the worker's count.
+QJsonValue withAdoptions(Context& context, const QJsonValue& value) {
+  QJsonObject result = value.toObject();
+  QJsonObject record = result.value("import").toObject();
+  const int adopted =
+      registry(context).adoptions.value(result.value("job_id").toString());
+  if (record.isEmpty() || adopted == 0) return value;
+  record.insert("adopted_documents", adopted);
+  result.insert("import", record);
+  return result;
+}
+
 QJsonValue forward(Context& context, SceneHost& host, const QString& method,
                    const QJsonObject& params) {
   const bool render  = method.startsWith("render.") ||
                        method.startsWith("job.") || method == "artifact.read";
-  const int deadline = method == "render.preview" || method == "render.submit"
+  const int deadline = method == "render.preview" ||
+                               method == "render.submit" ||
+                               method == "scene.import_editable"
                            ? SceneHostOpenDeadlineMs
                            : SceneHostReadDeadlineMs;
   try {
-    const QJsonValue result = exchange(context, host, method, params, deadline,
-                                       render ? "render" : "read");
+    const QJsonValue result =
+        withAdoptions(context, exchange(context, host, method, params, deadline,
+                                        render ? "render" : "read"));
     recordRoutes(context, host, result);
     return result;
   } catch (Error& error) {
@@ -1351,7 +1386,8 @@ bool routeToSceneHost(Context& context, const QString& method,
   }
   if (context.sceneHosts &&
       (method == "render.preview" || method == "render.submit" ||
-       method == "assistance.neural.preview"))
+       method == "assistance.neural.preview" ||
+       method == "scene.import_editable"))
     requireRenderCapacity(context);
   if (context.sceneHosts && document && method == "scene.check.submit")
     requireAnalysisCapacity(context);
@@ -1372,6 +1408,27 @@ bool routeToSceneHost(Context& context, const QString& method,
   if (!host) return false;
   result = forward(context, *host, method, params);
   return true;
+}
+
+ImportedPackage importedPackage(Context& context, const QString& jobId) {
+  SceneHost* host = hostForRequest(context, {{"job_id", jobId}});
+  if (!host) jobRegistry(context).refuseUnknown(jobId);
+  if (host->lost()) hostFailed(*host, host->documentId);
+  const QJsonObject record = hostJobRecord(context, jobId);
+  if (record.value("kind") != "scene_import")
+    throw Error("invalid_params",
+                "import_job_id names a job that is not a scene_import job.",
+                {{"job_id", jobId}, {"kind", record.value("kind")}});
+  if (record.value("status") != "completed")
+    throw Error("import_not_ready",
+                "The import job has not completed; poll job.status.",
+                {{"job_id", jobId}, {"status", record.value("status")}});
+  return {QDir(host->directory).filePath("imports/" + jobId + "/package"),
+          record.value("import").toObject().value("package_id").toString()};
+}
+
+void noteAdoption(Context& context, const QString& jobId) {
+  ++registry(context).adoptions[jobId];
 }
 
 int readOnlyDocumentCount(Context& context) {

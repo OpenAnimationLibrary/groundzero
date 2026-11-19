@@ -839,6 +839,28 @@ std::unique_ptr<ToonzScene> loadReadOnlySnapshot(Context& context,
   return scene;
 }
 
+std::unique_ptr<Document> loadImportSnapshot(Context& context,
+                                             Document& document) {
+  const ReadOnlyScene& stored = *document.readOnly;
+  auto source                 = std::make_shared<ReadOnlyScene>();
+  source->projectId           = stored.projectId;
+  source->scenePath           = stored.scenePath;
+  source->sceneCopy           = stored.sceneCopy;
+  source->sceneRevision       = stored.sceneRevision;
+  source->fingerprint         = stored.fingerprint;
+  source->readRoots           = stored.readRoots;
+  source->workerWorkspace     = stored.workerWorkspace;
+  source->project             = stored.project;
+  auto snapshot = std::make_unique<Document>(parseScene(*source),
+                                             document.id + "-import", source);
+  TImageStyle::setCurrentScene(document.scene.get());
+  const HostLoadRequest request = storedRequest(stored);
+  Loader loader{context, request, *source, snapshot.get(), *snapshot->scene};
+  loadLevels(loader);
+  classifyReadOnlyContent(*snapshot);
+  return snapshot;
+}
+
 QJsonValue executeSceneHost(Context& context, const QString& method,
                             const QJsonObject& params) {
   if (method == "scene_host.load") {

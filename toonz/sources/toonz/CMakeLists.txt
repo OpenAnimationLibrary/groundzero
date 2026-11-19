@@ -338,6 +338,7 @@ set(SOURCES
     automation_persistence.cpp
     automation_preflight.cpp
     automation_import.cpp
+    automation_import_job.cpp
     automation_root_publish.cpp
     automation_production.cpp
     automation_scene_check.cpp

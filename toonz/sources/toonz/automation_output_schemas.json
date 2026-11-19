@@ -1538,7 +1538,8 @@
           "render_sequence",
           "neural_preview",
           "drawing_analysis",
-          "scene_check"
+          "scene_check",
+          "scene_import"
         ],
         "type": "string"
       },
@@ -4277,6 +4278,128 @@
           }
         ]
       },
+      "import": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_digest": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 69,
+            "pattern": "^plan:[0-9a-f]{64}$"
+          },
+          "package_id": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 72,
+                "pattern": "^package:[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "package_bytes": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 268435456
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "levels": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 256
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "drawings": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4096
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "losses_applied": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "unrecognized_scene_tag",
+                    "sub_xsheet",
+                    "fx_not_admitted",
+                    "fx_value_out_of_range",
+                    "level_not_admitted",
+                    "level_load_failed",
+                    "raster_depth_reduced",
+                    "empty_level",
+                    "style_not_admitted",
+                    "column_not_admitted",
+                    "exposure_not_admitted",
+                    "sound_not_admitted",
+                    "camera_not_active",
+                    "motion_path_not_admitted",
+                    "rig_not_admitted",
+                    "storyboard_not_admitted",
+                    "cast_organization",
+                    "library_origin"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "count"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 18
+          },
+          "source_copy": {
+            "type": "boolean"
+          },
+          "adopted_documents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          }
+        },
+        "required": [
+          "plan_digest",
+          "package_id",
+          "package_bytes",
+          "levels",
+          "drawings",
+          "losses_applied",
+          "source_copy",
+          "adopted_documents"
+        ]
+      },
       "inputs": {
         "additionalProperties": false,
         "properties": {
@@ -4322,7 +4445,8 @@
           "render_sequence",
           "neural_preview",
           "drawing_analysis",
-          "scene_check"
+          "scene_check",
+          "scene_import"
         ],
         "type": "string"
       },
@@ -8628,7 +8752,8 @@
               "render_sequence",
               "neural_preview",
               "drawing_analysis",
-              "scene_check"
+              "scene_check",
+              "scene_import"
             ],
             "type": "string"
           },
@@ -9157,6 +9282,128 @@
               }
             ]
           },
+          "import": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "plan_digest": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 69,
+                "pattern": "^plan:[0-9a-f]{64}$"
+              },
+              "package_id": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 72,
+                    "pattern": "^package:[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "package_bytes": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 268435456
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "levels": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "drawings": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4096
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "losses_applied": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "unrecognized_scene_tag",
+                        "sub_xsheet",
+                        "fx_not_admitted",
+                        "fx_value_out_of_range",
+                        "level_not_admitted",
+                        "level_load_failed",
+                        "raster_depth_reduced",
+                        "empty_level",
+                        "style_not_admitted",
+                        "column_not_admitted",
+                        "exposure_not_admitted",
+                        "sound_not_admitted",
+                        "camera_not_active",
+                        "motion_path_not_admitted",
+                        "rig_not_admitted",
+                        "storyboard_not_admitted",
+                        "cast_organization",
+                        "library_origin"
+                      ]
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "count"
+                  ]
+                },
+                "minItems": 0,
+                "maxItems": 18
+              },
+              "source_copy": {
+                "type": "boolean"
+              },
+              "adopted_documents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 32
+              }
+            },
+            "required": [
+              "plan_digest",
+              "package_id",
+              "package_bytes",
+              "levels",
+              "drawings",
+              "losses_applied",
+              "source_copy",
+              "adopted_documents"
+            ]
+          },
           "inputs": {
             "additionalProperties": false,
             "properties": {
@@ -9202,7 +9449,8 @@
               "render_sequence",
               "neural_preview",
               "drawing_analysis",
-              "scene_check"
+              "scene_check",
+              "scene_import"
             ],
             "type": "string"
           },
@@ -9621,6 +9869,128 @@
               "minLength": 1,
               "type": "string"
             },
+            "import": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "plan_digest": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 69,
+                  "pattern": "^plan:[0-9a-f]{64}$"
+                },
+                "package_id": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 72,
+                      "pattern": "^package:[0-9a-f]{64}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "package_bytes": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 268435456
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "levels": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 256
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "drawings": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4096
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "losses_applied": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "unrecognized_scene_tag",
+                          "sub_xsheet",
+                          "fx_not_admitted",
+                          "fx_value_out_of_range",
+                          "level_not_admitted",
+                          "level_load_failed",
+                          "raster_depth_reduced",
+                          "empty_level",
+                          "style_not_admitted",
+                          "column_not_admitted",
+                          "exposure_not_admitted",
+                          "sound_not_admitted",
+                          "camera_not_active",
+                          "motion_path_not_admitted",
+                          "rig_not_admitted",
+                          "storyboard_not_admitted",
+                          "cast_organization",
+                          "library_origin"
+                        ]
+                      },
+                      "count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "count"
+                    ]
+                  },
+                  "minItems": 0,
+                  "maxItems": 18
+                },
+                "source_copy": {
+                  "type": "boolean"
+                },
+                "adopted_documents": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32
+                }
+              },
+              "required": [
+                "plan_digest",
+                "package_id",
+                "package_bytes",
+                "levels",
+                "drawings",
+                "losses_applied",
+                "source_copy",
+                "adopted_documents"
+              ]
+            },
             "job_id": {
               "maxLength": 80,
               "minLength": 1,
@@ -9632,7 +10002,8 @@
                 "render_sequence",
                 "neural_preview",
                 "drawing_analysis",
-                "scene_check"
+                "scene_check",
+                "scene_import"
               ],
               "type": "string"
             },
@@ -10210,7 +10581,8 @@
                       "render_sequence",
                       "neural_preview",
                       "drawing_analysis",
-                      "scene_check"
+                      "scene_check",
+                      "scene_import"
                     ],
                     "type": "string"
                   },
@@ -10716,6 +11088,128 @@
                       }
                     ]
                   },
+                  "import": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "plan_digest": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 69,
+                        "pattern": "^plan:[0-9a-f]{64}$"
+                      },
+                      "package_id": {
+                        "oneOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 72,
+                            "pattern": "^package:[0-9a-f]{64}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "package_bytes": {
+                        "oneOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 268435456
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "levels": {
+                        "oneOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 256
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "drawings": {
+                        "oneOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 4096
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "losses_applied": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "unrecognized_scene_tag",
+                                "sub_xsheet",
+                                "fx_not_admitted",
+                                "fx_value_out_of_range",
+                                "level_not_admitted",
+                                "level_load_failed",
+                                "raster_depth_reduced",
+                                "empty_level",
+                                "style_not_admitted",
+                                "column_not_admitted",
+                                "exposure_not_admitted",
+                                "sound_not_admitted",
+                                "camera_not_active",
+                                "motion_path_not_admitted",
+                                "rig_not_admitted",
+                                "storyboard_not_admitted",
+                                "cast_organization",
+                                "library_origin"
+                              ]
+                            },
+                            "count": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "count"
+                          ]
+                        },
+                        "minItems": 0,
+                        "maxItems": 18
+                      },
+                      "source_copy": {
+                        "type": "boolean"
+                      },
+                      "adopted_documents": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 32
+                      }
+                    },
+                    "required": [
+                      "plan_digest",
+                      "package_id",
+                      "package_bytes",
+                      "levels",
+                      "drawings",
+                      "losses_applied",
+                      "source_copy",
+                      "adopted_documents"
+                    ]
+                  },
                   "inputs": {
                     "additionalProperties": false,
                     "properties": {
@@ -10761,7 +11255,8 @@
                       "render_sequence",
                       "neural_preview",
                       "drawing_analysis",
-                      "scene_check"
+                      "scene_check",
+                      "scene_import"
                     ],
                     "type": "string"
                   },
@@ -11026,7 +11521,8 @@
           "kind": {
             "enum": [
               "drawing_analysis",
-              "scene_check"
+              "scene_check",
+              "scene_import"
             ],
             "type": "string"
           },
@@ -11481,7 +11977,8 @@
               "render_sequence",
               "neural_preview",
               "drawing_analysis",
-              "scene_check"
+              "scene_check",
+              "scene_import"
             ],
             "type": "string"
           },
@@ -12031,6 +12528,128 @@
               }
             ]
           },
+          "import": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "plan_digest": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 69,
+                "pattern": "^plan:[0-9a-f]{64}$"
+              },
+              "package_id": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 72,
+                    "pattern": "^package:[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "package_bytes": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 268435456
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "levels": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "drawings": {
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4096
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "losses_applied": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "unrecognized_scene_tag",
+                        "sub_xsheet",
+                        "fx_not_admitted",
+                        "fx_value_out_of_range",
+                        "level_not_admitted",
+                        "level_load_failed",
+                        "raster_depth_reduced",
+                        "empty_level",
+                        "style_not_admitted",
+                        "column_not_admitted",
+                        "exposure_not_admitted",
+                        "sound_not_admitted",
+                        "camera_not_active",
+                        "motion_path_not_admitted",
+                        "rig_not_admitted",
+                        "storyboard_not_admitted",
+                        "cast_organization",
+                        "library_origin"
+                      ]
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "count"
+                  ]
+                },
+                "minItems": 0,
+                "maxItems": 18
+              },
+              "source_copy": {
+                "type": "boolean"
+              },
+              "adopted_documents": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 32
+              }
+            },
+            "required": [
+              "plan_digest",
+              "package_id",
+              "package_bytes",
+              "levels",
+              "drawings",
+              "losses_applied",
+              "source_copy",
+              "adopted_documents"
+            ]
+          },
           "inputs": {
             "additionalProperties": false,
             "properties": {
@@ -12076,7 +12695,8 @@
               "render_sequence",
               "neural_preview",
               "drawing_analysis",
-              "scene_check"
+              "scene_check",
+              "scene_import"
             ],
             "type": "string"
           },
@@ -19836,7 +20456,8 @@
           "render_sequence",
           "neural_preview",
           "drawing_analysis",
-          "scene_check"
+          "scene_check",
+          "scene_import"
         ],
         "type": "string"
       },
@@ -20545,7 +21166,8 @@
           "render_sequence",
           "neural_preview",
           "drawing_analysis",
-          "scene_check"
+          "scene_check",
+          "scene_import"
         ],
         "type": "string"
       },
@@ -22598,6 +23220,128 @@
           }
         ]
       },
+      "import": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_digest": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 69,
+            "pattern": "^plan:[0-9a-f]{64}$"
+          },
+          "package_id": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 72,
+                "pattern": "^package:[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "package_bytes": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 268435456
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "levels": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 256
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "drawings": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4096
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "losses_applied": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "unrecognized_scene_tag",
+                    "sub_xsheet",
+                    "fx_not_admitted",
+                    "fx_value_out_of_range",
+                    "level_not_admitted",
+                    "level_load_failed",
+                    "raster_depth_reduced",
+                    "empty_level",
+                    "style_not_admitted",
+                    "column_not_admitted",
+                    "exposure_not_admitted",
+                    "sound_not_admitted",
+                    "camera_not_active",
+                    "motion_path_not_admitted",
+                    "rig_not_admitted",
+                    "storyboard_not_admitted",
+                    "cast_organization",
+                    "library_origin"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "count"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 18
+          },
+          "source_copy": {
+            "type": "boolean"
+          },
+          "adopted_documents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          }
+        },
+        "required": [
+          "plan_digest",
+          "package_id",
+          "package_bytes",
+          "levels",
+          "drawings",
+          "losses_applied",
+          "source_copy",
+          "adopted_documents"
+        ]
+      },
       "inputs": {
         "additionalProperties": false,
         "properties": {
@@ -22643,7 +23387,8 @@
           "render_sequence",
           "neural_preview",
           "drawing_analysis",
-          "scene_check"
+          "scene_check",
+          "scene_import"
         ],
         "type": "string"
       },
@@ -23299,6 +24044,511 @@
       "document_id",
       "operation_id",
       "revision"
+    ],
+    "type": "object"
+  },
+  "scene.import_editable": {
+    "additionalProperties": false,
+    "properties": {
+      "cancellation": {
+        "additionalProperties": false,
+        "properties": {
+          "effective": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requested": {
+            "type": "boolean"
+          },
+          "requested_ms": {
+            "oneOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "requested",
+          "requested_ms"
+        ],
+        "type": "object"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "executor": {
+        "enum": [
+          "worker",
+          "scene_host"
+        ],
+        "type": "string"
+      },
+      "failure": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              "message": {
+                "maxLength": 2048,
+                "minLength": 0,
+                "type": "string"
+              },
+              "phase": {
+                "enum": [
+                  "prepare",
+                  "render",
+                  "encode",
+                  "verify",
+                  "analyze",
+                  "executor",
+                  "worker"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "import": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_digest": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 69,
+            "pattern": "^plan:[0-9a-f]{64}$"
+          },
+          "package_id": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 72,
+                "pattern": "^package:[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "package_bytes": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 268435456
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "levels": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 256
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "drawings": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4096
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "losses_applied": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "unrecognized_scene_tag",
+                    "sub_xsheet",
+                    "fx_not_admitted",
+                    "fx_value_out_of_range",
+                    "level_not_admitted",
+                    "level_load_failed",
+                    "raster_depth_reduced",
+                    "empty_level",
+                    "style_not_admitted",
+                    "column_not_admitted",
+                    "exposure_not_admitted",
+                    "sound_not_admitted",
+                    "camera_not_active",
+                    "motion_path_not_admitted",
+                    "rig_not_admitted",
+                    "storyboard_not_admitted",
+                    "cast_organization",
+                    "library_origin"
+                  ]
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "count"
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 18
+          },
+          "source_copy": {
+            "type": "boolean"
+          },
+          "adopted_documents": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          }
+        },
+        "required": [
+          "plan_digest",
+          "package_id",
+          "package_bytes",
+          "levels",
+          "drawings",
+          "losses_applied",
+          "source_copy",
+          "adopted_documents"
+        ]
+      },
+      "inputs": {
+        "additionalProperties": false,
+        "properties": {
+          "request": {
+            "type": "object"
+          },
+          "snapshot_manifest_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_fingerprint": {
+            "oneOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "job_id": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "kind": {
+        "enum": [
+          "render_preview",
+          "render_sequence",
+          "neural_preview",
+          "drawing_analysis",
+          "scene_check",
+          "scene_import"
+        ],
+        "type": "string"
+      },
+      "lane": {
+        "enum": [
+          "render",
+          "analysis"
+        ],
+        "type": "string"
+      },
+      "last_observed_ms": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": 0,
+        "type": "number"
+      },
+      "limits": {
+        "additionalProperties": false,
+        "properties": {
+          "cancel_grace_ms": {
+            "const": 30000,
+            "type": "integer"
+          },
+          "deadline_ms": {
+            "maximum": 600000,
+            "minimum": 1000,
+            "type": "integer"
+          },
+          "storage_reserved_bytes": {
+            "maximum": 134217728,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "origin_request_cancelled": {
+        "type": "boolean"
+      },
+      "outputs": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_count": {
+            "maximum": 120,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "directory": {
+            "oneOf": [
+              {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result_rows": {
+            "maximum": 65536,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "plugin_policy": {
+        "const": "builtin_only",
+        "type": "string"
+      },
+      "progress": {
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unit": {
+            "enum": [
+              "frames",
+              "drawings",
+              "styles",
+              "files",
+              "records"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "source_revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      },
+      "stalled": {
+        "type": "boolean"
+      },
+      "status": {
+        "enum": [
+          "preparing",
+          "running",
+          "cancellation_requested",
+          "finalizing",
+          "completed",
+          "failed",
+          "canceled",
+          "deadline_exceeded",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "terminal": {
+        "type": "boolean"
+      },
+      "termination": {
+        "additionalProperties": false,
+        "properties": {
+          "forced_processes": {
+            "items": {
+              "enum": [
+                "encoder",
+                "probe",
+                "scene_host",
+                "parse_helper",
+                "neural_helper",
+                "worker"
+              ],
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 0,
+            "type": "array"
+          },
+          "mode": {
+            "oneOf": [
+              {
+                "enum": [
+                  "cooperative",
+                  "forced"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "timing": {
+        "additionalProperties": false,
+        "properties": {
+          "ended_ms": {
+            "oneOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_ms": {
+            "oneOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "submitted_ms": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "worker": {
+        "additionalProperties": false,
+        "properties": {
+          "build": {
+            "additionalProperties": false,
+            "properties": {
+              "application": {
+                "const": "groundzero",
+                "type": "string"
+              },
+              "build_digest": {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              "version": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "instance_id": {
+            "maxLength": 36,
+            "minLength": 36,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "worker_loss": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "document_id",
+      "import"
     ],
     "type": "object"
   },
@@ -24109,52 +25359,59 @@
         "type": "string"
       },
       "location": {
-        "additionalProperties": false,
-        "properties": {
-          "input_index": {
-            "oneOf": [
-              {
-                "maximum": 15,
-                "minimum": 0,
-                "type": "integer"
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "input_index": {
+                "oneOf": [
+                  {
+                    "maximum": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "path": {
-            "maxLength": 1024,
-            "minLength": 1,
-            "type": "string"
-          },
-          "root": {
-            "maxLength": 32,
-            "minLength": 1,
-            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
-            "type": "string"
-          },
-          "root_sha256": {
-            "oneOf": [
-              {
-                "maxLength": 64,
+              "path": {
+                "maxLength": 1024,
                 "minLength": 1,
-                "pattern": "^[0-9a-f]{64}$",
                 "type": "string"
               },
-              {
-                "type": "null"
+              "root": {
+                "maxLength": 32,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+                "type": "string"
+              },
+              "root_sha256": {
+                "oneOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
-            ]
+            },
+            "required": [
+              "root",
+              "path",
+              "input_index",
+              "root_sha256"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
           }
-        },
-        "required": [
-          "root",
-          "path",
-          "input_index",
-          "root_sha256"
-        ],
-        "type": "object"
+        ]
       },
       "operation_id": {
         "maxLength": 65536,
@@ -25580,6 +26837,176 @@
         "pattern": "^package:[0-9a-f]{64}$",
         "type": "string"
       },
+      "provenance": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "import"
+              },
+              "source": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "root": {
+                    "type": "string",
+                    "enum": [
+                      "workspace",
+                      "input_root"
+                    ]
+                  },
+                  "root_path_sha256": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "relative_path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "scene_file_revision": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 71
+                  },
+                  "source_fingerprint": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "scene_version": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  },
+                  "unrecognized_scene_tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "minItems": 0,
+                    "maxItems": 32
+                  }
+                },
+                "required": [
+                  "root",
+                  "root_path_sha256",
+                  "relative_path",
+                  "scene_file_revision",
+                  "source_fingerprint",
+                  "project_id",
+                  "scene_version",
+                  "unrecognized_scene_tags"
+                ]
+              },
+              "importer": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "profile": {
+                    "const": "worker-generated-v1"
+                  },
+                  "classifier_version": {
+                    "const": 1
+                  },
+                  "executable_sha256": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64,
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "profile",
+                  "classifier_version",
+                  "executable_sha256"
+                ]
+              },
+              "plan_digest": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 69,
+                "pattern": "^plan:[0-9a-f]{64}$"
+              },
+              "losses_applied": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "unrecognized_scene_tag",
+                        "sub_xsheet",
+                        "fx_not_admitted",
+                        "fx_value_out_of_range",
+                        "level_not_admitted",
+                        "level_load_failed",
+                        "raster_depth_reduced",
+                        "empty_level",
+                        "style_not_admitted",
+                        "column_not_admitted",
+                        "exposure_not_admitted",
+                        "sound_not_admitted",
+                        "camera_not_active",
+                        "motion_path_not_admitted",
+                        "rig_not_admitted",
+                        "storyboard_not_admitted",
+                        "cast_organization",
+                        "library_origin"
+                      ]
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "count"
+                  ]
+                },
+                "minItems": 0,
+                "maxItems": 18
+              },
+              "source_copy": {
+                "oneOf": [
+                  {
+                    "const": "provenance/source-scene.tnz"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "source",
+              "importer",
+              "plan_digest",
+              "losses_applied",
+              "source_copy"
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
       "registered": {
         "type": "boolean"
       },
@@ -25629,6 +27056,7 @@
       "operation_id",
       "package_directory",
       "package_id",
+      "provenance",
       "registered",
       "revision",
       "save_mode",

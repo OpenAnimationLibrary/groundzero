@@ -12,6 +12,7 @@
 #include "automation_macro.h"
 #include "automation_package.h"
 #include "automation_root_publish.h"
+#include "automation_scene_host.h"
 #include "automation_storyboard.h"
 
 #include "timage.h"
@@ -43,6 +44,7 @@
 #include <QTemporaryDir>
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <set>
 #include <vector>
@@ -66,6 +68,9 @@ struct Package final {
 };
 
 constexpr qint64 MaxManifestBytes = 2 * 1024 * 1024;
+// The largest user scene file a read-only document opens, and so the largest
+// attached source scene.
+constexpr qint64 SourceSceneMaxBytes = 64 * 1024 * 1024;
 
 QByteArray digest(const QByteArray& bytes) {
   return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
@@ -228,7 +233,8 @@ QJsonObject rasterManifest(TXshSimpleLevel& level) {
           {"effective_dpi_y", effectiveDpi.y}};
 }
 
-void writeLevel(TXshSimpleLevel& level, const QString& path, double frameRate) {
+void writeLevel(TXshSimpleLevel& level, const QString& path, double frameRate,
+                const std::function<void()>& drawn) {
   TLevelWriterP writer(TFilePath(path.toStdWString()));
   if (!writer)
     throw Error("writer_unavailable",
@@ -251,6 +257,7 @@ void writeLevel(TXshSimpleLevel& level, const QString& path, double frameRate) {
       throw Error("writer_unavailable",
                   "A native frame writer is unavailable.");
     frameWriter->save(image);
+    drawn();
   }
   writer->finalize();
 }
@@ -273,8 +280,14 @@ void packageFault(const Context& context, const char* point,
 }
 
 QJsonArray writeLevels(const Context& context, ToonzScene& scene,
-                       const QString& directory, SaveStep& step) {
+                       const QString& directory, SaveStep& step,
+                       const PackageExtras& extras) {
   QJsonArray entries;
+  int written      = 0;
+  const auto drawn = [&extras, &written]() {
+    ++written;
+    if (extras.progress) extras.progress(written);
+  };
   TLevelSet* levels = scene.getLevelSet();
   const double frameRate =
       scene.getProperties()->getOutputProperties()->getFrameRate();
@@ -284,7 +297,7 @@ QJsonArray writeLevels(const Context& context, ToonzScene& scene,
     const QString relative = packageLevelPath(index, level->getType());
     const QString file     = QDir(directory).absoluteFilePath(relative);
     step                   = {"level", relative};
-    writeLevel(*level, file, frameRate);
+    writeLevel(*level, file, frameRate, drawn);
     packageFault(context, "package:level", step);
     const QJsonValue hooks = writeAutomationHooks(*level, file);
     if (level->getType() == TZP_XSHLEVEL)
@@ -359,32 +372,64 @@ void writeScene(ToonzScene& scene, const QString& directory) {
       TFilePath(QDir(directory).absoluteFilePath("scene.tnz").toStdWString()));
 }
 
-Package writePackage(const Context& context, Document& document,
-                     const QString& directory, SaveStep& step) {
+// Copies the imported source scene into the package, byte for byte, once its
+// bytes match the revision the provenance records.
+void attachSourceScene(const PackageExtras& extras, const QString& directory) {
+  const QString expected = extras.provenance.value("source")
+                               .toObject()
+                               .value("scene_file_revision")
+                               .toString();
+  QFile source;
+  if (openApprovedFile(source, extras.sourceScene) != OpenResult::Opened)
+    throw Error("package_write_failed",
+                "Cannot read the attached source scene copy.");
+  const QByteArray bytes = source.read(SourceSceneMaxBytes + 1);
+  if (bytes.size() > SourceSceneMaxBytes ||
+      "sha256:" + QString::fromLatin1(digest(bytes)) != expected)
+    throw Error("package_write_failed",
+                "The attached source scene copy differs from the revision "
+                "its provenance records.");
+  const QString path = QDir(directory).filePath(packageSourceScenePath());
+  if (!QDir(directory).mkdir("provenance"))
+    throw Error("package_write_failed",
+                "Cannot create the package provenance directory.");
+  writePrivateFile(path, bytes);
+}
+
+Package writePackage(const Context& context, ToonzScene& scene,
+                     const QString& revision, const QString& directory,
+                     SaveStep& step, const PackageExtras& extras) {
   if (!QDir(directory).mkdir("assets"))
     throw Error("package_write_failed",
                 "Cannot create the package assets directory.");
-  const QByteArray macroFingerprint = automationMacroFingerprint(*document.scene, directory);
+  const QByteArray macroFingerprint =
+      automationMacroFingerprint(scene, directory);
   const QJsonArray levels =
-      writeLevels(context, *document.scene, directory, step);
+      writeLevels(context, scene, directory, step, extras);
   step                     = {"sounds", QString()};
-  const QJsonObject sounds = writeAutomationSounds(*document.scene, directory);
+  const QJsonObject sounds = writeAutomationSounds(scene, directory);
   packageFault(context, "package:sounds", step);
   step = {"scene", "scene.tnz"};
-  writeScene(*document.scene, directory);
+  writeScene(scene, directory);
   packageFault(context, "package:scene", step);
+  if (!extras.sourceScene.isEmpty()) {
+    step = {"scene", packageSourceScenePath()};
+    attachSourceScene(extras, directory);
+  }
   step = {"manifest", "manifest.json"};
   Package package;
   package.macroFingerprint = macroFingerprint;
   package.manifest         = {{"version", 1},
                               {"profile", "worker-generated-v1"},
                               {"scene_file", "scene.tnz"},
-                              {"source_revision", document.revisionText()},
+                              {"source_revision", revision},
                               {"levels", levels}};
   for (auto entry = sounds.begin(); entry != sounds.end(); ++entry)
     package.manifest.insert(entry.key(), entry.value());
-  const QString tags = automationTagsDigest(*document.scene);
+  const QString tags = automationTagsDigest(scene);
   if (!tags.isEmpty()) package.manifest.insert("tags_sha256", tags);
+  if (!extras.provenance.isEmpty())
+    package.manifest.insert("provenance", extras.provenance);
   package.manifest.insert("save_mode", "self_contained");
   package.manifest.insert("not_contained", packageNotContained());
   package.manifest.insert("files", fileManifest(directory));
@@ -445,14 +490,20 @@ void restoreImageDpi(const TImageP& image, const QJsonObject& entry) {
   if (const TToonzImageP indexed = image) indexed->setDpi(x, y);
 }
 
+// The saved level is found by its package path, which is unique, since user
+// scenes an import converts may repeat a level name.
 TXshSimpleLevel* findSavedLevel(ToonzScene& scene, const QJsonObject& entry) {
-  TXshLevel* native = scene.getLevelSet()->getLevel(
-      entry.value("name").toString().toStdWString());
-  TXshSimpleLevel* level = native ? native->getSimpleLevel() : nullptr;
   const TFilePath coded(
       ("$scenefolder/" + entry.value("path").toString()).toStdWString());
+  TXshSimpleLevel* level = nullptr;
+  TLevelSet* levels      = scene.getLevelSet();
+  for (int index = 0; index < levels->getLevelCount() && !level; ++index) {
+    TXshSimpleLevel* candidate = levels->getLevel(index)->getSimpleLevel();
+    if (candidate && candidate->getPath() == coded) level = candidate;
+  }
   if (!level || level->getType() != entry.value("type").toInt() ||
-      level->getPath() != coded)
+      QString::fromStdWString(level->getName()) !=
+          entry.value("name").toString())
     throw Error("invalid_package",
                 "The native level does not match the package manifest.");
   return level;
@@ -516,9 +567,13 @@ void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
                 "The reopened palette differs from the source palette.");
 }
 
-std::unique_ptr<ToonzScene> reopenPackage(Context& context,
-                                          const QString& directory,
-                                          const Package& package) {
+// Reopens a package from `directory` and checks it against its manifest.
+// The macro graph is compared with the fingerprint taken when it was written,
+// which an imported package's adoption does not have: its host made that
+// comparison on the same bytes.
+std::unique_ptr<ToonzScene> reopenPackage(
+    Context& context, const QString& directory, const Package& package,
+    bool checkMacros = true, const std::function<void(int)>& progress = {}) {
   verifyFiles(directory, package);
   auto scene = std::make_unique<ToonzScene>();
   scene->setProject(context.project());
@@ -530,7 +585,12 @@ std::unique_ptr<ToonzScene> reopenPackage(Context& context,
       scene->getLevelSet()->getLevelCount() != entries.size() + sounds)
     throw Error("invalid_package",
                 "The reopened scene differs from the published scene.");
-  for (const QJsonValue& entry : entries) reopenLevel(*scene, entry.toObject());
+  int verified = 0;
+  for (const QJsonValue& entry : entries) {
+    reopenLevel(*scene, entry.toObject());
+    verified += entry.toObject().value("drawings").toArray().size();
+    if (progress) progress(verified);
+  }
   reopenAutomationSounds(*scene, package.manifest);
   if (automationTagsDigest(*scene) !=
       package.manifest.value("tags_sha256").toString())
@@ -538,8 +598,9 @@ std::unique_ptr<ToonzScene> reopenPackage(Context& context,
                 "Reopened storyboard panels differ from the published scene.");
   validateAutomationScene(*scene);
   indexAutomationMacroMembers(*scene);
-  if (automationMacroFingerprint(*scene, context.scratchDirectory()) !=
-      package.macroFingerprint)
+  if (checkMacros &&
+      automationMacroFingerprint(*scene, context.scratchDirectory()) !=
+          package.macroFingerprint)
     throw Error("invalid_package", "The reopened macro graph differs from its published source.");
   verifyFiles(directory, package);
   return scene;
@@ -594,8 +655,39 @@ QVector<StagedEntry> stagedEntries(const Package& package) {
   return entries;
 }
 
+// Writes and verifies a package of an editable-profile scene into an existing
+// empty private directory.
+Package writeVerified(Context& context, ToonzScene& scene,
+                      const QString& revision, const QString& directory,
+                      const PackageExtras& extras) {
+  SaveStep step;
+  Package package;
+  try {
+    packageFault(context, "package:staged", step);
+    package = writePackage(context, scene, revision, directory, step, extras);
+    step    = {"verify", QString()};
+    int drawings = 0;
+    for (const QJsonValue& level : package.manifest.value("levels").toArray())
+      drawings += level.toObject().value("drawings").toArray().size();
+    const auto verified = [&extras, drawings](int count) {
+      if (extras.progress) extras.progress(drawings + count);
+    };
+    reopenPackage(context, directory, package, true, verified);
+    packageFault(context, "package:verify", step);
+  } catch (const Error& error) {
+    throw stepError(error.code, error.message, error.details, step);
+  } catch (const TException& error) {
+    throw stepError("native_error", QString::fromStdWString(error.getMessage()),
+                    {}, step);
+  } catch (const std::exception& error) {
+    throw stepError("native_error", QString::fromUtf8(error.what()), {}, step);
+  }
+  return package;
+}
+
 Package publishPackage(Context& context, Document& document,
-                       const PackageTarget& target) {
+                       const PackageTarget& target,
+                       const PackageExtras& extras) {
   const bool workspace = target.root == "workspace";
   if (workspace)
     requireWorkspaceTarget(target.absolute);
@@ -607,22 +699,9 @@ Package publishPackage(Context& context, Document& document,
     throw stagedWriteError("package_write_failed",
                            "Cannot create a private package staging directory.",
                            "stage", QString(), false);
-  SaveStep step;
-  Package package;
-  try {
-    packageFault(context, "package:staged", step);
-    package = writePackage(context, document, staging.path(), step);
-    step    = {"verify", QString()};
-    reopenPackage(context, staging.path(), package);
-    packageFault(context, "package:verify", step);
-  } catch (const Error& error) {
-    throw stepError(error.code, error.message, error.details, step);
-  } catch (const TException& error) {
-    throw stepError("native_error", QString::fromStdWString(error.getMessage()),
-                    {}, step);
-  } catch (const std::exception& error) {
-    throw stepError("native_error", QString::fromUtf8(error.what()), {}, step);
-  }
+  Package package =
+      writeVerified(context, *document.scene, document.revisionText(),
+                    staging.path(), extras);
   package.registration = registrationFields(context, package);
   const QJsonObject intent =
       package.registration.isEmpty()
@@ -812,7 +891,9 @@ struct CopyGuard final {
 QJsonObject admissionReport(const Admission& admission) {
   return {
       {"admission", admission.kind},
-      {"location", admission.location},
+      {"location", admission.location.isEmpty()
+                       ? QJsonValue()
+                       : QJsonValue(admission.location)},
       {"package_id", admission.packageId},
       {"relocated", admission.relocated},
       {"published_by", admission.publishedBy},
@@ -837,7 +918,9 @@ QJsonObject saveCopy(Context& context, const QJsonObject& params) {
   const PackageTarget target =
       packageTarget(context, params, "directory", true);
   const bool workspace  = target.root == "workspace";
-  const Package package = publishPackage(context, document, target);
+  const Package package =
+      publishPackage(context, document, target,
+                     {document.provenance, document.sourceScene, {}});
   const QString directory =
       workspace ? target.absolute
                 : QDir(target.rootPath).filePath(package.storedRelative);
@@ -876,6 +959,9 @@ QJsonObject saveCopy(Context& context, const QJsonObject& params) {
            {"registered", registered},
            {"location", location},
            {"staging", workspace ? "private_rename" : "private_then_copy"},
+           {"provenance", document.provenance.isEmpty()
+                              ? QJsonValue()
+                              : QJsonValue(document.provenance)},
            {"document_id", document.id},
            {"revision", document.revisionText()}})
     result.insert(field.first, field.second);
@@ -891,28 +977,82 @@ void pinPackage(Context& context, const QJsonObject& location) {
       {{"operation_id", context.writeOperation}, {"location", location}});
 }
 
-QJsonObject openPackage(Context& context, const QJsonObject& params) {
-  context.requireDocumentCapacity();
-  const Admission admission = admitPackage(context, params);
-  pinPackage(context, admission.location);
-  const QString directory = admission.directory;
-  // Every package loads from a private copy checked while copied, so no
-  // change after the check can reach the native loader.
+// Loads an admitted package from a private copy checked while copied, so no
+// change after the check can reach the native loader, as a new document. An
+// imported package's document keeps its provenance and source scene copy.
+Document& openAdmitted(Context& context, const Admission& admission,
+                       bool checkMacros) {
   const QString copy = copyIn(context, admission);
   CopyGuard guard{copy};
-  auto scene        = reopenPackage(context, copy, admission.package);
+  auto scene = reopenPackage(context, copy, admission.package, checkMacros);
   const auto sounds = adoptAutomationSounds(context, *scene);
   context.markMutationStarted();
   Document& document    = context.addDocument(std::move(scene));
   document.soundSources = sounds;
   document.privateCopies.append(copy);
   guard.keep = true;
+  const QJsonValue provenance = admission.package.manifest.value("provenance");
+  const QString source        = QDir(copy).filePath(packageSourceScenePath());
+  if (provenance.isObject() && QFileInfo(source).isFile()) {
+    document.provenance  = provenance.toObject();
+    document.sourceScene = source;
+  }
   initializeAutomationRig(document);
+  return document;
+}
+
+// The package a completed import job of this worker wrote, admitted by the
+// manifest digest the job reported; it registers when the document is saved.
+Admission importAdmission(Context& context, const QString& jobId) {
+  const ImportedPackage imported = importedPackage(context, jobId);
+  const QFileInfo manifest(imported.directory + "/manifest.json");
+  if (!manifest.isFile() || manifest.size() > MaxManifestBytes)
+    throw Error("invalid_package", "The import job's package is missing.",
+                {{"job_id", jobId}});
+  const QByteArray bytes = readRegularFile(imported.directory, "manifest.json");
+  const QString id       = "package:" + QString::fromLatin1(digest(bytes));
+  if (id != imported.packageId)
+    throw Error("invalid_package",
+                "The import job's package differs from the one it reported.",
+                {{"job_id", jobId}, {"package_id", imported.packageId}});
+  Admission admission;
+  admission.directory             = imported.directory;
+  admission.kind                  = "import_job";
+  admission.packageId             = id;
+  admission.package.manifest      = QJsonDocument::fromJson(bytes).object();
+  admission.package.manifestHash  = digest(bytes);
+  admission.package.manifestBytes = bytes;
+  return admission;
+}
+
+QJsonObject openPackage(Context& context, const QJsonObject& params) {
+  const bool imported = params.contains("import_job_id");
+  if (imported == params.contains("path") ||
+      (imported && params.contains("root")))
+    throw Error("invalid_params",
+                "Name exactly one of path (with optional root) and "
+                "import_job_id.");
+  context.requireDocumentCapacity();
+  if (imported) {
+    const QString job         = requiredString(params, "import_job_id");
+    const Admission admission = importAdmission(context, job);
+    Document& document        = openAdmitted(context, admission, false);
+    noteAdoption(context, job);
+    QJsonObject result = admissionReport(admission);
+    result.insert("document_id", document.id);
+    result.insert("revision", document.revisionText());
+    result.insert("package_directory", QJsonValue());
+    return result;
+  }
+  const Admission admission = admitPackage(context, params);
+  pinPackage(context, admission.location);
+  Document& document = openAdmitted(context, admission, true);
   QJsonObject result = admissionReport(admission);
   result.insert("document_id", document.id);
   result.insert("revision", document.revisionText());
-  result.insert("package_directory",
-                params.contains("root") ? QJsonValue() : QJsonValue(directory));
+  result.insert("package_directory", params.contains("root")
+                                         ? QJsonValue()
+                                         : QJsonValue(admission.directory));
   return result;
 }
 
@@ -1150,10 +1290,29 @@ std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
   PackageTarget target;
   target.root           = "workspace";
   target.absolute       = context.resolvePath(directory, true);
-  const Package package = publishPackage(context, document, target);
+  const Package package = publishPackage(context, document, target, {});
   if (manifestSha256)
     *manifestSha256 = QString::fromLatin1(package.manifestHash);
   return reopenPackage(context, directory, package);
+}
+
+VerifiedPackage writeVerifiedPackage(Context& context, ToonzScene& scene,
+                                     const QString& revision,
+                                     const QString& directory,
+                                     const PackageExtras& extras) {
+  validateAutomationScene(scene);
+  const Package package =
+      writeVerified(context, scene, revision, directory, extras);
+  VerifiedPackage result;
+  result.manifest       = package.manifest;
+  result.manifestBytes  = package.manifestBytes;
+  result.manifestSha256 = QString::fromLatin1(package.manifestHash);
+  result.bytes          = package.manifestBytes.size();
+  for (const QJsonValue& entry : package.manifest.value("files").toArray())
+    result.bytes += qint64(entry.toObject().value("size_bytes").toDouble());
+  for (const QJsonValue& level : package.manifest.value("levels").toArray())
+    result.drawings += level.toObject().value("drawings").toArray().size();
+  return result;
 }
 
 QJsonArray persistenceOperations() {
@@ -1175,8 +1334,15 @@ QJsonArray persistenceOperations() {
       save, savePreflightOperation(),
       operation("scene.open",
                 "Open a package this workspace registered, from a private "
-                "copy; with root the path is relative to that output root.",
-                {{"path", textSchema()}, {"root", root}}, {"path"}, true),
+                "copy; with root the path is relative to that output root. "
+                "With import_job_id instead of path, open the package a "
+                "completed scene_import job wrote; it registers when saved.",
+                {{"path", textSchema()},
+                 {"root", root},
+                 {"import_job_id", QJsonObject{{"type", "string"},
+                                               {"minLength", 1},
+                                               {"maxLength", 80}}}},
+                {}, true),
       operation("package.remove",
                 "Remove a package this workspace registered, only if it "
                 "matches its registered manifest exactly. The directory "

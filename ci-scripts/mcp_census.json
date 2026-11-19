@@ -15,12 +15,16 @@
   ]
  },
  "non_tool_tokens": [
+  "details.blockers",
   "details.cause",
   "details.check",
+  "details.missing",
   "details.native_binding",
+  "details.plan_digest",
   "details.reason",
   "details.scope",
   "details.slice",
+  "details.status",
   "details.toolset",
   "formats.admitted"
  ],
@@ -820,6 +824,11 @@
    "toolset": "core",
    "writes": true
   },
+  "scene.import_editable": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "scene.import_plan": {
    "origin": "worker",
    "toolset": "core",
@@ -1305,6 +1314,7 @@
    "outcome": "Import a user scene as an editable copy: plan every loss by kind before consent, convert it in its scene host and open the verified package, the source left unchanged and attached.",
    "classification": "exposed",
    "tools": [
+    "scene.import_editable",
     "scene.import_plan"
    ],
    "disposition": {

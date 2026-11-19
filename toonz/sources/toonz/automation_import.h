@@ -76,6 +76,13 @@ QString importPlanDigest(const ImportPlan& plan, const QString& fingerprint);
 // The plan with names and details only, for comparing two classifications of
 // the same source made through different handles.
 QByteArray importPlanShape(const ImportPlan& plan);
+// The plan's blocker rows with at most `limit` samples each.
+QJsonArray importBlockers(const ImportPlan& plan, int limit);
+
+// scene.import_editable in the scene host: re-checks the sources and the plan
+// digest, refuses blockers and unaccepted loss kinds, then starts a
+// scene_import job (automation_import_job.cpp).
+QJsonValue startImportJob(Context& context, const QJsonObject& params);
 
 QJsonArray importOperations();
 QJsonValue executeImport(Context& context, const QString& method,
