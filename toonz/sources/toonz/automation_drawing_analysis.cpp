@@ -2,6 +2,7 @@
 
 #include "automation_drawing_inspection.h"
 #include "automation_jobs.h"
+#include "automation_scene_host.h"
 
 #include "tpalette.h"
 #include "tpixel.h"
@@ -331,6 +332,9 @@ public:
   // The first drawing whose strokes the estimate has not counted yet.
   size_t estimateNext = 0;
   std::atomic<qint64> interruptMs{-1};
+  // The source files a read-only document was opened from; a change while
+  // the analysis runs fails it, as for scene checks.
+  std::vector<SourcePin> pins;
 
   QString id() const override { return common.id; }
   JobLane lane() const override { return JobLane::Analysis; }
@@ -554,6 +558,15 @@ void DrawingAnalysisJob::fail(const QString& code, const QString& message,
 }
 
 void DrawingAnalysisJob::finish(State end) {
+  const QStringList changed =
+      end == State::Completed ? changedSourcePins(pins) : QStringList();
+  if (!changed.isEmpty())
+    return fail("source_changed",
+                QString("%1 pinned source file(s) changed during the "
+                        "analysis, including %2")
+                    .arg(changed.size())
+                    .arg(changed.first()),
+                "analyze");
   if (end == State::Canceled) reasons.append("canceled");
   if (end == State::DeadlineExceeded) reasons.append("deadline");
   appendTotals();
@@ -952,6 +965,10 @@ std::shared_ptr<DrawingAnalysisJob> startAnalysis(
   job->common.documentId  = document.id;
   job->common.revision    = document.revisionText();
   job->common.request     = plan.request;
+  if (document.readOnly) {
+    job->common.sourceFingerprint = document.readOnly->fingerprint;
+    job->pins                     = document.readOnly->pins;
+  }
   job->common.submittedMs = registry.elapsedMs();
   context.markMutationStarted();
   registry.add(job);
