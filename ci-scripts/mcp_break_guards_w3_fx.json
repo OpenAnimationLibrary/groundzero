@@ -1,0 +1,71 @@
+[
+  {
+    "id": "fx-key-speed-handle-bound",
+    "file": "toonz/sources/toonz/automation_fx_profile.cpp",
+    "find": "    if (key.m_type != TDoubleKeyframe::SpeedInOut || index + 1 == count)\n      continue;",
+    "replace": "    if (true || key.m_type != TDoubleKeyframe::SpeedInOut || index + 1 == count)\n      continue;",
+    "native": true,
+    "why": "A speed segment stays in bounds only when both handle points do; without the check a curve can leave the admitted range between keys.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "native_domain_regressions",
+          "fx_rich_keys_per_channel",
+          "generated_effect_key_sequences_match_the_independent_model"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-key-curve-lock",
+    "file": "toonz/sources/toonz/automation_fx.cpp",
+    "find": "  if (!channel.curve->isEditorLocked()) return;",
+    "replace": "  if (true || !channel.curve->isEditorLocked()) return;",
+    "native": true,
+    "why": "Every animation key write to an effect curve the editor locked is refused with curve_locked before any change.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "native_domain_regressions"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-key-linked-members-reported",
+    "file": "toonz/sources/toonz/automation_scene.cpp",
+    "find": "  if (isFx(target)) automationAddFxAffected(document, target.fx.fx, result);",
+    "replace": "  if (false && isFx(target)) automationAddFxAffected(document, target.fx.fx, result);",
+    "native": true,
+    "why": "A key write to one linked effect changes every member, and its result must say so.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "fx_key_writes_through_links_and_refusals"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-key-model-handle-bound",
+    "file": "ci-scripts/mcp_property_effects.py",
+    "find": "        if first.interpolation == \"speed_in_out\" and first.outgoing is not None:",
+    "replace": "        if False and first.interpolation == \"speed_in_out\" and first.outgoing is not None:",
+    "why": "The independent model must refuse a speed handle outside the bounds, or it agrees with a worker that admits one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_effects.py"
+      },
+      {
+        "kind": "acceptance",
+        "names": [
+          "generated_effect_key_sequences_match_the_independent_model"
+        ]
+      }
+    ]
+  }
+]
