@@ -205,6 +205,7 @@ def a_native_cell_write_that_refuses_is_a_typed_error(case: NativeAcceptance) ->
             error = case.failure(tool, case.write_params(document, params))
             case.assertEqual(error["code"], "partially_applied", error)
             case.assertEqual(error["details"]["cause_code"], "native_error")
+            case.assertIn("native cell write was refused", error["message"])
             case.assertEqual(error["details"]["column_id"], column)
             case.assertEqual(error["details"]["frame"], 0)
             case.assertNotIn("success", error["message"].lower())

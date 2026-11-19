@@ -693,5 +693,21 @@
         "pattern": "test_mcp_property_curves.py"
       }
     ]
+  },
+  {
+    "id": "native-refused-cell-write-is-an-error",
+    "file": "toonz/sources/toonz/automation_cells.cpp",
+    "find": "      if (!applyNative(sheet, index, op,",
+    "replace": "      if (false && !applyNative(sheet, index, op,",
+    "why": "A native cell write that refuses is reported as an error, not as success.",
+    "native": true,
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "a_native_cell_write_that_refuses_is_a_typed_error"
+        ]
+      }
+    ]
   }
 ]
