@@ -1,0 +1,697 @@
+[
+ {
+  "id": "model-linear-direction",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        return first.value + (last.value - first.value) * fraction",
+  "replace": "        return first.value + (last.value - first.value) * (1 - fraction)",
+  "why": "A linear segment must run from the first key's value to the second's.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-constant-segment",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "    if first.interpolation == \"constant\":\n        return first.value",
+  "replace": "    if first.interpolation == \"constant\":\n        return last.value",
+  "why": "A constant segment holds the first key's value until the next key.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-step-hold",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "    if first.step > 1:",
+  "replace": "    if False:",
+  "why": "A step above 1 holds the value for that many frames.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-opacity-rounding",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    return math.floor(value * OPACITY_LEVELS + 0.5)",
+  "replace": "    return math.floor(value * OPACITY_LEVELS)",
+  "why": "A column's opacity is stored in 8 bits, rounding half up.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-reopen-trailing-columns",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    while scene.columns and not scene.columns[-1].cells:",
+  "replace": "    while False:",
+  "why": "A save drops the columns at the end of the sheet that hold no cell.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-occupied-refusal",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    if not step[\"overwrite\"] and any(frame in column.cells for frame in frames):\n        return \"occupied_cells\"",
+  "replace": "    if False and any(frame in column.cells for frame in frames):\n        return \"occupied_cells\"",
+  "why": "An exposure onto occupied cells without overwrite is refused.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-locked-expose",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    if column.locked:\n        return \"locked\"\n    if not step[\"overwrite\"]",
+  "replace": "    if False:\n        return \"locked\"\n    if not step[\"overwrite\"]",
+  "why": "A locked column refuses an exposure.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-empty-level-save",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    if any(not drawings for drawings in scene.levels.values()):\n        return \"empty_level\"",
+  "replace": "    if False:\n        return \"empty_level\"",
+  "why": "A scene with a level that has no drawing cannot be saved.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "compare-tolerance",
+  "file": "ci-scripts/mcp_property_cases.py",
+  "find": "TOLERANCE = 1e-9",
+  "replace": "TOLERANCE = 1e9",
+  "why": "Observations of the worker and the model must agree to a tiny tolerance.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   }
+  ]
+ },
+ {
+  "id": "compare-boolean-is-not-a-number",
+  "file": "ci-scripts/mcp_property_cases.py",
+  "find": "(item, int | float) and not isinstance(item, bool)",
+  "replace": "(item, int | float)",
+  "why": "A boolean never equals a number in a comparison.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   }
+  ]
+ },
+ {
+  "id": "known-stale-entry",
+  "file": "ci-scripts/mcp_known_violations.py",
+  "find": "    if observed in acceptable:\n        case.fail(",
+  "replace": "    if False:\n        case.fail(",
+  "why": "An entry whose defect is fixed must fail the suite until it is deleted.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_known_violations.py"
+   }
+  ]
+ },
+ {
+  "id": "known-new-defect",
+  "file": "ci-scripts/mcp_known_violations.py",
+  "find": "    if observed not in violation.answers:",
+  "replace": "    if False:",
+  "why": "An answer that is neither expected nor recorded is a new defect.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_known_violations.py"
+   }
+  ]
+ },
+ {
+  "id": "w2-expected-rows",
+  "file": "ci-scripts/mcp_w2_cases.py",
+  "find": "        for frame in range(first, first + held):",
+  "replace": "        for frame in range(first, first + held + 1):",
+  "why": "The exposure test's hand-written expectation must match the rows it exposes.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "exposure_on_twos_with_blanks_keeps_every_row_through_save_and_reopen"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "native-camera-megapixel-limit",
+  "file": "toonz/sources/toonz/automation_scene.cpp",
+  "find": "  if (qint64(settings.width) * settings.height > MaxPixels)",
+  "replace": "  if (qint64(settings.width) * settings.height > MaxPixels * 1000)",
+  "why": "The camera is refused above 16 megapixels.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "sixteen_megapixel_cameras_are_the_limit_for_every_setting_tool"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-occupied-cells",
+  "file": "toonz/sources/toonz/automation_cells.cpp",
+  "find": "    if (!overwrite && !existing.isEmpty())",
+  "replace": "    if (false && !overwrite && !existing.isEmpty())",
+  "why": "column.expose refuses occupied cells unless overwrite is set.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-locked-target",
+  "file": "toonz/sources/toonz/automation_scene_shared.cpp",
+  "find": "  if (locked) throw Error(\"locked\", \"Unlock the target before modifying it.\");",
+  "replace": "  if (false) throw Error(\"locked\", \"Unlock the target before modifying it.\");",
+  "why": "A locked column refuses an edit.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-empty-level-save",
+  "file": "toonz/sources/toonz/automation_persistence.cpp",
+  "find": "    if (level->getFrameCount() == 0)\n      throw Error(\"empty_level\",",
+  "replace": "    if (false)\n      throw Error(\"empty_level\",",
+  "why": "A level without drawings cannot be saved.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "lifecycle-missing-cell",
+  "file": "ci-scripts/mcp_lifecycle.py",
+  "find": "        if operation not in cells:",
+  "replace": "        if False:",
+  "why": "A family without a cell for an operation fails the check.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_lifecycle.py"
+   }
+  ]
+ },
+ {
+  "id": "lifecycle-write-coverage",
+  "file": "ci-scripts/mcp_lifecycle.py",
+  "find": "        if entry[\"writes\"] and tool not in placed and tool not in grid[\"outside\"]:",
+  "replace": "        if False:",
+  "why": "A write tool that is in no cell fails the check.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_lifecycle.py"
+   }
+  ]
+ },
+ {
+  "id": "lifecycle-planned-outcome",
+  "file": "ci-scripts/mcp_lifecycle.py",
+  "find": "    if outcome[\"disposition\"][\"kind\"] != \"planned\":",
+  "replace": "    if False:",
+  "why": "A planned cell must name an outcome that is planned in the census.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_lifecycle.py"
+   }
+  ]
+ },
+ {
+  "id": "lifecycle-evidence-tie",
+  "file": "ci-scripts/mcp_lifecycle.py",
+  "find": "    if own and not any(tool in text for tool in own):",
+  "replace": "    if False:",
+  "why": "Evidence must name one of the family's own tools.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_lifecycle.py"
+   }
+  ]
+ },
+ {
+  "id": "lifecycle-data-tool",
+  "file": "ci-scripts/mcp_lifecycle.json",
+  "find": "\"scene.discard\"",
+  "replace": "\"scene.discardx\"",
+  "why": "The committed grid must name tools the census has.",
+  "tests": [
+   {
+    "kind": "static",
+    "script": "mcp_lifecycle"
+   }
+  ]
+ },
+ {
+  "id": "corpus-alpha-tolerance",
+  "file": "ci-scripts/mcp_native_oracle.py",
+  "find": "    if difference.max_alpha > policy.alpha:",
+  "replace": "    if False:",
+  "why": "Alpha must match unless the policy states an alpha tolerance.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-color-tolerance",
+  "file": "ci-scripts/mcp_native_oracle.py",
+  "find": "    if difference.max_color > policy.color:",
+  "replace": "    if False:",
+  "why": "Color must match within the stated tolerance.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-changed-baseline",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "        elif actual[frame] != baseline[\"files\"][frame]:",
+  "replace": "        elif False:",
+  "why": "A baseline that differs from the manifest fails.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-replaced-set",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "    if last[\"baseline_set_sha256\"] != baseline_set(manifest):",
+  "replace": "    if False:",
+  "why": "Baselines without a matching history entry fail.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-stale-baseline",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "    if baseline[\"rendered_from\"] != scene[\"scene_sha256\"]:",
+  "replace": "    if False:",
+  "why": "Changed scene files need regenerated baselines.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-regeneration-reason",
+  "file": "ci-scripts/mcp_corpus_build.py",
+  "find": "    if len(reason.strip()) < MINIMUM_REASON:",
+  "replace": "    if False:",
+  "why": "A regeneration needs a reason.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-missing-reference",
+  "file": "ci-scripts/mcp_native_oracle.py",
+  "find": "        raise OracleError(f\"cannot read the image {path}: {error}\") from error",
+  "replace": "        return 0, 0, []",
+  "why": "A missing reference image is an error.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "native-snapshot-removed-at-job-end",
+  "file": "toonz/sources/toonz/automation_render.cpp",
+  "find": "  void removeSnapshotFiles() {\n    const QString folder",
+  "replace": "  void removeSnapshotFiles() {\n    return;\n    const QString folder",
+  "why": "A job removes its snapshot's scene and artwork when it ends.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "a_discarded_draft_keeps_its_job_alive_and_loses_its_private_copies"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-cast-lists-each-level-once",
+  "file": "toonz/sources/toonz/automation_context.cpp",
+  "find": "    if (seen.contains(level)) continue;",
+  "replace": "    if (false && seen.contains(level)) continue;",
+  "why": "The read tools list each level of a cast once.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "repeated_level_names_in_a_read_only_scene_stay_separate_levels"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-names-are-bounded-in-every-schema",
+  "file": "toonz/sources/toonz/automation_context.cpp",
+  "find": "{\"maxLength\", maxCharacters},",
+  "replace": "{\"maxLength\", maxCharacters * 1000},",
+  "why": "The name schema states its length bound.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "names_beyond_the_length_limit_are_refused_by_the_schema"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "model-cycle-drift",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        drift = (keys[-1].value - keys[0].value) * repeats",
+  "replace": "        drift = 0.0",
+  "why": "A cyclic curve repeats its span shifted by the last value minus the first, once per repeat.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-ease-ramp-in",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        travelled = peak * elapsed * elapsed / (2 * out)",
+  "replace": "        travelled = peak * elapsed",
+  "why": "An ease segment starts with a speed that ramps up over the outgoing ease length.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-step-holds-frames",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        held = first.frame + first.step * math.floor((frame - first.frame) / first.step)",
+  "replace": "        held = frame",
+  "why": "A segment with a step above one holds its value between steps.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-move-keys-order",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "            reason = \"key_exists\" if key.frame == moved[-1].frame else \"order_changed\"",
+  "replace": "            reason = \"order_changed\"",
+  "why": "A move onto another key's frame is refused as key_exists, past it as order_changed.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-duplicate-incoming-kind",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "    if any(after[frame + frame_offset] != before[frame] for frame in frames):\n        return \"invalid_argument/incoming_kind_changed\", keys\n",
+  "replace": "",
+  "why": "A duplicated key must keep the kind of segment that arrives at it.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-swing-no-repeat",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "\"swing\": lambda segment, op: segment + segment[-2::-1],",
+  "replace": "\"swing\": lambda segment, op: segment + segment[::-1],",
+  "why": "A swing goes back without repeating the last row.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-roll-direction",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "\"roll_up\": lambda segment, op: segment[1:] + segment[:1],",
+  "replace": "\"roll_up\": lambda segment, op: segment[-1:] + segment[:-1],",
+  "why": "Roll up moves the first row to the end.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-each-first-row",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    return segment[::factor]",
+  "replace": "    return segment[factor - 1 :: factor]",
+  "why": "Each n keeps rows 0, n, 2n.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-decrease-step-minimum",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "max(1, size - 1)",
+  "replace": "size - 1",
+  "why": "A hold never gets shorter than one row.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-remove-closes-gap",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    return trimmed(rows[:start] + rows[start + length :])",
+  "replace": "    return trimmed(rows[:start] + [None] * length + rows[start + length :])",
+  "why": "Removing rows moves the later rows up.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-insert-past-end",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    if start >= len(rows):\n        return rows\n",
+  "replace": "",
+  "why": "Inserting after the last cell changes nothing.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-retime-follows-length",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    return trimmed(rows[:start] + segment + rows[start + length :])",
+  "replace": "    return trimmed(rows[:start] + segment + rows[start + len(segment) :])",
+  "why": "Rows after a retimed interval move with its new length.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-extend-over-hold",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    while last is not None and end < len(rows) and rows[end] == last:",
+  "replace": "    while False:",
+  "why": "With extend_over_hold the interval grows over the rest of its last hold.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-reframe-blank-interval",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    if not segment:\n        return trimmed(rows)\n",
+  "replace": "",
+  "why": "A reframe that drops blanks leaves an interval holding only blanks as it is.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-degenerate-frame-axis",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": " or 3 * outgoing - 3 * incoming == 2 * span",
+  "replace": "",
+  "why": "A speed segment whose frame axis has no cubic term is a known violation, not compared.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-generator-cubic-frame-axis",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        if 3 * (far - near) == span:\n            far += 1 if far < span else -1\n",
+  "replace": "",
+  "why": "Generated speed segments keep the cubic term of the frame axis, so their samples are compared.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ }
+]
