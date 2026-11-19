@@ -146,9 +146,9 @@ void TCamera::saveData(TOStream &os) const {
   // The camera size sets the camera DPI; six significant digits change it on
   // reload. Restore the caller's stream mode, including when a write throws.
   struct PrecisionScope {
-    TOStream &stream;
+    TOStream& stream;
     bool previous;
-    explicit PrecisionScope(TOStream &value)
+    explicit PrecisionScope(TOStream& value)
         : stream(value), previous(value.setFullPrecision(true)) {}
     ~PrecisionScope() { stream.setFullPrecision(previous); }
   } precision(os);
