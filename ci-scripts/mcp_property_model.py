@@ -15,13 +15,19 @@ to the worker is added to the model by one more entry.
 
 from __future__ import annotations
 
+import json
 import math
 import random
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+import mcp_property_cameras as cams
 import mcp_property_cells as sheet
+import mcp_property_objects as rig
+import mcp_property_output as output
 from mcp_property_curves import (
     FRAME_GRID,
     STEPS_THAT_FIT,
@@ -38,8 +44,8 @@ from mcp_property_curves import (
     sample,
     shape_is_defined,
 )
+from mcp_property_state import OPACITY_LEVELS, Camera, Column, Drawing, ModelError
 
-Drawing = tuple[int, str]
 Step = dict[str, Any]
 Handles = dict[str, dict[str, str]]
 Request = tuple[str, dict[str, Any]]
@@ -47,7 +53,6 @@ Request = tuple[str, dict[str, Any]]
 CHANNEL_UNITS = {"x": "inch", "y": "inch", "rotation": "degree", "scale": "scalar"}
 SAMPLE_FRAMES = [0, 0.5, 3, 5.99, 6, 8, 11.9, 12, 17.5, 30, 43, 55.25, 100, 133.5, 250]
 CELL_HORIZON = 96
-OPACITY_LEVELS = 255
 EPSILON = 1e-9
 FRAME_RATES = (12, 24, 25, 29.97, 30, 48, 60)
 PIXELS = (16, 24, 32, 48, 64, 96, 128, 256)
@@ -69,21 +74,6 @@ SUFFIXES = ("", "a", "b", "ab", "zz", "abcdefgh")
 NAME_ALPHABET = "abcXYZ019 _-.<>&\"'中é "
 
 
-class ModelError(ValueError):
-    """A step that cannot be applied to the model's state, as in a hand-edited sequence."""
-
-
-@dataclass
-class Column:
-    """A level column: its settings and its cells, keyed by frame."""
-
-    name: str
-    visible: bool = True
-    locked: bool = False
-    opacity: int = OPACITY_LEVELS
-    cells: dict[int, tuple[str, Drawing]] = field(default_factory=dict)
-
-
 @dataclass
 class Scene:
     """What a draft scene holds, as far as the modelled tools can change it."""
@@ -95,6 +85,14 @@ class Scene:
     pegs: list[str] = field(default_factory=list)
     curves: dict[tuple[str, str], dict[int, Key]] = field(default_factory=dict)
     cycles: set[tuple[str, str]] = field(default_factory=set)
+    parents: dict[str, str | None] = field(default_factory=dict)
+    defaults: dict[tuple[str, str], float] = field(default_factory=dict)
+    stacks: dict[str, list[int]] = field(default_factory=dict)
+    group_names: dict[int, str] = field(default_factory=dict)
+    group_counter: int = 0
+    cameras: list[Camera] = field(default_factory=list)
+    roles: dict[str, Camera] = field(default_factory=dict)
+    props: dict[str, Any] = field(default_factory=dict)
     reopens: int = 0
     counter: int = 0
 
@@ -114,12 +112,33 @@ class Scene:
 def new_scene(frame_rate: float = 24, size_px: int = 32, size_in: float = 0.25) -> Scene:
     """Return the scene `scene.create` makes with these explicit settings."""
     camera = {"width_px": size_px, "height_px": size_px, "width_in": size_in, "height_in": size_in}
-    return Scene(frame_rate=frame_rate, camera=camera)
+    first = Camera("Camera1", camera)
+    return Scene(
+        frame_rate=frame_rate,
+        camera=camera,
+        cameras=[first],
+        roles={"output": first, "preview": first},
+    )
 
 
 def quantized_opacity(value: float) -> int:
     """Return the 8-bit step a column's opacity is stored as, rounding half up."""
     return math.floor(value * OPACITY_LEVELS + 0.5)
+
+
+def _expected_extras(scene: Scene, frames: int) -> dict[str, Any]:
+    """What the tools that are in the worker's census add to the observation."""
+    extras: dict[str, Any] = {}
+    if "camera.list" in TOOLS:
+        extras["cameras"] = cams.expected_cameras(scene)
+    if "scene.properties.inspect" in TOOLS:
+        extras["properties"] = output.expected_properties(scene, frames)
+    if "object.parent" in TOOLS:
+        records = rig.expected_objects(scene)
+        extras["parents"], extras["origins"] = records["parents"], records["origins"]
+        if "object.groups" in TOOLS:
+            extras["groups"] = records["groups"]
+    return extras
 
 
 def expected(scene: Scene) -> dict[str, Any]:
@@ -153,6 +172,7 @@ def expected(scene: Scene) -> dict[str, Any]:
             "rich": is_rich(keys),
         }
     return {
+        **_expected_extras(scene, last),
         "frame_rate": scene.frame_rate,
         "camera": dict(scene.camera),
         "frame_count": last,
@@ -166,7 +186,7 @@ def expected(scene: Scene) -> dict[str, Any]:
 def after_reopen(scene: Scene) -> None:
     """Apply what a saved scene loses by native design: trailing columns that hold no cell."""
     while scene.columns and not scene.columns[-1].cells:
-        scene.columns.pop()
+        rig.forget_object(scene, scene.columns.pop().name)
 
 
 @dataclass(frozen=True)
@@ -251,7 +271,7 @@ def _drawing_effect(scene: Scene, step: Step) -> str | None:
 def _column_effect(scene: Scene, step: Step) -> str | None:
     if step["name"] in {column.name for column in scene.columns}:
         raise ModelError(f"column {step['name']!r} exists")
-    scene.columns.append(Column(step["name"]))
+    rig.insert_column(scene, Column(step["name"]), len(scene.columns))
     return None
 
 
@@ -277,6 +297,8 @@ def _update_effect(scene: Scene, step: Step) -> str | None:
     renamed = changes.get("name", column.name)
     if renamed != column.name and renamed in {other.name for other in scene.columns}:
         raise ModelError(f"column {renamed!r} exists")
+    if renamed != column.name:
+        rig.rename_object(scene, column.name, renamed)
     column.name = renamed
     column.visible = changes.get("visible", column.visible)
     column.locked = changes.get("locked", column.locked)
@@ -290,6 +312,7 @@ def _delete_effect(scene: Scene, step: Step) -> str | None:
     if column.locked:
         return "locked"
     scene.columns.remove(column)
+    rig.forget_object(scene, column.name)
     return None
 
 
@@ -330,6 +353,7 @@ def _peg_effect(scene: Scene, step: Step) -> str | None:
     if step["name"] in scene.pegs:
         raise ModelError(f"peg {step['name']!r} exists")
     scene.pegs.append(step["name"])
+    scene.parents[step["name"]] = None
     return None
 
 
@@ -440,11 +464,20 @@ def _learn(kind: str, key: str, field_name: str) -> Callable[..., None]:
 
 def _learn_rename(step: Step, result: dict[str, Any], handles: Handles) -> None:
     if "name" in step:
-        handles["column"][step["name"]] = handles["column"].pop(step["column"])
+        for kind in ("column", "column_object"):
+            if step["column"] in handles[kind]:
+                handles[kind][step["name"]] = handles[kind].pop(step["column"])
 
 
 def _forget_column(step: Step, result: dict[str, Any], handles: Handles) -> None:
     del handles["column"][step["column"]]
+    handles["column_object"].pop(step["column"], None)
+
+
+def _learn_column(step: Step, result: dict[str, Any], handles: Handles) -> None:
+    handles["column"][step["name"]] = result["column_id"]
+    if "object_id" in result:
+        handles["column_object"][step["name"]] = result["object_id"]
 
 
 def _targets(rng: random.Random, scene: Scene, most: int = 2) -> list[str]:
@@ -910,7 +943,7 @@ OPERATIONS: dict[str, Operation] = {
         lambda rng, scene: {"name": _name(rng, scene, "C")},
         _column_effect,
         _create_request("column.create", lambda step: {"name": step["name"]}),
-        _learn("column", "name", "column_id"),
+        _learn_column,
     ),
     "column_update": Operation(
         "column_update",
@@ -1071,10 +1104,44 @@ OPERATIONS: dict[str, Operation] = {
 }
 
 
+def _census_tools() -> set[str]:
+    """The tools of the worker this checkout builds, from the committed census."""
+    census = json.loads(Path(__file__).with_name("mcp_census.json").read_text())
+    return set(census["tools"])
+
+
+def _register(modules: tuple[Any, ...]) -> None:
+    """Add the operations whose tools the census lists; the others wait for their tools."""
+    for module in modules:
+        for name, (operation, needs) in module.build(sys.modules[__name__]).items():
+            if set(needs) <= TOOLS:
+                OPERATIONS[name] = operation
+
+
+TOOLS = _census_tools()
+_register((rig, cams, output))
+
+
 # Writing tools of the modelled families that no operation above carries out yet, each with
 # the reason. Generated sequences never call them, so nothing here is checked by the model:
 # their own cases are their only evidence until an operation replaces the entry.
-NOT_MODELLED: dict[str, str] = {}
+NOT_MODELLED: dict[str, str] = {
+    "object.handles.set": (
+        "the model's pegs keep the default handle and its placement reads no other handle letter"
+    ),
+    "object.pivot.set": (
+        "a stored center moves where rotation and scale act, and the model places objects by "
+        "their x and y alone"
+    ),
+    "object.path.attach": (
+        "an object on a motion path has a path position in place of x and y, and the model has "
+        "no motion paths"
+    ),
+    "object.path.detach": (
+        "an object on a motion path has a path position in place of x and y, and the model has "
+        "no motion paths"
+    ),
+}
 
 
 # Retime variants of a modelled tool that no generated step asks for, each with the reason.

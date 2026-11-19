@@ -28,6 +28,7 @@ from mcp_property_model import (
     CHANNEL_UNITS,
     OPERATIONS,
     SAMPLE_FRAMES,
+    TOOLS,
     Handles,
     ModelError,
     Scene,
@@ -35,6 +36,7 @@ from mcp_property_model import (
     generate,
     new_scene,
 )
+from mcp_property_output import project
 from mcp_w2_cases import _declared, _raw
 
 if TYPE_CHECKING:
@@ -160,8 +162,16 @@ class Session:
         self.case = case
         self.root = Path(tempfile.mkdtemp(prefix="run-", dir=case.workspace))
         self.model: Scene = new_scene()
-        self.handles: Handles = {"level": {}, "column": {}, "peg": {}}
+        self.handles: Handles = {
+            "level": {},
+            "column": {},
+            "peg": {},
+            "column_object": {},
+            "camera": {},
+            "group": {},
+        }
         self.document = self._call_create()
+        self._learn_cameras()
 
     def _call_create(self) -> str:
         camera = self.model.camera
@@ -189,6 +199,78 @@ class Session:
         """Call a reading tool on the scene."""
         return self.case.success(tool, {"document_id": self.document, **params})
 
+    def _cameras(self) -> list[dict[str, Any]]:
+        listing = self.read(
+            "camera.list", {"expected_revision": self.case.revisions[self.document]}
+        )
+        return listing["cameras"]
+
+    def _learn_cameras(self) -> None:
+        if "camera.list" in TOOLS:
+            self.handles["camera"] = {row["name"]: row["camera_id"] for row in self._cameras()}
+
+    def _observe_cameras(self) -> list[dict[str, Any]]:
+        keys = ("name", "width_px", "height_px", "width_in", "height_in")
+        return [
+            {**{key: row[key] for key in keys}, "roles": sorted(row["roles"])}
+            for row in self._cameras()
+        ]
+
+    def _observe_properties(self, shape: dict[str, Any]) -> dict[str, Any]:
+        revision = self.case.revisions[self.document]
+        record = self.read("scene.properties.inspect", {"expected_revision": revision})
+        return project(record, shape)
+
+    def _observe_objects(self, summary: dict[str, Any], want: dict[str, Any]) -> dict[str, Any]:
+        """Parents and frame 0 positions of pegs and columns, and the schematic groups."""
+        named = {c["object_id"]: c["name"] for c in summary["columns"] if "object_id" in c}
+        named.update(
+            {o["object_id"]: o["name"] for o in summary["objects"] if o["kind"] == "pegbar"}
+        )
+        parents = {
+            named[o["object_id"]]: named.get(o.get("parent_id"))
+            for o in summary["objects"]
+            if o["object_id"] in named
+        }
+        found: dict[str, Any] = {"parents": parents, "origins": self._origins(named)}
+        if "groups" in want:
+            found["groups"] = self._observe_groups(named)
+        return found
+
+    def _origins(self, named: dict[str, str]) -> dict[str, list[float]]:
+        origins = {}
+        for handle, name in named.items():
+            values = []
+            for channel in ("x", "y"):
+                target = {"object_id": handle, "channel": channel, "unit": "inch", "frames": [0]}
+                values.append(self.read("animation.sample", target)["values"][0]["value"])
+            origins[name] = values
+        return origins
+
+    def _observe_groups(self, named: dict[str, str]) -> dict[str, Any]:
+        keys = {number: key for key, number in self.handles["group"].items()}
+        found = {}
+        for group in self.read("object.groups", {})["groups"]:
+            parent = group["parent_group_number"]
+            found[keys.get(group["group_number"], f"?{group['group_number']}")] = {
+                "name": group["name"],
+                "members": sorted(named[handle] for handle in group["object_ids"]),
+                "parent": None if parent is None else keys.get(parent, f"?{parent}"),
+            }
+        return found
+
+    def _observe_extras(self, summary: dict[str, Any]) -> dict[str, Any]:
+        """What the tools beyond the first model's add to the observation."""
+        want = expected(self.model)
+        found: dict[str, Any] = {}
+        if "cameras" in want:
+            found["cameras"] = self._observe_cameras()
+        if "properties" in want:
+            found["properties"] = self._observe_properties(want["properties"])
+        if "parents" in want:
+            found.update(self._observe_objects(summary, want))
+        return found
+
     def observe(self) -> dict[str, Any]:
         """Read everything the model predicts, with the worker's read tools only."""
         summary = self.read("scene.summary", {})
@@ -196,6 +278,7 @@ class Session:
         camera = summary["camera"]
         pegs = [item for item in summary["objects"] if item["kind"] == "pegbar"]
         return {
+            **self._observe_extras(summary),
             "frame_rate": summary["frame_rate"],
             "camera": {
                 key: camera[key] for key in ("width_px", "height_px", "width_in", "height_in")
@@ -294,6 +377,10 @@ class Session:
         summary = self.read("scene.summary", {})
         self.handles["level"] = {item["name"]: item["level_id"] for item in summary["levels"]}
         self.handles["column"] = {item["name"]: item["column_id"] for item in summary["columns"]}
+        self.handles["column_object"] = {
+            item["name"]: item["object_id"] for item in summary["columns"] if "object_id" in item
+        }
+        self._learn_cameras()
         self.handles["peg"] = {
             item["name"]: item["object_id"]
             for item in summary["objects"]
