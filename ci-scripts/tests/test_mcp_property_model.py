@@ -18,6 +18,17 @@ import mcp_property_model as model
 CENSUS = json.loads((Path(__file__).resolve().parents[1] / "mcp_census.json").read_text())
 
 
+PREFIXES = (
+    "animation.",
+    "cells.",
+    "column.",
+    "camera.",
+    "scene.output.",
+    "scene.guides.",
+    "object.",
+)
+
+
 def keys(*rows: tuple[int, float, str, int]) -> list[model.Key]:
     return [model.Key(*row) for row in rows]
 
@@ -96,7 +107,7 @@ class NotModelledTest(unittest.TestCase):
         handles: Any = collections.defaultdict(lambda: collections.defaultdict(lambda: "handle"))
         return {
             model.OPERATIONS[step["op"]].request(step["args"], handles)[0]
-            for seed in range(1, 40)
+            for seed in range(1, 120)
             for step in model.generate(seed, 24)
         }
 
@@ -107,11 +118,13 @@ class NotModelledTest(unittest.TestCase):
             self.assertNotIn(tool, requested, f"{tool} has an operation: delete its entry")
             self.assertGreater(len(reason), 20, tool)
 
-    def test_every_writing_curve_and_cell_tool_is_modelled_or_listed(self) -> None:
+    def test_every_writing_tool_of_the_modelled_families_is_modelled_or_listed(
+        self,
+    ) -> None:
         writing = {
             name
             for name, entry in CENSUS["tools"].items()
-            if name.startswith(("animation.", "cells.", "column.", "camera.")) and entry["writes"]
+            if name.startswith(PREFIXES) and entry["writes"]
         }
         whole_curve = {"animation.copy_curve", "animation.retime_curve"}
         missing = writing - self.requested() - set(model.NOT_MODELLED) - whole_curve

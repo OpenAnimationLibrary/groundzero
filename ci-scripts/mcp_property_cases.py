@@ -30,6 +30,7 @@ from mcp_property_model import (
     CHANNEL_UNITS,
     OPERATIONS,
     SAMPLE_FRAMES,
+    TOOLS,
     Handles,
     ModelError,
     Scene,
@@ -37,6 +38,7 @@ from mcp_property_model import (
     generate,
     new_scene,
 )
+from mcp_property_output import project
 from mcp_w2_cases import _raw
 
 if TYPE_CHECKING:
@@ -45,7 +47,7 @@ if TYPE_CHECKING:
 # Chosen from seeds 1 to 399 by a greedy cover of what the model's sequences do: every operation
 # and every refusal it answers, every retime kind and replace mapping, and a reopened scene that
 # holds cells. A test keeps the cover.
-DEFAULT_SEEDS = (87, 10, 56, 271, 94, 16, 245, 34, 399, 237, 276, 9, 21, 154, 157)
+DEFAULT_SEEDS = (87, 10, 56, 271, 94, 16, 245, 34, 399, 237, 276, 9, 21, 154, 157, 11, 92, 1, 7)
 DEFAULT_LENGTH = 24
 TOLERANCE = 1e-9
 LOG_NAME = "property-sequences.ndjson"
@@ -162,8 +164,16 @@ class Session:
         self.case = case
         self.root = Path(tempfile.mkdtemp(prefix="run-", dir=case.workspace))
         self.model: Scene = new_scene()
-        self.handles: Handles = {"level": {}, "column": {}, "peg": {}}
+        self.handles: Handles = {
+            "level": {},
+            "column": {},
+            "peg": {},
+            "column_object": {},
+            "camera": {},
+            "group": {},
+        }
         self.document = self._call_create()
+        self._learn_cameras()
 
     def _call_create(self) -> str:
         camera = self.model.camera
@@ -198,6 +208,78 @@ class Session:
         self.case.assertEqual(partial, [], "the model compared a partial summary")
         return summary
 
+    def _cameras(self) -> list[dict[str, Any]]:
+        listing = self.read(
+            "camera.list", {"expected_revision": self.case.revisions[self.document]}
+        )
+        return listing["cameras"]
+
+    def _learn_cameras(self) -> None:
+        if "camera.list" in TOOLS:
+            self.handles["camera"] = {row["name"]: row["camera_id"] for row in self._cameras()}
+
+    def _observe_cameras(self) -> list[dict[str, Any]]:
+        keys = ("name", "width_px", "height_px", "width_in", "height_in")
+        return [
+            {**{key: row[key] for key in keys}, "roles": sorted(row["roles"])}
+            for row in self._cameras()
+        ]
+
+    def _observe_properties(self, shape: dict[str, Any]) -> dict[str, Any]:
+        revision = self.case.revisions[self.document]
+        record = self.read("scene.properties.inspect", {"expected_revision": revision})
+        return project(record, shape)
+
+    def _observe_objects(self, summary: dict[str, Any], want: dict[str, Any]) -> dict[str, Any]:
+        """Parents and frame 0 positions of pegs and columns, and the schematic groups."""
+        named = {c["object_id"]: c["name"] for c in summary["columns"] if "object_id" in c}
+        named.update(
+            {o["object_id"]: o["name"] for o in summary["objects"] if o["kind"] == "pegbar"}
+        )
+        parents = {
+            named[o["object_id"]]: named.get(o.get("parent_id"))
+            for o in summary["objects"]
+            if o["object_id"] in named
+        }
+        found: dict[str, Any] = {"parents": parents, "origins": self._origins(named)}
+        if "groups" in want:
+            found["groups"] = self._observe_groups(named)
+        return found
+
+    def _origins(self, named: dict[str, str]) -> dict[str, list[float]]:
+        origins = {}
+        for handle, name in named.items():
+            values = []
+            for channel in ("x", "y"):
+                target = {"object_id": handle, "channel": channel, "unit": "inch", "frames": [0]}
+                values.append(self.read("animation.sample", target)["values"][0]["value"])
+            origins[name] = values
+        return origins
+
+    def _observe_groups(self, named: dict[str, str]) -> dict[str, Any]:
+        keys = {number: key for key, number in self.handles["group"].items()}
+        found = {}
+        for group in self.read("object.groups", {})["groups"]:
+            parent = group["parent_group_number"]
+            found[keys.get(group["group_number"], f"?{group['group_number']}")] = {
+                "name": group["name"],
+                "members": sorted(named[handle] for handle in group["object_ids"]),
+                "parent": None if parent is None else keys.get(parent, f"?{parent}"),
+            }
+        return found
+
+    def _observe_extras(self, summary: dict[str, Any]) -> dict[str, Any]:
+        """What the tools beyond the first model's add to the observation."""
+        want = expected(self.model)
+        found: dict[str, Any] = {}
+        if "cameras" in want:
+            found["cameras"] = self._observe_cameras()
+        if "properties" in want:
+            found["properties"] = self._observe_properties(want["properties"])
+        if "parents" in want:
+            found.update(self._observe_objects(summary, want))
+        return found
+
     def observe(self) -> dict[str, Any]:
         """Read everything the model predicts, with the worker's read tools only."""
         summary = self.summary()
@@ -205,6 +287,7 @@ class Session:
         camera = summary["camera"]
         pegs = [item for item in summary["objects"] if item["kind"] == "pegbar"]
         return {
+            **self._observe_extras(summary),
             "frame_rate": summary["frame_rate"],
             "camera": {
                 key: camera[key] for key in ("width_px", "height_px", "width_in", "height_in")
@@ -303,6 +386,10 @@ class Session:
         summary = self.summary()
         self.handles["level"] = {item["name"]: item["level_id"] for item in summary["levels"]}
         self.handles["column"] = {item["name"]: item["column_id"] for item in summary["columns"]}
+        self.handles["column_object"] = {
+            item["name"]: item["object_id"] for item in summary["columns"] if "object_id" in item
+        }
+        self._learn_cameras()
         self.handles["peg"] = {
             item["name"]: item["object_id"]
             for item in summary["objects"]
@@ -888,8 +975,9 @@ def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptan
     document = case.create()
     peg = case.mutate("object.create", document, name="Peg", kind="pegbar")["object_id"]
     frames = [6, 7, 8, 9, 10, 11, 11.5, 11.9, 12]
-    # Handles as long as the span leave the frame axis flat at a point, where the worker's
-    # root finder is good to about 1e-3 and not to 1e-5.
+    # Handles as long as the span make the frame axis stationary at frame 9: every parameter
+    # near 0.5 reaches it, so the editor's closed form and the model's bisection pick values of
+    # the parameter 4e-6 apart and the curve differs by about 3e-4 there.
     for outgoing, incoming, expected_match, tolerance in (
         (4, -1, True, 1e-5),
         (0, -3, True, 1e-5),

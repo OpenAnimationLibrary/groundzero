@@ -72,8 +72,11 @@ KNOWN_VIOLATIONS: dict[str, Violation] = {
         observed=(
             "-69.85 at 7, then -49.24 at 8 and 9 and -20.64 from 10 to 11.9: a stepped curve. "
             "It occurs where 3 times the outgoing frame_delta minus 3 times the incoming one "
-            "equals twice the span, the cubic term of the frame axis; every other handle pair "
-            "matches the Bezier to 1e-5"
+            "equals twice the span, the cubic term of the frame axis. The worker returns what "
+            "the editor's curve code returns: invCubicBezierX replaces a zero handle length by "
+            "1e-8, which leaves a leading coefficient of 3e-8, above the 1e-8 limit under which "
+            "cubicRoot solves a quadratic, so the cubic is solved with a tiny divisor, finds no "
+            "root and answers parameter 1; every other handle pair matches the Bezier to 1e-5"
         ),
         answers=frozenset({"does not match the Bezier"}),
         row="SCN-13 #1",
