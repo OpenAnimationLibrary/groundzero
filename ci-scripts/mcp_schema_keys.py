@@ -23,7 +23,7 @@ ADAPTER_KEY = re.compile(r"\b([a-z][a-z0-9]*_[a-z0-9_]+):\s")
 KEY = r'"([a-z_][a-z0-9_]*)"'
 WRITTEN = re.compile(rf"\{{\s*{KEY}\s*,|insert\(\s*{KEY}\s*,|\[\s*{KEY}\s*\]\s*=|{KEY}\s*:(?!:)")
 HANDLER = re.compile(r'\{\s*"([a-z_]+(?:\.[a-z_]+)+)"\s*,\s*([A-Za-z_][A-Za-z0-9_:]*)\s*\}')
-DEFINITION = r"\b{name}\s*\([^;{{]*\)\s*(?:const\s*)?\{{"
+DEFINITION = r"\b{name}\s*\([^;{{]*\)\s*(?:const\s*)?(?:noexcept\s*)?(?:(?:override|final)\s*)*\{{"
 CALL = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 
 

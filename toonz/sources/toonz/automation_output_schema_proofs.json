@@ -238,6 +238,7 @@
     "handler": "duplicateColumn",
     "read": [
       "fx_id",
+      "level_id",
       "source_fx_id"
     ]
   },
@@ -534,12 +535,16 @@
       "adopted_documents",
       "artifacts",
       "count",
+      "drawings",
       "job",
+      "kind",
       "levels",
       "losses_applied",
       "package_bytes",
       "package_id",
       "plan_digest",
+      "requested",
+      "requested_ms",
       "source_copy"
     ]
   },
@@ -548,11 +553,15 @@
     "read": [
       "adopted_documents",
       "count",
+      "drawings",
+      "kind",
       "levels",
       "losses_applied",
       "package_bytes",
       "package_id",
       "plan_digest",
+      "requested",
+      "requested_ms",
       "source_copy"
     ]
   },
@@ -613,6 +622,7 @@
       "last_frame",
       "locked",
       "premultiply",
+      "reason",
       "rows",
       "rows_truncated",
       "sheet_level_id",
@@ -646,6 +656,7 @@
       "color_space_gamma",
       "dpi",
       "premultiply",
+      "reason",
       "subsampling",
       "value",
       "white_transparent",
@@ -856,7 +867,9 @@
   },
   "project.list": {
     "handler": "listProjects",
-    "read": []
+    "read": [
+      "status"
+    ]
   },
   "project.scenes": {
     "handler": "listScenes",
@@ -1057,6 +1070,7 @@
       "owner_kind",
       "package_path",
       "role",
+      "size_bytes",
       "source"
     ]
   },

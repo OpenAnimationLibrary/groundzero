@@ -89,16 +89,28 @@ Sources = list[tuple[str, str]]
 _CACHE: dict[tuple[str, int, int], set[str]] = {}
 
 
-def _definition(files: Sources, name: str, home: int) -> tuple[str, str, int, int] | None:
-    for text, code in [files[home], *files]:
+def _definitions(files: Sources, name: str, home: int) -> list[tuple[int, int, int]]:
+    """Return (file, start, end) of every definition a call from the home file may reach.
+
+    A definition in the home file is the one called. Otherwise every other file that defines
+    the name is a candidate, so the answer does not depend on the order the files were read.
+    """
+    span = _span(files[home][1], name)
+    if span is not None:
+        return [(home, *span)]
+    found = []
+    for index, (_text, code) in enumerate(files):
         span = _span(code, name)
         if span is not None:
-            return text, code, *span
-    return None
+            found.append((index, *span))
+    return found
 
 
 def unconditional(files: Sources, name: str, home: int, depth: int = DEPTH) -> set[str]:
     """Return the keys a function writes on every path, following unconditional calls.
+
+    When the home file does not define the name and several other files do, only the keys
+    that every one of those definitions writes count.
 
     Args:
         files: Every source text with its masked twin.
@@ -107,13 +119,16 @@ def unconditional(files: Sources, name: str, home: int, depth: int = DEPTH) -> s
         depth: How many call levels to follow.
     """
     cache_key = (name, home, depth)
-    if cache_key in _CACHE:
-        return _CACHE[cache_key]
-    found = _definition(files, name, home)
-    _CACHE[cache_key] = set()
-    if found is None:
-        return set()
-    text, code, start, end = found
+    if cache_key not in _CACHE:
+        found = [_written(files, name, place, depth) for place in _definitions(files, name, home)]
+        _CACHE[cache_key] = set.intersection(*found) if found else set()
+    return _CACHE[cache_key]
+
+
+def _written(files: Sources, name: str, place: tuple[int, int, int], depth: int) -> set[str]:
+    """Return the keys one definition writes on every path, following unconditional calls."""
+    home, start, end = place
+    text, code = files[home]
     spans = control_spans(code, start, end)
 
     def plain(position: int) -> bool:
@@ -129,7 +144,6 @@ def unconditional(files: Sources, name: str, home: int, depth: int = DEPTH) -> s
         for call in CALL.finditer(code, start, end):
             if call.group(1) != name and plain(call.start()):
                 keys |= unconditional(files, call.group(1), home, depth - 1)
-    _CACHE[cache_key] = keys
     return keys
 
 
