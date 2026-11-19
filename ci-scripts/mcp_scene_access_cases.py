@@ -63,6 +63,8 @@ FORWARDED = {
     "raster.read_pixels",
     "scene.check.submit",
     "drawing.analysis.submit",
+    "scene.import_plan",
+    "scene.import_editable",
 }
 # Tools the worker answers for a read-only document itself, from its job registry.
 ANSWERED_BY_WORKER = {"job.list"}
