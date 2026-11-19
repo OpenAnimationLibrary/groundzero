@@ -131,12 +131,17 @@ public:
   int getStrokeIndex(TStroke *stroke) const;
 
   //! Group strokes in the \b fromIndex - \b toIndex range
-  /*! Only adjacent strokes can be grouped*/
-  void group(int fromIndex, int count);
+  /*! Only adjacent strokes can be grouped. The new group is a child of the
+     group at depth \b parentDepth that holds the range, 0 being the drawing
+     itself. With \b parentDepth > 0 the range must be whole children of that
+     group, and no stroke is moved.*/
+  void group(int fromIndex, int count, int parentDepth = 0);
 
   //! Ungroup all the strokes in the group of index \b index.
-  /*! Return the number of ungroped stroke.*/
-  int ungroup(int index);
+  /*! The group removed is the one at depth \b parentDepth + 1 starting at
+     \b index; its children move up one level. Return the number of ungroped
+     stroke.*/
+  int ungroup(int index, int parentDepth = 0);
 
   bool isStrokeGrouped(UINT index) const { return getGroupDepth(index) > 0; }
   //! Return a value grater of zero if stroke of index \b index is contained in

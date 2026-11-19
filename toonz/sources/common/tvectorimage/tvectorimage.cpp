@@ -2623,7 +2623,45 @@ int TVectorImage::getCommonGroupDepth(int index0, int index1) const {
 
 //-------------------------------------------------------------------
 
-int TVectorImage::ungroup(int fromIndex) {
+namespace {
+
+// Removes the group at depth parentDepth + 1 that starts at fromIndex: its id
+// is taken out of its strokes' chains, so its children become children of its
+// parent, and out of the entered group's chain when that group is the removed
+// one or inside it. Strokes stay where they are. Returns the changed strokes.
+std::vector<int> removeInnerGroup(TVectorImage& vi, int fromIndex,
+                                  int parentDepth) {
+  std::vector<VIStroke*>& strokes = vi.m_imp->m_strokes;
+  TGroupId& entered               = vi.m_imp->m_insideGroup;
+  const int depth                 = parentDepth + 1;
+  const TGroupId removed          = strokes[fromIndex]->m_groupId;
+  std::vector<int> changedStrokes;
+  for (int i = fromIndex;
+       i < (int)strokes.size() &&
+       removed.getCommonParentDepth(strokes[i]->m_groupId) >= depth;
+       i++) {
+    std::vector<int>& id = strokes[i]->m_groupId.m_id;
+    id.erase(id.end() - depth);
+    changedStrokes.push_back(i);
+  }
+  if (entered.getCommonParentDepth(removed) >= depth)
+    entered.m_id.erase(entered.m_id.end() - depth);
+  return changedStrokes;
+}
+
+}  // namespace
+
+int TVectorImage::ungroup(int fromIndex, int parentDepth) {
+  assert(parentDepth >= 0 && parentDepth < getGroupDepth(fromIndex));
+  parentDepth =
+      std::max(0, std::min(parentDepth, getGroupDepth(fromIndex) - 1));
+  if (parentDepth > 0) {
+    std::vector<int> changedStrokes =
+        removeInnerGroup(*this, fromIndex, parentDepth);
+    notifyChangedStrokes(changedStrokes, std::vector<TStroke*>(), false);
+    return changedStrokes.size();
+  }
+
   m_imp->m_insideGroup = TGroupId();
 
   assert(m_imp->m_strokes[fromIndex]->m_groupId.isGrouped() != 0);
@@ -2709,12 +2747,58 @@ int TVectorImage::exitGroup() {
 
 //-------------------------------------------------------------------
 
-void TVectorImage::group(int fromIndex, int count) {
+namespace {
+
+// Depth of the deepest group holding every stroke of the range
+int rangeGroupDepth(const TVectorImage& vi, int fromIndex, int count) {
+  int depth = count > 0 ? vi.getGroupDepth(fromIndex) : 0;
+  for (int i = 1; i < count; i++)
+    depth = std::min(depth, vi.getCommonGroupDepth(fromIndex, fromIndex + i));
+  return depth;
+}
+
+// Puts the new group id just inside the group at depth parentDepth, in the
+// chains of the range and in the entered group's chain when that group is in
+// the range. Strokes stay where they are. Returns the changed strokes.
+std::vector<int> insertInnerGroup(TVectorImage& vi, int fromIndex, int count,
+                                  int parentDepth, int newId) {
+  std::vector<VIStroke*>& strokes = vi.m_imp->m_strokes;
+  TGroupId& entered               = vi.m_imp->m_insideGroup;
+  std::vector<int> changedStrokes;
+  bool enteredInRange = false;
+  for (int i = fromIndex; i < fromIndex + count; i++) {
+    std::vector<int>& id = strokes[i]->m_groupId.m_id;
+    enteredInRange =
+        enteredInRange || (entered.getDepth() > parentDepth &&
+                           entered.isParentOf(strokes[i]->m_groupId));
+    id.insert(id.end() - parentDepth, newId);
+    changedStrokes.push_back(i);
+  }
+  if (enteredInRange)
+    entered.m_id.insert(entered.m_id.end() - parentDepth, newId);
+  return changedStrokes;
+}
+
+}  // namespace
+
+void TVectorImage::group(int fromIndex, int count, int parentDepth) {
   int i;
   assert(count >= 0);
+  if (parentDepth != 0) {
+    const int rangeDepth = rangeGroupDepth(*this, fromIndex, count);
+    assert(parentDepth > 0 && parentDepth <= rangeDepth);
+    parentDepth = std::max(0, std::min(parentDepth, rangeDepth));
+  }
   std::vector<int> changedStroke;
 
   TGroupId parent = TGroupId(this, false);
+
+  if (parentDepth > 0) {
+    changedStroke =
+        insertInnerGroup(*this, fromIndex, count, parentDepth, parent.m_id[0]);
+    notifyChangedStrokes(changedStroke, std::vector<TStroke*>(), false);
+    return;
+  }
 
   for (i = 0; i < count; i++) {
     m_imp->m_strokes[fromIndex + i]->m_groupId =

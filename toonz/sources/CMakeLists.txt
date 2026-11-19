@@ -1178,6 +1178,14 @@ if(BUILD_RELIABILITY_TESTS)
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME inputmodifier COMMAND inputmodifier_test)
     set_tests_properties(inputmodifier PROPERTIES TIMEOUT 60)
+    # Group and Ungroup inside an entered group of a vector drawing act at
+    # that group's level and keep it entered
+    add_executable(enteredgroup_test tnztools/tests/enteredgroup_test.cpp)
+    target_link_libraries(enteredgroup_test PRIVATE tnztools toonzqt toonzlib image tnzext tnzbase tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
+    add_test(NAME enteredgroup COMMAND enteredgroup_test)
+    set_tests_properties(enteredgroup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)

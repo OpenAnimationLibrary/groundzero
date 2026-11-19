@@ -30,7 +30,10 @@
 namespace {
 //-----------------------------------------------------------------------------
 
-void groupWithoutUndo(TVectorImage *vimg, StrokeSelection *selection) {
+// parentDepth is the depth of the entered group the selection belongs to: the
+// new group is made inside it.
+void groupWithoutUndo(TVectorImage* vimg, StrokeSelection* selection,
+                      int parentDepth) {
   int count = 0, fromStroke = -1, lastSelected = -1;
 
   for (int i = 0; i < (int)vimg->getStrokeCount(); i++)
@@ -53,23 +56,33 @@ void groupWithoutUndo(TVectorImage *vimg, StrokeSelection *selection) {
 
   assert(count > 0);
 
-  vimg->group(fromStroke, count);
+  vimg->group(fromStroke, count, parentDepth);
   TTool::getApplication()->getCurrentTool()->getTool()->notifyImageChanged();
 }
 
 //-----------------------------------------------------------------------------
 
-std::vector<std::pair<int, int>> ungroupWithoutUndo(
-    TVectorImage* vimg, StrokeSelection* selection) {
-  std::vector<std::pair<int, int>> groups;
+struct UngroupedRange {
+  int first, count, parentDepth;
+};
+
+// enteredDepth is the depth of the entered group the selection belongs to: a
+// selected subgroup of it is removed. A selection of its own strokes removes
+// the entered group itself.
+std::vector<UngroupedRange> ungroupWithoutUndo(TVectorImage* vimg,
+                                               StrokeSelection* selection,
+                                               int enteredDepth) {
+  std::vector<UngroupedRange> groups;
   for (int i = 0; i < (int)vimg->getStrokeCount();)
     if (selection->isSelected(i)) {
       if (!vimg->isStrokeGrouped(i)) {
         i++;
         continue;
       }
-      const int count = vimg->ungroup(i);
-      groups.emplace_back(i, count);
+      const int parentDepth =
+          std::min(enteredDepth, vimg->getGroupDepth(i) - 1);
+      const int count = vimg->ungroup(i, parentDepth);
+      groups.push_back({i, count, parentDepth});
       i += count;
     } else
       i++;
@@ -83,20 +96,25 @@ std::vector<std::pair<int, int>> ungroupWithoutUndo(
 
 class GroupUndo final : public ToolUtils::TToolUndo {
   std::unique_ptr<StrokeSelection> m_selection;
+  int m_parentDepth;
 
 public:
-  GroupUndo(TXshSimpleLevel *level, const TFrameId &frameId,
-            StrokeSelection *selection)
-      : ToolUtils::TToolUndo(level, frameId), m_selection(selection) {}
+  GroupUndo(TXshSimpleLevel* level, const TFrameId& frameId,
+            StrokeSelection* selection, int parentDepth)
+      : ToolUtils::TToolUndo(level, frameId)
+      , m_selection(selection)
+      , m_parentDepth(parentDepth) {}
 
   void undo() const override {
     TVectorImageP image = m_level->getFrame(m_frameId, true);
-    if (image) ungroupWithoutUndo(image.getPointer(), m_selection.get());
+    if (image)
+      ungroupWithoutUndo(image.getPointer(), m_selection.get(), m_parentDepth);
   }
 
   void redo() const override {
     TVectorImageP image = m_level->getFrame(m_frameId, true);
-    if (image) groupWithoutUndo(image.getPointer(), m_selection.get());
+    if (image)
+      groupWithoutUndo(image.getPointer(), m_selection.get(), m_parentDepth);
   }
 
   int getSize() const override { return sizeof(*this); }
@@ -110,21 +128,24 @@ public:
 
 class UngroupUndo final : public ToolUtils::TToolUndo {
   std::unique_ptr<StrokeSelection> m_selection;
-  std::vector<std::pair<int, int>> m_groups;
+  int m_enteredDepth;
+  std::vector<UngroupedRange> m_groups;
 
 public:
   UngroupUndo(TXshSimpleLevel* level, const TFrameId& frameId,
-              StrokeSelection* selection,
-              std::vector<std::pair<int, int>> groups)
+              StrokeSelection* selection, int enteredDepth,
+              std::vector<UngroupedRange> groups)
       : ToolUtils::TToolUndo(level, frameId)
       , m_selection(selection)
+      , m_enteredDepth(enteredDepth)
       , m_groups(std::move(groups)) {}
 
   void undo() const override {
     TVectorImageP image = m_level->getFrame(m_frameId, true);
     if (!image) return;
     QMutexLocker lock(image->getMutex());
-    for (const auto& [first, count] : m_groups) image->group(first, count);
+    for (const UngroupedRange& range : m_groups)
+      image->group(range.first, range.count, range.parentDepth);
     TTool::getApplication()->getCurrentTool()->getTool()->notifyImageChanged();
   }
 
@@ -132,7 +153,7 @@ public:
     TVectorImageP image = m_level->getFrame(m_frameId, true);
     if (!image) return;
     QMutexLocker lock(image->getMutex());
-    ungroupWithoutUndo(image.getPointer(), m_selection.get());
+    ungroupWithoutUndo(image.getPointer(), m_selection.get(), m_enteredDepth);
   }
 
   int getSize() const override {
@@ -275,6 +296,38 @@ std::vector<std::pair<TStroke *, int>> getSelectedGroups(TVectorImage *vimg,
   return ret;
 }
 
+// Inside an entered group, Ungroup removes selected subgroups of it; at the
+// first level a selection of its own strokes still removes the entered group.
+// The group's own strokes must stay one run afterwards: native code reorders
+// them otherwise, when grouping and when the drawing is loaded.
+bool ungroupAllowedInside(TVectorImage* vimg, StrokeSelection* sel) {
+  const int depth = vimg->isInsideGroup();
+  if (depth == 0) return true;
+  const int strokeCount = (int)vimg->getStrokeCount();
+  bool subgroups = false, ownStrokes = false;
+  for (int i = 0; i < strokeCount; i++) {
+    if (!sel->isSelected(i)) continue;
+    if (vimg->getGroupDepth(i) > depth)
+      subgroups = true;
+    else
+      ownStrokes = true;
+  }
+  if (!subgroups) return depth == 1;
+  if (ownStrokes) return false;
+  int first = -1, last = -1, members = 0;
+  for (int i = 0; i < strokeCount; i++) {
+    if (!vimg->isEnteredGroupStroke(i)) continue;
+    const int strokeDepth = vimg->getGroupDepth(i);
+    if (strokeDepth == depth ||
+        (strokeDepth == depth + 1 && sel->isSelected(i))) {
+      if (first < 0) first = i;
+      last = i;
+      members++;
+    }
+  }
+  return members == 0 || last - first + 1 == members;
+}
+
 }  // namespace
 
 //--------------------------------------------------------------------------------------
@@ -367,7 +420,8 @@ if (i == vimg->getStrokeCount())
       if (j < vimg->getStrokeCount()) break;
     }
   }
-  if (i == vimg->getStrokeCount()) mask |= UNGROUP;
+  if (i == vimg->getStrokeCount() && ungroupAllowedInside(vimg, m_sel))
+    mask |= UNGROUP;
 
   // PER il GROUP: si raggruppa solo  se:
   // //almeno una delle  stroke selezionate non fa parte di gruppi o e' di un
@@ -504,11 +558,12 @@ void TGroupCommand::group() {
   }
 
   QMutexLocker lock(vimg->getMutex());
-  groupWithoutUndo(vimg, m_sel);
+  const int parentDepth = vimg->isInsideGroup();
+  groupWithoutUndo(vimg, m_sel, parentDepth);
   TXshSimpleLevel *level =
       TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
-  TUndoManager::manager()->add(
-      new GroupUndo(level, tool->getCurrentFid(), new StrokeSelection(*m_sel)));
+  TUndoManager::manager()->add(new GroupUndo(
+      level, tool->getCurrentFid(), new StrokeSelection(*m_sel), parentDepth));
 }
 
 //-----------------------------------------------------------------------------
@@ -572,12 +627,13 @@ void TGroupCommand::ungroup() {
   }
 
   QMutexLocker lock(vimg->getMutex());
-  auto groups = ungroupWithoutUndo(vimg, m_sel);
+  const int enteredDepth = vimg->isInsideGroup();
+  auto groups            = ungroupWithoutUndo(vimg, m_sel, enteredDepth);
   TXshSimpleLevel *level =
       TTool::getApplication()->getCurrentLevel()->getSimpleLevel();
-  TUndoManager::manager()->add(new UngroupUndo(level, tool->getCurrentFid(),
-                                               new StrokeSelection(*m_sel),
-                                               std::move(groups)));
+  TUndoManager::manager()->add(
+      new UngroupUndo(level, tool->getCurrentFid(), new StrokeSelection(*m_sel),
+                      enteredDepth, std::move(groups)));
 }
 
 //-----------------------------------------------------------------------------
