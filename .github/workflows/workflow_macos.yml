@@ -560,6 +560,10 @@ jobs:
             --executable toonz/build/toonz/OpenToonz.app/Contents/MacOS/OpenToonz \
             --output toonz/build/mcp-acceptance --media-tools "$MCP_MEDIA_TOOLS"
 
+      - name: Give MCP acceptance evidence names the upload accepts
+        if: always()
+        run: python3 ci-scripts/mcp_evidence_names.py toonz/build/mcp-acceptance
+
       - name: Retain native MCP acceptance evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
