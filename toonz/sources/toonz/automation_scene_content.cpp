@@ -4,6 +4,7 @@
 
 #include "texternfx.h"
 #include "tfx.h"
+#include "tseexprfx.h"
 #include "tmacrofx.h"
 #include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
@@ -138,17 +139,40 @@ bool hasFileParameter(TFx* fx) {
   return false;
 }
 
-QString effectClass(TFx* fx) {
-  if (dynamic_cast<TExternalProgramFx*>(fx)) return "external_code";
-  const QString type = fxType(fx);
-  if (type == "STD_neuralStyleFx" || !type.startsWith("STD_"))
-    return "external_code";
+// An effect type is built in when the application's own code declares it, and
+// the registry still holds that declaration for the type: a plug-in effect, a
+// shader effect or anything else registered at run time is not, and neither is
+// a type the registry does not know.
+bool declaredByApplication(TFx* fx) {
+  const TPersistDeclaration* declared = fx->getDeclaration();
+  if (!declared) return false;
+  const auto* declaration = dynamic_cast<const TFxDeclaration*>(declared);
+  if (!declaration || !declaration->isCompiledIn()) return false;
+  return TFx::getFxInfo(declared->getId()).m_name == declared->getId();
+}
+
+// Compiled-in effects that run a program the scene or the user supplies: an
+// expression document, or the neural worker with a style model.
+bool runsOutsideProgram(TFx* fx) {
+  return dynamic_cast<TFxSeExprSource*>(fx) ||
+         fxType(fx) == "STD_neuralStyleFx";
+}
+
+// Compiled-in effects that read a file through a plain string parameter or a
+// cache, which no parameter type shows.
+bool readsNamedFile(TFx* fx) {
   static const QStringList files = {"STD_particleCacheFx", "STD_openExrAovFx",
                                     "STD_glbModelFx", "STD_lut3DBakeFx",
                                     "STD_referenceColorMatchFx"};
-  if (files.contains(type) || dynamic_cast<SceneFxResource*>(fx) ||
-      hasFileParameter(fx))
-    return "file_resource";
+  return files.contains(fxType(fx)) || dynamic_cast<SceneFxResource*>(fx) ||
+         hasFileParameter(fx);
+}
+
+QString effectClass(TFx* fx) {
+  if (dynamic_cast<TExternalProgramFx*>(fx) || !declaredByApplication(fx) ||
+      runsOutsideProgram(fx))
+    return "external_code";
+  if (readsNamedFile(fx)) return "file_resource";
   QStringList violations;
   return automationFxProfileViolations(fx, violations) ? "builtin_admitted"
                                                        : "builtin_other";
@@ -499,6 +523,8 @@ QJsonObject renderReport(Document& document) {
           {"snapshot_inputs", linkedSnapshotInputs()},
           {"formats", QJsonArray{"png"}}};
 }
+
+QString fxNodeClass(TFx* fx) { return nodeClass(fx); }
 
 QJsonObject fxAdmission(Document& document, TFx* fx) {
   const QString kind  = nodeClass(fx);

@@ -775,11 +775,15 @@ page with `reasons: ["unreadable"]`. `standalone` has no project file and return
 `invalid_params` from both.
 
 Read-only renders produce PNG only (MP4 returns `render_unavailable`). A render is
-refused with `render_blocked`, listing at most 64 `blockers`, when the scene holds an
-external program, an effect that reads files, or a texture outside the roots
-anywhere, or when the current output reaches an unsupported level, column or effect,
+refused with `render_blocked` (by `render.preview` and `render.submit` alike), listing at
+most 64 `blockers`, when the scene holds an external program, an effect that reads files,
+or a texture outside the roots anywhere, or when the current output reaches an unsupported level, column or effect,
 or a shipped library texture; a camera without a finite positive size and DPI also
-blocks. A rendered level whose file is missing or did not load fails the
+blocks. An effect is built in when the application's own code declares it, whatever its
+identifier is called; one declared at run time (a plug-in or shader effect), an identifier
+the application does not register, an effect that runs a program the scene supplies (a
+SeExpr document, Neural Style) and an external-program effect are `external_code`. A
+rendered level whose file is missing or did not load fails the
 `dependencies` check first and returns `missing_dependency`. `render.preflight`
 reports all of these for a read-only document, with the worker's own lane and
 retention checks. Every file the scene reads is pinned at open by size, nanosecond

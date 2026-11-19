@@ -551,6 +551,11 @@ DVAPI TIStream &operator>>(TIStream &in, TFxP &p);
 class DVAPI TFxDeclaration : public TPersistDeclaration {
 public:
   TFxDeclaration(const TFxInfo &info);
+
+  //! True when the application's own code declares the effect, as a
+  //! TFxDeclarationT does for a type compiled in. A declaration made at run
+  //! time from a file (a plug-in effect, a shader effect) is not.
+  virtual bool isCompiledIn() const { return false; }
 };
 
 template <class T>
@@ -558,6 +563,7 @@ class TFxDeclarationT final : public TFxDeclaration {
 public:
   TFxDeclarationT(const TFxInfo &info) : TFxDeclaration(info) {}
   TPersist *create() const override { return new T; }
+  bool isCompiledIn() const override { return true; }
 };
 
 //-------------------------------------------------------------------
