@@ -165,7 +165,7 @@ def column_delete_needs_explicit_fx_and_children_policies(case: NativeAcceptance
     case.assertEqual(result["fx_disconnected"], [kept])
     case.assertEqual(_sources(case, document, kept), [])
     objects = {c["column_id"]: c["object_id"] for c in _summary(case, document)["columns"]}
-    child = case.mutate("object.create", document, name="Child", kind="pegbar")["object_id"]
+    child = case.mutate("column.create", document, name="Child")["object_id"]
     case.mutate(
         "object.parent",
         document,
