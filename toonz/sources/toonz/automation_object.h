@@ -31,6 +31,19 @@ QJsonArray objectOperations();
 QJsonValue executeObject(Context& context, const QString& method,
                          const QJsonObject& params);
 
+// Refuse removing a stage object whose removal would strand something its
+// children policy does not cover.
+//
+// Args:
+//   document: Owner of the object.
+//   object: The pegbar, column object or camera about to be removed; its
+//   children move to its parent and keep their parent handles.
+// Throws:
+//   Error: has_dependents for pose entries that name the object, a pegbar
+//   child that would land under a column, or a child on a hook its new
+//   parent does not have; the lock refusal for a locked child.
+void automationRequireRemovable(Document& document, TStageObject& object);
+
 // Input schema of object.parent's optional world_policy.
 QJsonObject automationWorldPolicySchema();
 

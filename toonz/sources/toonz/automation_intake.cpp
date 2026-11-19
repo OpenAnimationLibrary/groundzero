@@ -1701,7 +1701,7 @@ QJsonObject sourceProperties() {
        QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
       {"sequence_extension",
        QJsonObject{{"type", "string"}, {"pattern", "^[A-Za-z0-9]{1,8}$"}}},
-      {"name", textSchema()}};
+      {"name", boundedNameSchema(128)}};
 }
 
 QJsonObject choiceSchema(const QStringList& values) {

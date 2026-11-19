@@ -758,6 +758,22 @@ void requireRemovable(Document& document, const LevelUsage& usage,
                 {{"users", users}});
 }
 
+// A scene file can hold two levels of one name, and native removal drops the
+// name from the cast's lookup with either. Renaming the level that is left
+// to its own name through a free one enters it again, so name conflicts
+// still see it.
+void restoreSharedName(TLevelSet& cast, const std::wstring& name) {
+  if (cast.getLevel(name)) return;
+  for (TXshLevel* other : distinctLevels(&cast)) {
+    if (other->getName() != name) continue;
+    std::wstring free = name + L"_";
+    while (cast.getLevel(free)) free += L"_";
+    if (!cast.renameLevel(other, free) || !cast.renameLevel(other, name))
+      throw Error("native_error", "The native cast lost a level's name.");
+    return;
+  }
+}
+
 QJsonValue removeLevel(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
   TXshSimpleLevel* level =
@@ -790,11 +806,13 @@ QJsonValue removeLevel(Context& context, const QJsonObject& params) {
   result.insert("cells_cleared", replacement ? 0 : rewritten);
   result.insert("cells_replaced", replacement ? rewritten : 0);
   eraseLevelHandles(document, level);
-  TLevelSet* cast = document.scene->getLevelSet();
+  TLevelSet* cast         = document.scene->getLevelSet();
+  const std::wstring name = level->getName();
   cast->removeLevel(level);
   for (int index = 0; index < cast->getLevelCount(); ++index)
     if (cast->getLevel(index) == level)
       throw Error("native_error", "The native cast kept the removed level.");
+  restoreSharedName(*cast, name);
   return result;
 }
 

@@ -371,26 +371,56 @@ bool blocksDeletion(const QJsonValue& dependent) {
          kind != "child_parent_handle_hook_user";
 }
 
+// Whether a child keeps its parent handle under the parent it moves to.
+bool keepsParentHandle(Document& document, TStageObject& child,
+                       TStageObject* parent) {
+  if (!automationHookNumber(child.getParentHandle())) return true;
+  if (!parent) return false;
+  try {
+    automationParentHandle(document, child, *parent, QJsonValue());
+  } catch (const Error&) {
+    return false;
+  }
+  return true;
+}
+
 void requireDeletable(Document& document, TStageObject& object, bool reattach) {
   const QJsonArray dependents = objectDependents(document, object);
   const bool blocked =
       std::any_of(dependents.begin(), dependents.end(), blocksDeletion);
-  if (blocked || (!reattach && !dependents.isEmpty()))
+  if (!blocked && !reattach && !dependents.isEmpty())
     throw Error("has_dependents",
-                blocked ? "Pose entries name this object."
-                        : "The object has children; choose "
-                          "children_policy reattach_to_parent.",
+                "The object has children; choose "
+                "children_policy reattach_to_parent.",
                 {{"dependents", dependents}});
-  auto& stage                = stageOf(*document.scene);
-  const TStageObject* parent = stage.getStageObject(object.getParent(), false);
-  for (const TStageObject* child : automationChildren(object)) {
+  automationRequireRemovable(document, object);
+}
+
+}  // namespace
+
+void automationRequireRemovable(Document& document, TStageObject& object) {
+  const QJsonArray dependents = objectDependents(document, object);
+  if (std::any_of(dependents.begin(), dependents.end(), blocksDeletion))
+    throw Error("has_dependents", "Pose entries name this object.",
+                {{"reason", "pose_entries"}, {"dependents", dependents}});
+  auto& stage          = stageOf(*document.scene);
+  TStageObject* parent = stage.getStageObject(object.getParent(), false);
+  for (TStageObject* child : automationChildren(object)) {
     requireAutomationUnlocked(*document.scene, *child);
     if (parent && parent->getId().isColumn() && child->getId().isPegbar())
       throw Error("has_dependents",
                   "A pegbar child cannot move under a column parent.",
                   {{"dependents", dependents}});
+    if (!keepsParentHandle(document, *child, parent))
+      throw Error("has_dependents",
+                  "A child uses a hook its new parent does not have.",
+                  {{"reason", "hook_handle"},
+                   {"object_id", document.idForObject(child)},
+                   {"dependents", dependents}});
   }
 }
+
+namespace {
 
 QJsonValue deleteObject(Context& context, const QJsonObject& params) {
   auto& document       = automationRigDocument(context, params);
@@ -398,7 +428,8 @@ QJsonValue deleteObject(Context& context, const QJsonObject& params) {
   TStageObject* object = document.object(requiredString(params, "object_id"));
   if (!object->getId().isPegbar())
     throw Error("unsupported_kind",
-                "object.delete removes pegbars; columns use column.delete.");
+                "object.delete removes pegbars; columns use column.delete "
+                "and cameras camera.remove.");
   requireAutomationUnlocked(scene, *object);
   const bool reattach = params.value("children_policy") == "reattach_to_parent";
   requireDeletable(document, *object, reattach);

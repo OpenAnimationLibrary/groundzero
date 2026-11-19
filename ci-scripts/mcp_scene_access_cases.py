@@ -62,6 +62,7 @@ FORWARDED = {
     "vector.opacity.inspect",
     "raster.read_pixels",
     "scene.check.submit",
+    "drawing.analysis.submit",
 }
 # Tools the worker answers for a read-only document itself, from its job registry.
 ANSWERED_BY_WORKER = {"job.list"}

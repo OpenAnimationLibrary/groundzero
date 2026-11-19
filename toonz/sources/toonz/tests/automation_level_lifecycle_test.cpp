@@ -324,6 +324,28 @@ void duplicateIsIndependent(Context& context) {
 
 }  // namespace
 
+// Two levels of one name, as a scene file can hold: removing one leaves the
+// other findable by name, so a third of that name is still a conflict.
+void sharedNameSurvivesRemoval(Context& context) {
+  Fixture fixture(context, false);
+  ToonzScene& scene = *fixture.document.scene;
+  TLevelSet* cast   = scene.getLevelSet();
+  TXshLevel* twin   = scene.createNewLevel(PLI_XSHLEVEL, L"Twin");
+  cast->removeLevel(twin, false);
+  twin->setName(L"Art");
+  require(cast->insertLevel(twin) && cast->getLevel(L"Art") == twin,
+          "the fixture did not register a second level named Art");
+  call(fixture, "level.remove",
+       {{"level_id", fixture.document.idForLevel(twin)},
+        {"exposure_policy", "refuse"}});
+  require(cast->getLevel(L"Art") == fixture.level,
+          "the level left lost its name in the cast");
+  require(refusal(fixture, "level.duplicate",
+                  {{"level_id", fixture.document.idForLevel(fixture.level)},
+                   {"name", "Art"}}) == "name_conflict",
+          "a third level of the shared name was admitted");
+}
+
 void runAutomationLevelLifecycleTests(Context& context) {
   usageCoversNestedSheets(context);
   nestedLockCounts(context);
@@ -333,6 +355,7 @@ void runAutomationLevelLifecycleTests(Context& context) {
   replaceRewritesEverySheet(context);
   hookChildrenBlockRemoval(context);
   duplicateIsIndependent(context);
+  sharedNameSurvivesRemoval(context);
   std::cout << "automation-level-lifecycle-test: usage, settings, removal, "
                "duplicate PASS"
             << std::endl;

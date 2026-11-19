@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -254,6 +255,20 @@ def _save_copy(case: NativeAcceptance, state: State, path: str) -> dict[str, Any
     return invoke(case, "scene.save_copy", state["document"], directory=path)
 
 
+def _create_project(case: NativeAcceptance, _state: State, path: str) -> dict[str, Any]:
+    return invoke(case, "project.create", None, directory=path)
+
+
+def _with_project(case: NativeAcceptance) -> State:
+    source = case.workspace / f"project-{uuid.uuid4().hex[:8]}"
+    created = case.mutate("project.create", None, directory=str(source))
+    return {"project": created["project_id"]}
+
+
+def _duplicate_project(case: NativeAcceptance, state: State, path: str) -> dict[str, Any]:
+    return invoke(case, "project.duplicate", None, project_id=state["project"], directory=path)
+
+
 def _with_effect(case: NativeAcceptance) -> State:
     state = _document(case)
     effect = case.mutate("fx.create", state["document"], type="STD_blurFx")
@@ -323,6 +338,7 @@ PATH_TOOLS: dict[str, PathTool] = {
             _document,
             _intake_preflight,
             _source_folder,
+            pinned=False,
         ),
         PathTool(
             "intake.import",
@@ -333,6 +349,7 @@ PATH_TOOLS: dict[str, PathTool] = {
             _document,
             _intake_import,
             _source_folder,
+            pinned=False,
         ),
         PathTool(
             "vector.export_svg",
@@ -414,6 +431,26 @@ PATH_TOOLS: dict[str, PathTool] = {
             OUTPUT_FAILED,
             _with_effect,
             _preset_save,
+            _directory,
+        ),
+        PathTool(
+            "project.create",
+            ("directory", "folders.[].path"),
+            "write",
+            "",
+            OUTPUT_FAILED,
+            _document,
+            _create_project,
+            _directory,
+        ),
+        PathTool(
+            "project.duplicate",
+            ("directory",),
+            "write",
+            "",
+            OUTPUT_FAILED,
+            _with_project,
+            _duplicate_project,
             _directory,
         ),
         PathTool(

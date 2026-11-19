@@ -1,3 +1,4 @@
+#include "automation_object.h"
 #include "automation_path.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
@@ -517,6 +518,7 @@ QJsonValue removeCamera(Context& context, const QJsonObject& params) {
                 {{"reason", "last_camera"}});
   const Replacements replacement = readReplacements(document, params, camera);
   requireChildren(document, camera, params.value("children_policy").toString());
+  automationRequireRemovable(document, *camera);
   const std::vector<int> frames             = automationReportFrames(params);
   const std::vector<TStageObject*> children = childrenOf(document, camera);
   std::vector<std::vector<TAffine>> before;

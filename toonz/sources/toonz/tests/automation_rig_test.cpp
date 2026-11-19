@@ -954,6 +954,67 @@ void renameAndDeleteObjects(Context& context) {
   context.removeDocument(document.id);
 }
 
+QString reasonOf(const QJsonObject& response) {
+  if (errorCode(response) != "has_dependents") return errorCode(response);
+  return errorDetails(response).value("reason").toString();
+}
+
+// column.delete and camera.remove refuse what object.delete refuses: pose
+// entries that name the object and a child on a hook its new parent lacks.
+void removalsShareThePreflight(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document      = createDocument(context, dispatcher);
+  const QString level = createLevel(dispatcher, document, "Part", 1);
+  const auto parent   = createColumn(dispatcher, document, level, {1});
+  const auto child    = createColumn(dispatcher, document, level, {1});
+  result(dispatcher, "hook.set",
+         at(document, hookParams(level, 1, {position(1, point(0.5, 0))})));
+  result(
+      dispatcher, "object.parent",
+      at(document, parentParams(columnObject(child), columnObject(parent), 1)));
+  const QJsonObject remove{{"column_id", parent.value("column_id")},
+                           {"children_policy", "reattach_to_parent"},
+                           {"report_frames", QJsonArray{0}}};
+  require(reasonOf(request(dispatcher, "column.delete",
+                           at(document, remove))) == "hook_handle",
+          "A child kept a hook of the deleted column under the table");
+  result(dispatcher, "object.handles.set",
+         at(document,
+            handleParams(columnObject(child), "parent_handle",
+                         QJsonObject{{"kind", "peg_hole"}, {"letter", "B"}})));
+  PoseLibrary* poses = document.scene->getPoseLibrary();
+  const int index =
+      document.column(parent.value("column_id").toString())->getIndex();
+  poses->setBase({PoseLibrary::Entry(TStageObjectId::ColumnId(index), "x", 0)});
+  require(reasonOf(request(dispatcher, "column.delete",
+                           at(document, remove))) == "pose_entries",
+          "A column named by a pose entry was deleted");
+  poses->setBase({});
+  const auto deleted =
+      result(dispatcher, "column.delete", at(document, remove));
+  require(deleted.value("children_reattached").toArray().size() == 1,
+          "The re-attached column child is not reported");
+  const QString camera = result(dispatcher, "camera.create",
+                                at(document, {{"name", "Side"},
+                                              {"width_px", 64},
+                                              {"height_px", 48},
+                                              {"width_in", 4},
+                                              {"height_in", 3}}))
+                             .value("camera")
+                             .toObject()
+                             .value("camera_id")
+                             .toString();
+  const QJsonObject drop{{"camera_id", camera}, {"children_policy", "refuse"}};
+  poses->setBase(
+      {PoseLibrary::Entry(document.object(camera)->getId(), "x", 0)});
+  require(reasonOf(request(dispatcher, "camera.remove", at(document, drop))) ==
+              "pose_entries",
+          "A camera named by a pose entry was removed");
+  poses->setBase({});
+  result(dispatcher, "camera.remove", at(document, drop));
+  context.removeDocument(document.id);
+}
+
 void dependentsOfHooksAndLayers(Context& context) {
   Dispatcher dispatcher(context);
   auto& document     = createDocument(context, dispatcher);
@@ -1172,6 +1233,7 @@ void runAutomationRigTests(Context& context) {
   duplicateIsIndependent(context);
   subtreeDuplicateSharesLevels(context);
   renameAndDeleteObjects(context);
+  removalsShareThePreflight(context);
   dependentsOfHooksAndLayers(context);
   schematicGroups(context);
   preserveWorldPlacement(context);

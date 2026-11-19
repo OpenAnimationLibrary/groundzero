@@ -1,3 +1,4 @@
+#include "automation_object.h"
 #include "automation_path.h"
 #include "automation_scene_shared.h"
 
@@ -370,6 +371,7 @@ QJsonValue deleteColumn(Context& context, const QJsonObject& params) {
   requireFxPolicy(document, fx, fxPolicy == "refuse" ? "" : fxPolicy);
   requireChildPolicy(document, object,
                      params.value("children_policy").toString());
+  automationRequireRemovable(document, *object);
   const std::vector<int> frames = automationReportFrames(params);
   std::vector<Reattached> children;
   for (TStageObject* child : childrenOf(document, object))
