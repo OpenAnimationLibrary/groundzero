@@ -41,6 +41,7 @@
 #endif
 
 #include <algorithm>
+#include <utility>
 
 namespace GroundzeroAutomation {
 namespace {
@@ -63,69 +64,13 @@ const QStringList& checkNames() {
   return names;
 }
 
-// The ten checks in their reporting order; one not set is unknown.
-class Checks final {
-public:
-  void pass(const QString& name) { set(name, "pass", {}, {}); }
-  void fail(const QString& name, const QString& code, const QString& detail) {
-    set(name, "fail", code, detail);
-  }
-  void unknown(const QString& name, const QString& detail) {
-    set(name, "unknown", {}, detail);
-  }
-
-  QJsonArray report() const {
-    QJsonArray result;
-    for (const QString& name : checkNames())
-      result.append(
-          m_checks.value(name, QJsonObject{{"name", name},
-                                           {"state", "unknown"},
-                                           {"code", QJsonValue()},
-                                           {"detail", "Not checked."}}));
-    return result;
-  }
-
-  QJsonValue firstFailure() const {
-    for (const QString& name : checkNames())
-      if (m_checks.value(name).value("state") == "fail") return name;
-    return QJsonValue();
-  }
-
-private:
-  void set(const QString& name, const QString& state, const QString& code,
-           const QString& detail) {
-    m_checks.insert(
-        name, QJsonObject{{"name", name},
-                          {"state", state},
-                          {"code", code.isEmpty() ? QJsonValue() : code},
-                          {"detail", detail.isEmpty()
-                                         ? QJsonValue()
-                                         : QJsonValue(detail.left(1024))}});
-  }
-
-  QMap<QString, QJsonObject> m_checks;
-};
-
-// What the file system says about the destination at this moment.
-struct Facts final {
-  QString rootCode;
-  QString rootDetail;
-  QString pathCode;
-  QString pathDetail;
-  bool parentFound = false;
-  bool writable    = false;
-  int exists       = -1;  // 1, 0, or -1 when it cannot be told
-  qint64 freeBytes = -1;
-  int sameVolume   = -1;  // 1, 0, or -1 when it cannot be told
-  QString rename   = "unknown";
-};
-
 #ifdef _WIN32
 
-void describeParent(int, const QString&, const Context&, Facts&) {}
+void describeParent(int, const QString&, const Context&, DestinationFacts&) {}
 
-Facts observeWorkspace(const Context& context, const PackageTarget& target) {
-  Facts facts;
+DestinationFacts observeWorkspace(const Context& context,
+                                  const PackageTarget& target) {
+  DestinationFacts facts;
   const QFileInfo parent(QFileInfo(target.absolute).absolutePath());
   facts.parentFound = parent.isDir() && !parent.isSymLink();
   if (!facts.parentFound) return facts;
@@ -157,7 +102,7 @@ QString renameSupport(int parent, qint64 volume) {
 }
 
 void describeParent(int parent, const QString& name, const Context& context,
-                    Facts& facts) {
+                    DestinationFacts& facts) {
   facts.parentFound = true;
   facts.writable    = ::faccessat(parent, ".", W_OK, 0) == 0;
   struct stat entry{};
@@ -177,8 +122,9 @@ void describeParent(int parent, const QString& name, const Context& context,
   facts.rename = renameSupport(parent, qint64(here.st_dev));
 }
 
-Facts observeWorkspace(const Context& context, const PackageTarget& target) {
-  Facts facts;
+DestinationFacts observeWorkspace(const Context& context,
+                                  const PackageTarget& target) {
+  DestinationFacts facts;
   const QString parent = QFileInfo(target.absolute).absolutePath();
   const int directory = ::open(QFile::encodeName(parent).constData(),
                                O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -196,8 +142,11 @@ Facts observeWorkspace(const Context& context, const PackageTarget& target) {
 
 #endif
 
-Facts observeOutputRoot(const Context& context, const PackageTarget& target) {
-  Facts facts;
+}  // namespace
+
+DestinationFacts observeOutputDestination(const Context& context,
+                                          const PackageTarget& target) {
+  DestinationFacts facts;
   int directory = -1;
   try {
     directory = openRootDirectory(target.rootPath, QString());
@@ -219,6 +168,44 @@ Facts observeOutputRoot(const Context& context, const PackageTarget& target) {
   ::close(directory);
   return facts;
 }
+
+PreflightChecks::PreflightChecks(QStringList names)
+    : m_names(std::move(names)) {}
+
+void PreflightChecks::set(const QString& name, const QString& state,
+                          const QString& code, const QString& detail) {
+  m_checks.insert(
+      name, QJsonObject{
+                {"name", name},
+                {"state", state},
+                {"code", code.isEmpty() ? QJsonValue() : code},
+                {"detail", detail.isEmpty() ? QJsonValue()
+                                            : QJsonValue(detail.left(1024))}});
+}
+
+QJsonArray PreflightChecks::report() const {
+  QJsonArray result;
+  for (const QString& name : m_names)
+    result.append(
+        m_checks.value(name, QJsonObject{{"name", name},
+                                         {"state", "unknown"},
+                                         {"code", QJsonValue()},
+                                         {"detail", "Not checked."}}));
+  return result;
+}
+
+QJsonValue PreflightChecks::firstFailure() const {
+  for (const QString& name : m_names)
+    if (m_checks.value(name).value("state") == "fail") return name;
+  return QJsonValue();
+}
+
+QJsonObject PreflightChecks::failed(const QString& name) const {
+  const QJsonObject check = m_checks.value(name);
+  return check.value("state") == "fail" ? check : QJsonObject();
+}
+
+namespace {
 
 // An upper bound of the package: the copied files' known sizes and a bound
 // of everything encoded from memory.
@@ -396,7 +383,7 @@ Items dependencyItems(Context& context, Document& document) {
   return result;
 }
 
-void checkDocument(Checks& checks, Document& document) {
+void checkDocument(PreflightChecks& checks, Document& document) {
   try {
     validateAutomationScene(*document.scene);
     checks.pass("document");
@@ -408,8 +395,8 @@ void checkDocument(Checks& checks, Document& document) {
   }
 }
 
-void checkPlace(Checks& checks, const PackageTarget& target,
-                const Facts& facts) {
+void checkPlace(PreflightChecks& checks, const PackageTarget& target,
+                const DestinationFacts& facts) {
   if (!facts.rootCode.isEmpty()) {
     checks.fail("root", facts.rootCode, facts.rootDetail);
     return;
@@ -454,7 +441,8 @@ void checkPlace(Checks& checks, const PackageTarget& target,
                    "not known until a save tries it.");
 }
 
-void checkSize(Checks& checks, const Estimate& bound, const Facts& facts) {
+void checkSize(PreflightChecks& checks, const Estimate& bound,
+               const DestinationFacts& facts) {
   if (!bound.code.isEmpty()) {
     checks.fail("size", bound.code, bound.detail);
     checks.unknown("space", "The package size cannot be estimated.");
@@ -484,7 +472,7 @@ void checkSize(Checks& checks, const Estimate& bound, const Facts& facts) {
     checks.pass("space");
 }
 
-void checkJournal(Checks& checks, Context& context) {
+void checkJournal(PreflightChecks& checks, Context& context) {
   Journal* journal = workspaceJournal(context);
   if (!journal)
     checks.fail("journal", "journal_unavailable",
@@ -496,7 +484,7 @@ void checkJournal(Checks& checks, Context& context) {
     checks.pass("journal");
 }
 
-void checkExternalPaths(Checks& checks, const Items& items) {
+void checkExternalPaths(PreflightChecks& checks, const Items& items) {
   for (const QJsonValue& value : items.rows) {
     const QJsonObject row = value.toObject();
     if (row.value("source") != "not_packaged" ||
@@ -517,7 +505,7 @@ void checkExternalPaths(Checks& checks, const Items& items) {
 }
 
 QJsonObject plan(Context& context, const PackageTarget& target,
-                 const Estimate& bound, const Facts& facts) {
+                 const Estimate& bound, const DestinationFacts& facts) {
   const QJsonObject location =
       target.root == "workspace"
           ? QJsonObject{{"root", "workspace"},
@@ -613,11 +601,11 @@ QJsonObject savePreflight(Context& context, const QJsonObject& params) {
   if (offset > items.rows.size())
     throw Error("invalid_params", "offset exceeds items_total.",
                 {{"items_total", items.rows.size()}});
-  const Facts facts    = target.root == "workspace"
-                             ? observeWorkspace(context, target)
-                             : observeOutputRoot(context, target);
+  const DestinationFacts facts =
+      target.root == "workspace" ? observeWorkspace(context, target)
+                                 : observeOutputDestination(context, target);
   const Estimate bound = estimate(*document.scene);
-  Checks checks;
+  PreflightChecks checks(checkNames());
   checkDocument(checks, document);
   checkPlace(checks, target, facts);
   checkSize(checks, bound, facts);

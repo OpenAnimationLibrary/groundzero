@@ -1068,11 +1068,13 @@
       "availability",
       "bytes_estimate",
       "coded_path",
+      "detail",
       "encoded_bytes_bound",
       "files_estimate",
       "free_bytes",
       "input_index",
       "known_bytes",
+      "name",
       "owner_id",
       "owner_kind",
       "package_path",
@@ -1082,6 +1084,7 @@
       "save_mode",
       "source",
       "staging",
+      "state",
       "upper_bound"
     ]
   },

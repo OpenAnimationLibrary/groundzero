@@ -17,11 +17,13 @@ class Context;
 // parent and published with one no-replace rename.
 
 // One regular file of a staged tree: its path relative to the tree, its size
-// and its SHA-256 as lowercase hex.
+// and its SHA-256 as lowercase hex. `source` names the private file the bytes
+// are read from when they do not lie at `path` under the staged tree.
 struct StagedEntry final {
   QString path;
   qint64 size = 0;
   QByteArray sha256;
+  QString source;
 };
 
 // Where a staged tree goes in an output root.
@@ -42,14 +44,19 @@ QString stagingContainerName(const QString& operationId);
 // `entries`; then rename it to `<parent>/<name>` without replacing and remove
 // the empty container. In a durable write the journal's stage record precedes
 // the container and the publication intent (with `intent`'s fields) precedes
-// the rename. On any failure before the rename the container and everything
-// copied into it are removed.
+// the rename. The stage record names the manifest of intent.package or
+// intent.delivery (its manifest_blob, manifest_bytes and manifest_name), so
+// recovery removes only the files it lists. On any failure before the rename
+// the container and everything copied into it are removed.
 //
 // Throws:
 //   Error: missing_parent, already_exists, root_unavailable, path_denied,
 //   publication_unsupported, or `failureCode` with details.stage (stage, copy,
-//   publish or flush), details.reason staged_changed when a staged file no
-//   longer matches its entry, and details.published.
+//   verify, publish or flush), details.file, details.published and, when
+//   known, details.reason: staged_changed (a staged file no longer matches its
+//   entry), copy_changed (a copy changed before publication), name_taken (the
+//   name appeared before the rename) or the system error's no_space,
+//   not_writable, device_lost or io_error.
 //
 // Returns the published directory's path below the root in its stored
 // spelling, which the journal records and results report.

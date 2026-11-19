@@ -286,12 +286,16 @@ QString journalContentDigest(const QString& path);
 void recordPublicationIntent(Context& context, const QString& staged,
                              const QString& target,
                              const QJsonObject& extra = {});
-// The same for a target named by its location (an output root's).
+// The same for a target named by its location (an output root's). `extra`
+// may name the tree's content_sha256 (else it is read from `staged`) and its
+// manifest_name (else manifest.json, read from `staged`); an intent with a
+// manifest_name is judged by its manifest's digest.
 void recordPublicationIntentAt(Context& context, const QString& staged,
                                const QJsonObject& location,
                                const QJsonObject& extra);
 // Before a staging container is made in an output root: the durable stage
-// record {operation_id, location, container} with `extra`'s fields.
+// record {operation_id, location, container} with `extra`'s fields; a
+// manifest_name among them names the manifest whose files recovery removes.
 void recordPublicationStage(Context& context, const QJsonObject& location,
                             const QString& container, const QJsonObject& extra);
 

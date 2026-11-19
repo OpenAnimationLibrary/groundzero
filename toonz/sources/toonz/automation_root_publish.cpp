@@ -248,39 +248,80 @@ Error copyError(const QString& code, const QString& message,
   return error;
 }
 
-// Copies one staged file into the container and proves the copy.
+// What a failed system call means for the destination.
+QString systemReason(int error) {
+  switch (error) {
+  case ENOSPC:
+  case EDQUOT:
+    return "no_space";
+  case EACCES:
+  case EPERM:
+  case EROFS:
+    return "not_writable";
+  case EIO:
+  case ENXIO:
+  case ENODEV:
+  case ENOENT:
+  case ESTALE:
+    return "device_lost";
+  default:
+    return "io_error";
+  }
+}
+
+// A copy that failed on a system call, with the reason its errno gives.
+Error systemCopyError(const QString& code, const QString& message,
+                      const QString& stage, const QString& file) {
+  return copyError(code, message, stage, file, systemReason(errno));
+}
+
+// Copies one staged file into the container and proves the copy. With
+// `noSpace` (test fault publish:no-space) its first write fails as on a full
+// volume.
 void copyEntry(const QString& staged, const StagedEntry& entry, int directory,
-               const QString& code) {
+               const QString& code, bool noSpace) {
   const QString name = nameOf(entry.path);
-  const Descriptor source(
-      ::open(QFile::encodeName(staged + '/' + entry.path).constData(),
-             O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+  const QString from =
+      entry.source.isEmpty() ? staged + '/' + entry.path : entry.source;
+  const Descriptor source(::open(QFile::encodeName(from).constData(),
+                                 O_RDONLY | O_NOFOLLOW | O_CLOEXEC));
+  if (source.get() < 0)
+    throw copyError(code, "Cannot open a staged file to copy it.", "copy",
+                    entry.path, "staged_changed");
   const Descriptor target(createExclusive(directory, name));
-  if (source.get() < 0 || target.get() < 0)
-    throw copyError(code, "Cannot copy a staged file into the output root.",
-                    "copy", entry.path);
+  if (target.get() < 0)
+    throw systemCopyError(code,
+                          "Cannot create a file in the staging container.",
+                          "copy", entry.path);
+  bool failed = noSpace;
+  errno       = noSpace ? ENOSPC : 0;
   QCryptographicHash hash(QCryptographicHash::Sha256);
   QByteArray buffer(int(CopyChunkBytes), Qt::Uninitialized);
   qint64 copied = 0;
-  for (;;) {
+  while (!failed) {
     const ssize_t got =
         ::read(source.get(), buffer.data(), size_t(buffer.size()));
     if (got < 0 && errno == EINTR) continue;
     if (got == 0) break;
-    if (got < 0 || !writeAll(target.get(), buffer.constData(), got))
-      throw copyError(code, "Cannot copy a staged file into the output root.",
-                      "copy", entry.path);
+    if (got < 0)
+      throw copyError(code, "Cannot read a staged file.", "copy", entry.path,
+                      "io_error");
+    failed = !writeAll(target.get(), buffer.constData(), got);
+    if (failed) break;
     hash.addData(buffer.constData(), int(got));
     copied += got;
   }
+  if (failed)
+    throw systemCopyError(code, "Cannot write a file into the output root.",
+                          "copy", entry.path);
   if (copied != entry.size || hash.result().toHex() != entry.sha256)
     throw copyError(code,
                     "A staged file changed after it was verified; nothing "
                     "was published.",
                     "copy", entry.path, "staged_changed");
   if (!fullSync(target.get()))
-    throw copyError(code, "Cannot flush a copied file to disk.", "flush",
-                    entry.path);
+    throw systemCopyError(code, "Cannot flush a copied file to disk.", "flush",
+                          entry.path);
 }
 
 // Reopens a copy by name and requires it unchanged, alone and regular.
@@ -323,25 +364,30 @@ void copyAll(Context& context, const QString& staged, const RootTarget& target,
              const QVector<StagedEntry>& entries, Container& container,
              const QString& code) {
   if (writeFaultFires(context, "publish:staged-changed") && !entries.isEmpty())
-    changeStagedFile(staged + '/' + entries.first().path);
+    changeStagedFile(entries.first().source.isEmpty()
+                         ? staged + '/' + entries.first().path
+                         : entries.first().source);
   if (container.directory(target.name) < 0)
-    throw copyError(code, "Cannot create the package in its container.",
-                    "stage", QString());
-  for (const StagedEntry& entry : entries) {
-    const QString inner = directoryOf(entry.path);
+    throw systemCopyError(code, "Cannot create the package in its container.",
+                          "stage", QString());
+  for (int index = 0; index < entries.size(); ++index) {
+    const StagedEntry& entry = entries.at(index);
+    const QString inner      = directoryOf(entry.path);
     const QString folder =
         inner.isEmpty() ? target.name : target.name + '/' + inner;
     const int directory = container.directory(folder);
     if (directory < 0)
-      throw copyError(code, "Cannot create a folder in the container.", "copy",
-                      entry.path);
+      throw systemCopyError(code, "Cannot create a folder in the container.",
+                            "copy", entry.path);
     container.created(folder + '/' + nameOf(entry.path));
-    copyEntry(staged, entry, directory, code);
+    const bool noSpace =
+        index == 1 && writeFaultFires(context, "publish:no-space");
+    copyEntry(staged, entry, directory, code, noSpace);
     verifyEntry(entry, directory, code);
   }
   if (!container.syncAll())
-    throw copyError(code, "Cannot flush the staging container to disk.",
-                    "flush", QString());
+    throw systemCopyError(code, "Cannot flush the staging container to disk.",
+                          "flush", QString());
 }
 
 }  // namespace
@@ -389,16 +435,18 @@ QString publishToRoot(Context& context, const QString& staged,
                                                 ? QUuid::createUuid().toString()
                                                 : context.writeOperation);
   const bool durable = context.writeClass == "publication";
-  const QJsonObject package = intent.value("package").toObject();
-  if (durable)
-    recordPublicationStage(
-        context, location, name,
-        {{"manifest_blob", package.value("manifest_blob")},
-         {"manifest_bytes", package.value("manifest_bytes")}});
+  const QJsonObject listing = intent.contains("delivery")
+                                  ? intent.value("delivery").toObject()
+                                  : intent.value("package").toObject();
+  QJsonObject listed{{"manifest_blob", listing.value("manifest_blob")},
+                     {"manifest_bytes", listing.value("manifest_bytes")}};
+  if (listing.contains("manifest_name"))
+    listed.insert("manifest_name", listing.value("manifest_name"));
+  if (durable) recordPublicationStage(context, location, name, listed);
   Container container(parent.get(), name);
   if (!container.make() || writeFaultFires(context, "publish:staged-container"))
-    throw copyError(failureCode, "Cannot create the staging container.",
-                    "stage", QString());
+    throw systemCopyError(failureCode, "Cannot create the staging container.",
+                          "stage", QString());
   copyAll(context, staged, target, entries, container, failureCode);
   if (writeFaultFires(context, "publish:copied"))
     throw copyError(failureCode, "Cannot publish the copied package.", "copy",
@@ -416,11 +464,13 @@ QString publishToRoot(Context& context, const QString& staged,
   case PublishResult::Unsupported:
     refuseUnsupported(context, parent.get());
   case PublishResult::Exists:
-  case PublishResult::Failed:
     throw copyError(failureCode,
-                    "Cannot publish the package: its name was taken or the "
-                    "move failed.",
-                    "publish", QString());
+                    "Cannot publish: the name appeared before the rename and "
+                    "was kept.",
+                    "publish", QString(), "name_taken");
+  case PublishResult::Failed:
+    throw systemCopyError(failureCode, "Cannot publish: the move failed.",
+                          "publish", QString());
   }
   container.published();
   writeFaultFires(context, "publish:renamed");
