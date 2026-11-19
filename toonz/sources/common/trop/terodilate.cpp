@@ -59,7 +59,8 @@ void copyChannels_erode(const TRasterPT<Pix> &src,
     Chan *m, *mBegin = matte->pixels(y);
 
     for (s = sBegin, d = dBegin, m = mBegin; s != sEnd; ++s, ++d, ++m) {
-      fac  = double(*m) / double(s->m);
+      // A transparent source pixel has no color to scale (and 0 / 0 is NaN)
+      fac  = s->m ? double(*m) / double(s->m) : 0.0;
       d->r = fac * s->r, d->g = fac * s->g, d->b = fac * s->b, d->m = *m;
     }
   }

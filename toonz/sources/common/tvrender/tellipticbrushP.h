@@ -7,6 +7,9 @@
 #include "tstroke.h"
 #include "tgl.h"  //tglPixelSize
 #include "tstrokeoutline.h"
+#include "tutil.h"
+
+#include <cmath>
 
 namespace tellipticbrush {
 
@@ -34,8 +37,47 @@ void buildEnvelopeVector(const TThickPoint &p, const TThickPoint &d, bool left,
 void buildEnvelopeVectors(const TThickPoint &p, const TThickPoint &d,
                           TPointD &resL, TPointD &resR);
 
-void buildAngularSubdivision(double radius, double angle, double err,
-                             int &nAngles);
+//! The most steps buildAngularSubdivision returns.
+const int maxAngularSteps = 1 << 16;
+
+/*!
+  Builds the angle that supports a *quality* discretization of the circle
+  with maximal error < m_pixSize.
+*/
+inline void buildAngularSubdivision(double radius, double angle, double err,
+                                    int &nAngles) {
+  /*
+See "Graphic Gems", page 600.
+
+NOTE: maxAngle is not multiplied by 2.0 as the naive pythagorical
+argument would pretend. The 2.0 holds if we want to find the angle
+at which the distance of the circle from its approximation is always < error.
+
+But we want MORE. We want that to happen against the distance from EVERY
+TANGENT LINE of the arc - not the arc itself.
+This is coherent with the assumption that pixels orientation is not known.
+
+It's easy to see that maxAngle just has to be not multiplied by 2.
+*/
+
+  // A circle of radius <= err / 2 (or a radius of 0) is within the error of
+  // any chord, so the largest step is half a turn. The argument of acos would
+  // otherwise be below -1 or not a number.
+  double cosMaxAngle = 1.0 - err / radius;
+  if (!(cosMaxAngle > -1.0)) cosMaxAngle = -1.0;
+  double maxAngle = acos(cosMaxAngle);  //* 2.0;
+
+  // For a radius so large that the step angle is 0 (or too small to count),
+  // the count is limited: the callers store about twice as many outline points,
+  // and past this many steps the circle is smoother than any pixel can show.
+  const double steps = fabs(angle) / maxAngle;
+  if (steps != steps)
+    nAngles = 0;  // no angle to cover and no step angle
+  else if (steps > maxAngularSteps)
+    nAngles = maxAngularSteps;
+  else
+    nAngles = tceil(steps);
+}
 
 TRectD computeBBox(const TStroke &stroke);
 
