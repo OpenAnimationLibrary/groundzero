@@ -974,6 +974,8 @@ QJsonValue listScenes(Context& context, const QJsonObject& params) {
 const QSet<QString>& forwardedTools() {
   static const QSet<QString> tools = {"scene.summary",
                                       "camera.inspect",
+                                      "camera.list",
+                                      "scene.properties.inspect",
                                       "level.inspect",
                                       "cast.list",
                                       "cast.usage",

@@ -315,10 +315,35 @@
    "toolset": "core",
    "writes": false
   },
+  "camera.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "camera.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "camera.inspect": {
    "origin": "worker",
    "toolset": "core",
    "writes": false
+  },
+  "camera.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "camera.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "camera.select": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
   },
   "camera.update": {
    "origin": "worker",
@@ -385,7 +410,22 @@
    "toolset": "core",
    "writes": true
   },
+  "column.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "column.expose": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "column.kinds": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "column.move": {
    "origin": "worker",
    "toolset": "core",
    "writes": true
@@ -870,6 +910,11 @@
    "toolset": "core",
    "writes": true
   },
+  "scene.guides.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "scene.inventory": {
    "origin": "worker",
    "toolset": "core",
@@ -885,7 +930,17 @@
    "toolset": "core",
    "writes": true
   },
+  "scene.output.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "scene.package_info": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.properties.inspect": {
    "origin": "worker",
    "toolset": "core",
    "writes": false
@@ -1416,11 +1471,15 @@
    "id": "scene.output_settings",
    "domain": "Projects and scenes",
    "outcome": "Edit output range, scale, markers and guide settings of a scene.",
-   "classification": "not_exposed",
-   "tools": [],
+   "classification": "exposed",
+   "tools": [
+    "scene.properties.inspect",
+    "scene.output.set",
+    "scene.guides.set",
+    "scene.settings"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W2"
+    "kind": "implemented"
    }
   },
   {
@@ -1683,7 +1742,7 @@
   {
    "id": "timeline.cell_and_time_edits",
    "domain": "Timeline and columns",
-   "outcome": "Write explicit drawing runs, clear cells, insert or remove time, copy or move blocks, retime intervals and replace exposed drawings over several columns at once.",
+   "outcome": "Write explicit drawing runs, clear cells, insert or remove time, copy or move blocks, retime intervals and replace exposed drawings over several columns at once; move columns and duplicate them with shared artwork.",
    "classification": "exposed",
    "tools": [
     "cells.set",
@@ -1692,7 +1751,9 @@
     "cells.remove",
     "cells.copy",
     "cells.retime",
-    "cells.replace"
+    "cells.replace",
+    "column.move",
+    "column.duplicate"
    ],
    "disposition": {
     "kind": "implemented"
@@ -1902,11 +1963,16 @@
    "id": "camera.create_and_select",
    "domain": "Stage, camera and animation",
    "outcome": "Create, duplicate and delete cameras and choose the active one.",
-   "classification": "not_exposed",
-   "tools": [],
+   "classification": "exposed",
+   "tools": [
+    "camera.list",
+    "camera.create",
+    "camera.duplicate",
+    "camera.select",
+    "camera.remove"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W2"
+    "kind": "implemented"
    }
   },
   {
@@ -2994,6 +3060,18 @@
     "operation.status",
     "operation.list",
     "journal.status"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "timeline.column_kinds",
+   "domain": "Timeline and columns",
+   "outcome": "See every native column kind with the tool that creates, edits and deletes it, or why it is unavailable.",
+   "classification": "exposed",
+   "tools": [
+    "column.kinds"
    ],
    "disposition": {
     "kind": "implemented"

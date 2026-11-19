@@ -13,6 +13,9 @@
 #include "toonz/txsheet.h"
 #include "toonz/txshcell.h"
 
+#include <algorithm>
+#include <vector>
+
 #include "toonz/txsheetexpr.h"
 #include "toonz/columnfan.h"
 #include "../include/orientation.h"
@@ -322,6 +325,41 @@ void TStageObjectTree::removeStageObject(const TStageObjectId &id) {
 #ifndef NDEBUG
   checkIntegrity();
 #endif
+}
+
+//-----------------------------------------------------------------------------
+
+int TStageObjectTree::compactCameraIds() {
+  std::map<TStageObjectId, TStageObject*>& pegbars = m_imp->m_pegbarTable;
+  std::vector<std::pair<TStageObjectId, TStageObject*>> cameras;
+  for (const auto& entry : pegbars)
+    if (entry.first.isCamera()) cameras.push_back(entry);
+  std::sort(cameras.begin(), cameras.end(),
+            [](const std::pair<TStageObjectId, TStageObject*>& left,
+               const std::pair<TStageObjectId, TStageObject*>& right) {
+              return left.first.getIndex() < right.first.getIndex();
+            });
+  int renumbered = 0;
+  for (int index = 0; index < (int)cameras.size(); ++index) {
+    const TStageObjectId from = cameras[index].first;
+    const TStageObjectId to   = TStageObjectId::CameraId(index);
+    if (from == to) continue;
+    TStageObject* camera   = cameras[index].second;
+    const std::string name = camera->getName();
+    pegbars.erase(from);
+    pegbars[to] = camera;
+    camera->setId(to);
+    camera->setName(name);
+    if (m_imp->m_currentCameraId == from) m_imp->m_currentCameraId = to;
+    if (m_imp->m_currentPreviewCameraId == from)
+      m_imp->m_currentPreviewCameraId = to;
+    ++renumbered;
+  }
+  if (renumbered) TMutation::advanceGeneration(m_imp->m_membershipGeneration);
+#ifndef NDEBUG
+  checkIntegrity();
+#endif
+  return renumbered;
 }
 
 //-----------------------------------------------------------------------------

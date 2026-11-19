@@ -103,8 +103,31 @@
     "handler": "mixdown",
     "read": []
   },
+  "camera.create": {
+    "handler": "createCamera",
+    "read": []
+  },
+  "camera.duplicate": {
+    "handler": "duplicateCamera",
+    "read": []
+  },
   "camera.inspect": {
     "handler": "inspectCamera",
+    "read": []
+  },
+  "camera.list": {
+    "handler": "listCameras",
+    "read": []
+  },
+  "camera.remove": {
+    "handler": "removeCamera",
+    "read": [
+      "new_parent_id",
+      "object_id"
+    ]
+  },
+  "camera.select": {
+    "handler": "selectCamera",
     "read": []
   },
   "camera.update": {
@@ -206,11 +229,46 @@
   },
   "column.delete": {
     "handler": "deleteColumn",
-    "read": []
+    "read": [
+      "object_id",
+      "parent_id"
+    ]
+  },
+  "column.duplicate": {
+    "handler": "duplicateColumn",
+    "read": [
+      "fx_id",
+      "source_fx_id"
+    ]
   },
   "column.expose": {
     "handler": "exposeColumn",
     "read": []
+  },
+  "column.kinds": {
+    "handler": "columnKinds",
+    "read": [
+      "available",
+      "cell_tools",
+      "create_tool",
+      "create_toolset",
+      "creatable",
+      "delete_tool",
+      "duplicable",
+      "kind",
+      "movable",
+      "native_type",
+      "reason"
+    ]
+  },
+  "column.move": {
+    "handler": "moveColumns",
+    "read": [
+      "column_id",
+      "position_after",
+      "position_before",
+      "level_id"
+    ]
   },
   "column.update": {
     "handler": "updateColumn",
@@ -603,6 +661,10 @@
     "handler": "discardScene",
     "read": []
   },
+  "scene.guides.set": {
+    "handler": "setGuides",
+    "read": []
+  },
   "scene.inventory": {
     "handler": null,
     "read": []
@@ -615,8 +677,16 @@
     "handler": "openReadOnly",
     "read": []
   },
+  "scene.output.set": {
+    "handler": "setOutput",
+    "read": []
+  },
   "scene.package_info": {
     "handler": null,
+    "read": []
+  },
+  "scene.properties.inspect": {
+    "handler": "inspectProperties",
     "read": []
   },
   "scene.save_copy": {

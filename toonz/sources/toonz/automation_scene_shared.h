@@ -10,6 +10,7 @@
 
 class TFrameId;
 class TStageObjectTree;
+class ToonzScene;
 
 namespace GroundzeroAutomation {
 
@@ -59,14 +60,27 @@ QJsonValue updateSettings(Context& context, const QJsonObject& params);
 
 void addCameraOperations(QJsonArray& catalog);
 void addCameraHandlers(SceneHandlers& handlers);
+void addCameraSheetOperations(QJsonArray& catalog);
+void addCameraSheetHandlers(SceneHandlers& handlers);
 void addLevelOperations(QJsonArray& catalog);
 void addLevelHandlers(SceneHandlers& handlers);
 void addColumnOperations(QJsonArray& catalog);
 void addColumnHandlers(SceneHandlers& handlers);
+void addColumnSheetOperations(QJsonArray& catalog);
+void addColumnSheetHandlers(SceneHandlers& handlers);
 void addCellOperations(QJsonArray& catalog);
 void addCellHandlers(SceneHandlers& handlers);
 void addCellToolOperations(QJsonArray& catalog);
 void addCellToolHandlers(SceneHandlers& handlers);
+void addOutputOperations(QJsonArray& catalog);
+void addOutputHandlers(SceneHandlers& handlers);
+
+/// Schema of an explicit {r, g, b, a} scene background color.
+QJsonObject backgroundColorSchema();
+/// Set the scene background from params.background_color, when given.
+void applyBackgroundColor(ToonzScene& scene, const QJsonObject& params);
+/// Whether params leave the scene background as it is.
+bool sameBackgroundColor(ToonzScene& scene, const QJsonObject& params);
 
 }  // namespace SceneShared
 }  // namespace GroundzeroAutomation

@@ -240,7 +240,8 @@ QJsonObject propertiesSection(ToonzScene& scene) {
           {"field_guide", QJsonObject{{"size", properties.getFieldGuideSize()},
                                       {"aspect_ratio",
                                        properties.getFieldGuideAspectRatio()}}},
-          {"markers", QJsonArray{distance, offset, secondary}},
+          // The third native marker value follows a preference, not the scene.
+          {"markers", QJsonArray{distance, offset}},
           {"ruler_guides",
            QJsonObject{{"horizontal", guidesRecord(properties.getHGuides())},
                        {"vertical", guidesRecord(properties.getVGuides())}}},

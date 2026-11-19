@@ -1155,6 +1155,38 @@
      }
     }
    ]
+  },
+  "two_columns": {
+   "extends": "exposed",
+   "steps": [
+    {
+     "tool": "column.create",
+     "args": {
+      "name": "Second"
+     },
+     "save": {
+      "column2": "column_id"
+     }
+    }
+   ]
+  },
+  "two_cameras": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "camera.create",
+     "args": {
+      "name": "Side",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 1,
+      "height_in": 1
+     },
+     "save": {
+      "camera2": "camera.camera_id"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -7093,6 +7125,317 @@
      "length": 2,
      "operation": {
       "kind": "reverse"
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "column.move": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_columns",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "column order",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "before_position": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column",
+       "$column"
+      ],
+      "before_position": 0
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "before_position": 2
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "column.duplicate": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "adds one column with a copied stage object",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_id": "$column",
+     "name": "Copy",
+     "parent_policy": "table",
+     "fx_policy": "column_only"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_id": "$column",
+      "name": "Copy",
+      "position": 99,
+      "parent_policy": "table",
+      "fx_policy": "column_only"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "every call adds a column"
+  },
+  "camera.create": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "adds a camera",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "name": "Extra",
+     "width_px": 8,
+     "height_px": 8,
+     "width_in": 1,
+     "height_in": 1
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": "Camera9",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 1,
+      "height_in": 1
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "every call adds a camera"
+  },
+  "camera.duplicate": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "adds a copied camera",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "name": "Copy",
+     "parent_policy": "none"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "name": "Side",
+      "parent_policy": "none"
+     },
+     "code": "name_conflict"
+    }
+   ],
+   "no_noop": "every call adds a camera"
+  },
+  "camera.select": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "output and preview camera roles",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "roles": [
+      "output"
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "roles": [
+       "output",
+       "output"
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "camera_id": "$camera2",
+     "roles": [
+      "output"
+     ]
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "camera.remove": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "removes a camera and packs camera numbers",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "children_policy": "refuse"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "children_policy": "refuse",
+      "replacement": {
+       "output": "$camera2"
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "a removed camera cannot be removed again"
+  },
+  "scene.output.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "stored output or preview settings",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.properties.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "apply_to": [
+      "preview"
+     ],
+     "settings": {
+      "shrink": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "apply_to": [
+       "output"
+      ],
+      "sync_color_settings": true
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "apply_to": [
+      "preview"
+     ],
+     "settings": {
+      "shrink": 2
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "scene.guides.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "field guide, markers or ruler guides",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.properties.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "markers": {
+      "interval": 8,
+      "start_frame": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "markers": {}
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "markers": {
+      "interval": 8,
+      "start_frame": 2
      }
     },
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."

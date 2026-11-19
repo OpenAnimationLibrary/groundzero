@@ -145,6 +145,15 @@ TStageObjectId \b \e id.
 */
   void removeStageObject(const TStageObjectId &id);
   /*!
+    Re-keys the cameras so their indices run 0..n-1 in their present order,
+    keeping each TStageObject, its children, curves and layers. The current
+    and preview camera ids follow their cameras, and a renumbered camera with
+    no stored name keeps the name it showed. Scenes store cameras as a packed
+    list, so a gap left by removing a camera would otherwise reload as a
+    phantom camera. Returns the number of cameras renumbered.
+  */
+  int compactCameraIds();
+  /*!
           Inserts in current stage object tree the object \b \e object.
           The \b \e object must exist.
 \sa removeStageObject() and insertColumn()

@@ -130,6 +130,7 @@ QJsonValue createScene(Context& context, const QJsonObject& params) {
       QDir(context.workspace()).filePath(name + ".tnz").toStdWString()));
   applySettings(*scene, {1920, 1080, 16.0, 9.0, 24.0});
   applySettings(*scene, readSettings(params, *scene));
+  applyBackgroundColor(*scene, params);
   context.markMutationStarted();
   Document& document = context.addDocument(std::move(scene));
   return describeScene(document);
@@ -147,13 +148,17 @@ QJsonValue SceneShared::updateSettings(Context& context,
   Document& document      = getDocument(context, params);
   const Settings settings = readSettings(params, *document.scene);
   const Settings current  = readSettings({}, *document.scene);
-  if (settings.width == current.width && settings.height == current.height &&
-      settings.widthIn == current.widthIn &&
-      settings.heightIn == current.heightIn && settings.fps == current.fps)
+  const bool cameraChanged =
+      settings.width != current.width || settings.height != current.height ||
+      settings.widthIn != current.widthIn ||
+      settings.heightIn != current.heightIn || settings.fps != current.fps;
+  if (!cameraChanged && sameBackgroundColor(*document.scene, params))
     return describeScene(document);
-  TStageObject* camera = tree(document)->getStageObject(
-      tree(document)->getCurrentCameraId(), false);
-  requireEditable(document, camera);
+  if (cameraChanged) {
+    TStageObject* camera = tree(document)->getStageObject(
+        tree(document)->getCurrentCameraId(), false);
+    requireEditable(document, camera);
+  }
   // Native clip positions are rounded when the frame rate changes.
   if (settings.fps != current.fps &&
       automationSceneHasSoundClips(*document.scene))
@@ -161,7 +166,8 @@ QJsonValue SceneShared::updateSettings(Context& context,
                 "Remove every sound clip before changing the frame rate.",
                 {{"frame_rate", current.fps}});
   context.markMutationStarted();
-  applySettings(*document.scene, settings);
+  if (cameraChanged) applySettings(*document.scene, settings);
+  applyBackgroundColor(*document.scene, params);
   return describeScene(document);
 }
 
@@ -713,6 +719,7 @@ QJsonValue sampleAnimation(Context& context, const QJsonObject& params) {
 void addSceneOperations(QJsonArray& catalog) {
   QJsonObject settings = cameraSchema();
   settings.insert("frame_rate", numberSchema(1, 240));
+  settings.insert("background_color", backgroundColorSchema());
   catalog.append(operation(
       "project.inspect",
       "Inspect the worker's private project and documents; with a project_id "
@@ -732,7 +739,8 @@ void addSceneOperations(QJsonArray& catalog) {
                       {{"include_drawings", QJsonObject{{"type", "boolean"}}}}),
                 {"document_id"}));
   catalog.append(operation(
-      "scene.settings", "Set explicit frame rate, pixels and physical inches.",
+      "scene.settings",
+      "Set explicit frame rate, pixels, physical inches and background color.",
       merge(documentSchema(), settings), {"document_id"}, true));
   catalog.append(
       operation("scene.discard",

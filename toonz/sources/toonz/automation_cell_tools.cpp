@@ -914,6 +914,9 @@ void addCellToolHandlers(SceneHandlers& handlers) {
 QJsonArray sheetOperations() {
   QJsonArray catalog;
   SceneShared::addCellToolOperations(catalog);
+  SceneShared::addColumnSheetOperations(catalog);
+  SceneShared::addCameraSheetOperations(catalog);
+  SceneShared::addOutputOperations(catalog);
   return catalog;
 }
 
@@ -922,6 +925,9 @@ QJsonValue executeSheet(Context& context, const QString& method,
   static const SceneShared::SceneHandlers handlers = [] {
     SceneShared::SceneHandlers result;
     SceneShared::addCellToolHandlers(result);
+    SceneShared::addColumnSheetHandlers(result);
+    SceneShared::addCameraSheetHandlers(result);
+    SceneShared::addOutputHandlers(result);
     return result;
   }();
   const auto handler = handlers.find(method);

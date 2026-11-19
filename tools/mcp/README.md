@@ -522,6 +522,47 @@ effect parameter with `fx.parameter.set_key`; remap curves have no edit tool. A 
 expression, file or similar-shape keys is listed with its keys marked unsupported, without
 their text, and `animation.sample` refuses it with `unsupported_interpolation`.
 
+`scene.properties.inspect` reports the stored output and preview blocks (range,
+effective range at the current frame count, step, shrink, bpp, aspect export, frame rate),
+the color-settings sync flag, column filters, background color, field guide, markers and
+ruler guides in inches, and one `settings_scope` row per setting: whether it is scene data,
+a project default, machine tuning or editor view state (safe area, viewer aspect guides,
+camera box), and which tool edits it. `scene.output.set` changes only the blocks named in
+`apply_to`; 128 bpp and linear color are not settable. Worker renders take their own
+explicit settings and never read these stored ones. `scene.guides.set` replaces the field
+guide, markers or each ruler guide list; guides change no rendered pixel. `scene.create`
+and `scene.settings` take an explicit `background_color`. Guides, the field guide ratio
+and the aspect export ratio are saved at full precision.
+
+`camera.list` pages through the sheet's cameras with their output and preview roles;
+`camera.inspect` and `camera.update` take an optional `camera_id` (the output camera
+otherwise) and report DPI per axis, square pixels and the interest rectangle. A
+resolution change while an interest rectangle is set needs `interest_rect` (null clears
+it), since the native resolution setter would drop it. `camera.create` takes an explicit
+name, resolution and size; names are unique and never `Camera<digits>`, which native
+code ties to the camera number. `camera.duplicate` copies curves, cycle flags and offset
+layers independently. `camera.select` sets the output (render) and preview roles.
+`camera.remove` refuses the last camera, needs a replacement for each role the camera
+holds and `children_policy: "reattach_to_parent"` for stage children, and keeps camera
+numbers packed: higher cameras are renumbered with their handles, curves and children,
+and one with no stored name keeps the name it showed. Without packing, a gap reloads as
+a phantom camera.
+
+`column.create` appends a column or inserts it before `position`; `column.move` moves a
+block of columns, in their current order, before a position of the original order. In
+both, every column keeps its handle, stage object, parent, curves and FX links.
+`column.update` sets `visible` (both flags) or `preview_visible` (renders) and
+`camstand_visible` (viewer) separately, and `color_filter_id` (one of the scene's
+filters). `column.delete` refuses a column whose FX feeds an effect until `fx_policy` is
+`delete_exclusive` (removes the effects fed only by the column) or `disconnect` (keeps
+them with an empty port), and a column with stage children until `children_policy` is
+`reattach_to_parent` (children move to the column's parent with their local keys;
+`report_frames` returns their world change). `column.duplicate` copies a level column in
+its sheet: cells share the same levels, the stage object, its curves and offset layers
+are copied independently, the parent is kept or set to the table, and
+`fx_policy: "exclusive_branch"` also copies the effects fed only by the source.
+`column.kinds` lists every native column kind with the tools that create and delete it.
+
 The cell tools are the `sheet` toolset (start the adapter with `--toolsets sheet`, or
 enable it with `toolsets.enable`). They edit up to 64 level columns per call, all or nothing; rows are
 zero-based frames valid at the call's `expected_revision`. `cells.set` writes explicit

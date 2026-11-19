@@ -136,12 +136,47 @@ void testRefusals(Context& context) {
   });
 }
 
+// P-WS-6: removing a middle camera and packing the ids keeps every object,
+// child, curve, name and role, and the record shows no gap.
+void testCameraCompaction(Context& context) {
+  auto scene                = fixture(context);
+  TStageObjectTree* objects = scene->getXsheet()->getStageObjectTree();
+  TStageObject* middle = objects->getStageObject(TStageObjectId::CameraId(1));
+  TStageObject* last   = objects->getStageObject(TStageObjectId::CameraId(2));
+  middle->setName("Middle");
+  last->getParam(TStageObject::T_X)->setValue(4, 2.0);
+  TStageObject* child = objects->getStageObject(TStageObjectId::PegbarId(0));
+  child->setParent(last->getId());
+  objects->setCurrentCameraId(last->getId());
+  objects->removeStageObject(middle->getId());
+  require(objects->compactCameraIds() == 1, "one camera renumbered");
+  require(objects->getStageObject(TStageObjectId::CameraId(1), false) == last,
+          "the last camera keeps its object under the packed id");
+  require(
+      objects->getStageObject(TStageObjectId::CameraId(2), false) == nullptr,
+      "no camera is left at the old id");
+  require(last->getName() == "Camera3", "an unnamed camera keeps its name");
+  require(child->getParent() == last->getId(), "children follow");
+  require(last->getParam(TStageObject::T_X)->getKeyframeCount() == 1,
+          "curves follow");
+  require(objects->getCurrentCameraId() == last->getId(), "roles follow");
+  const QJsonArray cameras = automationSheetRecord(*scene)
+                                 .value("cameras")
+                                 .toObject()
+                                 .value("cameras")
+                                 .toArray();
+  require(cameras.size() == 2 &&
+              cameras.at(1).toObject().value("index").toInt() == 1,
+          "the record lists packed cameras");
+}
+
 }  // namespace
 
 void runAutomationSheetRecordTests(Context& context) {
   testRuns(context);
   testDifferencePath(context);
   testRefusals(context);
+  testCameraCompaction(context);
 }
 
 }  // namespace GroundzeroAutomation

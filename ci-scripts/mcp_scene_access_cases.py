@@ -35,6 +35,8 @@ TERMINAL = {"completed", "failed", "canceled", "deadline_exceeded"}
 FORWARDED = {
     "scene.summary",
     "camera.inspect",
+    "camera.list",
+    "scene.properties.inspect",
     "level.inspect",
     "cast.list",
     "cast.usage",
