@@ -310,19 +310,38 @@ def render_worker_killed_mid_preview_then_new_worker(case: NativeAcceptance) -> 
     case.assertEqual(len(_renders(case)), 1)
 
 
-@acceptance_case
+@acceptance_case(worker_only="needs --test-render-storage-budget, which the adapter never passes")
 def render_storage_budget_refuses_before_creating_anything(case: NativeAcceptance) -> None:
-    """Refuse the job that would exceed the worker's output budget, leaving the others intact."""
+    """Refuse the job that would exceed the worker's output budget, leaving the others intact.
+
+    The budget is lowered to one job's reservation (4 bytes a pixel and 64 KiB a frame): a
+    finished job keeps only the bytes it wrote, so the real 4 GiB cannot be reached before the
+    32 retained jobs are. The first job fits exactly; what it wrote leaves no room for another.
+    """
+    budget = 2048 * 2048 * 4 + 65536
+    _fault_worker(case, "render-budget", "--test-render-storage-budget", str(budget))
     document = _scene(case)
     big = {"start_frame": 0, "end_frame": 0, "width": 2048, "height": 2048}
     kept = []
-    for _ in range(7):
-        job = case.mutate("render.submit", document, **big)["job_id"]
+    refused = None
+    for _ in range(3):
+        response = case.worker.call("render.submit", case.write_params(document, big))
+        if "error" in response:
+            refused = response["error"]
+            break
+        job = response["result"]["job_id"]
         case.assertEqual(case.wait_job(job)["status"], "completed")
         kept.append(job)
+    case.assertIsNotNone(refused, "the storage budget never refused a job")
+    case.assertEqual(len(kept), 1)
     before = [path.name for path in _renders(case)]
     error = case.failure("render.submit", case.write_params(document, big))
     case.assertEqual(error["code"], "render_limit", error)
+    case.assertEqual(error, refused, refused)
+    case.assertEqual(
+        (error["details"]["reason"], error["details"]["max_bytes"]),
+        ("worker_reservation", budget),
+    )
     case.assertIn("storage", error["message"])
     case.assertEqual([path.name for path in _renders(case)], before)
     for job in kept:
@@ -404,9 +423,15 @@ def _submit_on_full_disk(case: NativeAcceptance, document: str, workspace: Path)
     return "failed"
 
 
-@acceptance_case
+@acceptance_case(
+    worker_only="needs --test-render-free-space-unchecked, which the adapter never passes"
+)
 def render_disk_full_fails_cleanly_and_recovers(case: NativeAcceptance) -> None:
-    """Run out of disk during a render: a typed failure, no partial output, then recovery."""
+    """Run out of disk during a render: a typed failure, no partial output, then recovery.
+
+    The free-space check of the render preflight is off, or it would refuse every submit on
+    a disk this small before a frame is written.
+    """
     if sys.platform != "darwin":
         case.skipTest("Builds its small disk with hdiutil, which only macOS provides")
     image = case.directory / "small.dmg"
@@ -430,7 +455,11 @@ def render_disk_full_fails_cleanly_and_recovers(case: NativeAcceptance) -> None:
     case.worker.close()
     case.workspace = workspace
     case.worker = Worker(
-        case.executable, workspace, case.inputs, case.directory / "disk-worker.stderr.log"
+        case.executable,
+        workspace,
+        case.inputs,
+        case.directory / "disk-worker.stderr.log",
+        test_arguments=("--test-render-free-space-unchecked",),
     )
     case.addCleanup(case.worker.close)
     document = _scene(case, 24)

@@ -120,6 +120,8 @@ struct Options {
 #ifdef BUILD_UI_PORT_TESTS
   bool testDomains = false;
   int testRenderDeadlineMs = 0;
+  bool testRenderFreeSpaceUnchecked = false;
+  qint64 testRenderStorageBudget    = 0;
   QString childFault;
   QString renderFault;
   QString writeFault;
@@ -430,6 +432,14 @@ Options parseOptions(const QStringList& arguments) {
     }
     if (key == "--test-render-deadline-ms" && index + 1 < arguments.size()) {
       options.testRenderDeadlineMs = arguments[++index].toInt();
+      continue;
+    }
+    if (key == "--test-render-storage-budget" && index + 1 < arguments.size()) {
+      options.testRenderStorageBudget = arguments[++index].toLongLong();
+      continue;
+    }
+    if (key == "--test-render-free-space-unchecked") {
+      options.testRenderFreeSpaceUnchecked = true;
       continue;
     }
     if (key == "--test-child-fault" && index + 1 < arguments.size()) {
@@ -898,6 +908,9 @@ int executeWorker(QApplication& application, QFile& output,
 #ifdef BUILD_UI_PORT_TESTS
   if (options.testRenderDeadlineMs > 0)
     context.renderDeadlineMs = options.testRenderDeadlineMs;
+  context.renderFreeSpaceChecked = !options.testRenderFreeSpaceUnchecked;
+  if (options.testRenderStorageBudget > 0)
+    context.renderStorageBudget = options.testRenderStorageBudget;
   // An MCP client's worker is started by the adapter, which passes no test
   // flags; its tests set the child fault in the environment instead.
   context.childFault = options.childFault.isEmpty()

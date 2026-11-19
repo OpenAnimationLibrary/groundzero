@@ -1486,12 +1486,12 @@ private:
     const qint64 reserved =
         jobRegistry(m_context).reservedBytes(JobLane::Render) +
         m_plan.request.reserveBytes();
-    if (reserved > RenderWorkerBytes) {
+    if (reserved > m_context.renderStorageBudget) {
       QJsonObject details = retentionDetails(m_context, JobLane::Render);
       details.insert("limit", "render_storage");
       details.insert("reason", "worker_reservation");
       details.insert("reserved_bytes", double(reserved));
-      details.insert("max_bytes", double(RenderWorkerBytes));
+      details.insert("max_bytes", double(m_context.renderStorageBudget));
       return check.fail(
           "render_limit",
           "This worker has reached its render output storage limit. "
@@ -1501,7 +1501,8 @@ private:
     }
     const qint64 available =
         QStorageInfo(m_context.workspace()).bytesAvailable();
-    if (available < m_plan.request.reserveBytes() + RenderFreeSpaceMargin)
+    if (m_context.renderFreeSpaceChecked &&
+        available < m_plan.request.reserveBytes() + RenderFreeSpaceMargin)
       check.fail("render_limit",
                  "The workspace volume has too little free space for this "
                  "render.",

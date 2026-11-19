@@ -188,6 +188,12 @@ public:
   // Wall-clock budget of one render job; past it the job ends as
   // deadline_exceeded with no artifacts.
   int renderDeadlineMs = 600000;
+  // Whether a render is refused when the workspace volume lacks free space
+  // for it; a test flag turns the check off to reach a disk that fills
+  // mid-render.
+  bool renderFreeSpaceChecked = true;
+  // Bytes the render lane may reserve in this worker; a test flag lowers it.
+  qint64 renderStorageBudget = 4LL * 1024 * 1024 * 1024;
   // Set once from validated startup configuration, keyed by shared root role.
   QMap<QString, SharedRootGrant> sharedRoots;
   // Set once from validated startup configuration, keyed by output root name.

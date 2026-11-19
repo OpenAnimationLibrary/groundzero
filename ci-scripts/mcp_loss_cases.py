@@ -149,12 +149,16 @@ def render_losing_write_permission_ends_failed_and_recovers(case: NativeAcceptan
 
 
 def _volume(case: NativeAcceptance) -> Path:
-    """Attach a small APFS disk image and make sure it is force-detached when the case ends."""
-    image = case.directory / "removable.dmg"
+    """Attach an APFS disk image and make sure it is force-detached when the case ends.
+
+    It is sparse and larger than the free space a render keeps beyond its own reservation.
+    """
+    image = case.directory / "removable.sparseimage"
     mount = case.directory / "removable-volume"
     mount.mkdir()
     subprocess.run(
-        ["hdiutil", "create", "-size", "32m", "-fs", "APFS", "-volname", "GONE", str(image)],
+        ["hdiutil", "create", "-size", "1400m", "-type", "SPARSE", "-fs", "APFS"]
+        + ["-volname", "GONE", str(image)],
         check=True,
         capture_output=True,
     )
