@@ -200,6 +200,8 @@ def automation_processes_stay_in_the_background(case: NativeAcceptance) -> None:
     case.assertTrue(case.preview(case.create("Background")).startswith(b"\x89PNG"))
     params = {"document_id": opened["document_id"], "expected_revision": "0"}
     case.success("scene.discard", {**params, "operation_id": "background-discard"})
+    _elapsed, code = close_and_time(case, prober)
+    case.assertEqual(code, DEADLINE_EXIT, "input ended while the probe helper hung")
 
 
 def _graphics(case: NativeAcceptance, worker: Worker, *probes: str) -> dict[str, Any]:
