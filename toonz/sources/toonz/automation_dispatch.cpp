@@ -1,5 +1,6 @@
 #include "automation_dispatch.h"
 #include "automation_effects.h"
+#include "automation_grants.h"
 #include "automation_production.h"
 #include "automation_assistance.h"
 #include "automation_text.h"
@@ -255,7 +256,7 @@ QJsonValue callHandler(QJsonValue (*handler)(Context&, const QString&,
   }
 }
 
-QString toolsetDescription(const QString& toolset) {
+const QMap<QString, QString>& toolsetDescriptions() {
   static const QMap<QString, QString> descriptions = {
       {"core",
        "Scenes, levels, drawings, palettes, animation, motion paths, FX, "
@@ -279,8 +280,12 @@ QString toolsetDescription(const QString& toolset) {
       {"lipsync",
        "Lip-sync timing import from Papagayo and Rhubarb files and exact "
        "application to drawing columns."}};
-  const auto found = descriptions.constFind(toolset);
-  if (found == descriptions.constEnd())
+  return descriptions;
+}
+
+QString toolsetDescription(const QString& toolset) {
+  const auto found = toolsetDescriptions().constFind(toolset);
+  if (found == toolsetDescriptions().constEnd())
     throw Error("internal_error",
                 "A native operation names an undescribed toolset.");
   return found.value();
@@ -319,6 +324,8 @@ QJsonObject describeTools(const QJsonArray& catalog,
 }
 
 }  // namespace
+
+QStringList toolsetNames() { return toolsetDescriptions().keys(); }
 
 void checkResult(const QJsonObject& descriptor, const QJsonValue& result) {
   const QJsonObject schema = descriptor.value("outputSchema").toObject();
@@ -398,6 +405,8 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
       },
       "core");
   m_context.toolsets = m_toolsets.keys();
+  m_authorityDigest  = authorityReport(m_context).value("digest").toString();
+  m_instance         = jobRegistry(m_context).instance();
 }
 
 void Dispatcher::addWorkerOperation(QJsonObject descriptor) {
@@ -422,8 +431,15 @@ void Dispatcher::add(const QJsonArray& operations, Handler handler,
   toolsetDescription(toolset);
   for (const QJsonValue& value : operations) {
     QJsonObject descriptor = value.toObject();
+    const QString name     = descriptor.value("name").toString();
+    // A tool the effect table declares takes its row, and with it its grants.
+    if (descriptor.contains("effects") && declaredToolNames().contains(name))
+      throw Error(
+          "internal_error",
+          "Tool " + name +
+              " brings its own effects; its row in "
+              "toolDeclarations (automation_effects.cpp) declares them.");
     if (!descriptor.contains("effects")) descriptor = declaredTool(descriptor);
-    const QString name = descriptor.value("name").toString();
     if (name.isEmpty() || m_entries.contains(name))
       throw Error(
           "internal_error",
@@ -476,7 +492,8 @@ QJsonValue Dispatcher::execute(const QString& method,
           {"media_tools_configured", !m_context.mediaToolsDirectory.isEmpty()},
           {"platform", runtimePlatform()},
           {"isolation", "private_process"},
-          {"read_only_scenes", readOnlyCapabilities(m_context)}};
+          {"read_only_scenes", readOnlyCapabilities(m_context)},
+          {"authority", authorityReport(m_context)}};
     return QJsonObject{{"documents", documentRows(m_context)}};
   }
   if (!m_context.sceneHostDocument.isEmpty() &&
@@ -486,7 +503,8 @@ QJsonValue Dispatcher::execute(const QString& method,
   if (found == m_entries.constEnd())
     throw Error("method_not_found",
                 "The requested operation is not available.");
-  const Entry& entry  = found.value();
+  const Entry& entry = found.value();
+  requireGrants(m_context, entry.descriptor, params);
   refuseReadOnlyEarly(m_context, method, params, entry.descriptor);
   const bool readOnly = entry.descriptor.value("annotations")
                             .toObject()
@@ -510,9 +528,29 @@ QJsonValue Dispatcher::invoke(const Entry& entry, const QString& method,
   return callHandler(entry.handler, m_context, method, params);
 }
 
+Dispatcher::Receipt Dispatcher::receiptKey(const QString& method,
+                                           const QJsonObject& params) const {
+  const auto digest = [&](const QJsonObject& key) {
+    return QCryptographicHash::hash(
+        QJsonDocument(key).toJson(QJsonDocument::Compact),
+        QCryptographicHash::Sha256);
+  };
+  const QJsonObject request{{"method", method},
+                            {"params", params},
+                            {"worker_instance_id", m_instance}};
+  QJsonObject bound = request;
+  bound.insert("authority_digest", m_authorityDigest);
+  return {digest(bound), digest(request), {}};
+}
+
 QJsonObject Dispatcher::replayReceipt(const Receipt& receipt,
-                                      const QByteArray& fingerprint) const {
-  if (receipt.fingerprint != fingerprint)
+                                      const Receipt& key) const {
+  if (receipt.fingerprint != key.fingerprint && receipt.request == key.request)
+    throw Error("operation_conflict",
+                "operation_id was used under a different launch authority; "
+                "use a new operation_id.",
+                {{"reason", "grant_changed"}});
+  if (receipt.fingerprint != key.fingerprint)
     throw Error("operation_conflict",
                 "operation_id was already used for a different request.");
   const QJsonObject response = receipt.response;
@@ -531,13 +569,10 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   if (unicodeLength(operationId, "params.operation_id") > 128)
     throw Error("invalid_params",
                 "operation_id must contain at most 128 characters.");
-  const QByteArray fingerprint = QCryptographicHash::hash(
-      QJsonDocument(QJsonObject{{"method", method}, {"params", params}})
-          .toJson(QJsonDocument::Compact),
-      QCryptographicHash::Sha256);
+  Receipt key = receiptKey(method, params);
   auto cached = m_receipts.constFind(operationId);
   if (cached != m_receipts.constEnd())
-    return replayReceipt(cached.value(), fingerprint);
+    return replayReceipt(cached.value(), key);
   const QString jobId = params.value("job_id").toString();
   const bool control = method == "job.cancel" && !m_controlJobs.contains(jobId);
   const QString controlJob = control ? jobId : QString();
@@ -551,16 +586,15 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
 #ifdef BUILD_UI_PORT_TESTS
     checkResult(entry.descriptor, result);
 #endif
-    rememberReceipt(operationId, {fingerprint, {{"result", result}}},
-                    controlJob);
+    key.response = {{"result", result}};
+    rememberReceipt(operationId, key, controlJob);
     return result;
   } catch (const Error& error) {
     if (m_context.mutationStarted() || m_context.failureRecorded()) {
       const Error recorded =
           boundedControlError(error, operationId, controlJob);
-      rememberReceipt(operationId,
-                      {fingerprint, {{"error", errorObject(recorded)}}},
-                      controlJob);
+      key.response = {{"error", errorObject(recorded)}};
+      rememberReceipt(operationId, key, controlJob);
       throw recorded;
     }
     throw;

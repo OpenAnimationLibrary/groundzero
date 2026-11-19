@@ -3,6 +3,7 @@
 #include "automation_jobs.h"
 #include "automation_dispatch.h"
 #include "automation_files.h"
+#include "automation_grants.h"
 #include "automation_containment.h"
 #include "automation_live_protocol.h"
 #include "automation_ownership.h"
@@ -89,6 +90,7 @@ struct Options {
   QString mediaToolsDirectory;
   QMap<QString, SharedRootGrant> sharedRoots;
   QStringList sharedWrites;
+  Authority authority;
   QString parseHelper;
   QString sceneHost;
   // A scene host's worker instance and monotonic start time.
@@ -215,8 +217,20 @@ void addSharedWrite(Options& options, const QString& role) {
   options.sharedWrites.append(role);
 }
 
+void addAuthority(Options& options, const QString& key, const QString& value) {
+  QStringList& list =
+      key == "--grants" ? options.authority.grants : options.authority.domains;
+  if (!list.isEmpty())
+    throw Error("invalid_argument", "Specify " + key + " exactly once.",
+                {{"option", key}});
+  list = key == "--grants" ? parseGrants(value)
+                           : parseDomains(value, toolsetNames());
+}
+
 void addOption(Options& options, const QString& key, const QString& value) {
-  if (key == "--media-tools")
+  if (key == "--grants" || key == "--domains")
+    addAuthority(options, key, value);
+  else if (key == "--media-tools")
     addMediaTools(options, value);
   else if (key == "--shared-root")
     addSharedRoot(options, value);
@@ -239,7 +253,7 @@ bool valueOption(const QString& key) {
          key == "--media-tools" || key == "--shared-root" ||
          key == "--shared-write" || key == "--parse-helper" ||
          key == "--scene-host" || key == "--worker-instance" ||
-         key == "--worker-epoch";
+         key == "--worker-epoch" || key == "--grants" || key == "--domains";
 }
 
 bool overlapping(const QString& first, const QString& second) {
@@ -268,6 +282,22 @@ void validateSharedRoots(Options& options) {
         throw Error("invalid_argument",
                     "Shared roots must not overlap one another.");
   }
+}
+
+// A worker and its scene hosts never run with implicit authority; a parse
+// helper accepts no catalog requests and takes none.
+void validateAuthority(const Options& options) {
+  const bool grants  = !options.authority.grants.isEmpty();
+  const bool domains = !options.authority.domains.isEmpty();
+  if (!options.parseHelper.isEmpty() && (grants || domains))
+    throw Error("invalid_argument",
+                "A parse helper takes neither --grants nor --domains.");
+  if (options.parseHelper.isEmpty() && (!grants || !domains))
+    throw Error("invalid_argument",
+                "Automation worker requires --grants LIST (inspect plus any "
+                "of draft, file, job) and --domains LIST (toolset names or "
+                "all).",
+                {{"option", grants ? "--domains" : "--grants"}});
 }
 
 // Only a scene host takes its worker's instance and clock, and needs both.
@@ -322,9 +352,10 @@ Options parseOptions(const QStringList& arguments) {
 #endif
     if (!valueOption(key) || index + 1 >= arguments.size())
       throw Error("invalid_argument",
-                  "Worker accepts --workspace DIR, repeated --input-root DIR, "
-                  "optional --media-tools DIR, repeated --shared-root "
-                  "ROLE=DIR and repeated --shared-write ROLE.");
+                  "Worker accepts --workspace DIR, --grants LIST, --domains "
+                  "LIST, repeated --input-root DIR, optional --media-tools "
+                  "DIR, repeated --shared-root ROLE=DIR and repeated "
+                  "--shared-write ROLE.");
     addOption(options, key, arguments[++index]);
   }
   if (options.workspace.isEmpty())
@@ -336,6 +367,7 @@ Options parseOptions(const QStringList& arguments) {
                 "A scene host never receives media tools or shared roots.");
   validateWorkerInstance(options);
   validateSharedRoots(options);
+  validateAuthority(options);
   return options;
 }
 
@@ -673,6 +705,7 @@ int executeWorker(QApplication& application, QFile& output,
     armPathSwap(options.pathSwap[0], options.pathSwap[1], options.pathSwap[2]);
 #endif
   context.sharedRoots         = options.sharedRoots;
+  context.authority           = options.authority;
   context.runtimeDirectory    = runtime;
   if (!options.parseHelper.isEmpty())
     return runSharedParseHelper(context, options.parseHelper, output);

@@ -45,6 +45,13 @@ struct SharedRootGrant final {
 // The shared root roles in their reporting order.
 const QStringList& sharedRootRoles();
 
+// What a session may do, fixed at launch: its grant classes and the toolsets
+// it may use, both sorted. inspect and core are always granted.
+struct Authority final {
+  QStringList grants;
+  QStringList domains;
+};
+
 struct Document final {
   explicit Document(std::unique_ptr<ToonzScene> ownedScene);
   // A read-only document under an id its worker chose; no profile setup.
@@ -125,6 +132,9 @@ public:
   std::shared_ptr<RuntimeState> runtimeState;
   // Set once by the dispatcher: the toolset names of its catalog.
   QStringList toolsets;
+  // Set once from the required --grants and --domains launch options; empty
+  // lists grant only inspect in the core toolset.
+  Authority authority;
   // Every job this process runs, created on first use.
   std::shared_ptr<JobRegistry> jobs;
   // The worker instance that owns this process's jobs and its monotonic start

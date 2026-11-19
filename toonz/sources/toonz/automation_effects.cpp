@@ -394,8 +394,8 @@ bool takesHandle(const QJsonObject& inputs) {
 
 QStringList commonErrors(const ToolEffects& effects,
                          const QJsonObject& inputs) {
-  QStringList result{"invalid_params", "method_not_found", "worker_busy",
-                     "native_error", "response_too_large"};
+  QStringList result{"invalid_params", "method_not_found",   "worker_busy",
+                     "native_error",   "response_too_large", "grant_denied"};
   if (inputs.contains("document_id"))
     result << "document_not_found" << "read_only_document";
   if (takesHandle(inputs)) result.append("invalid_handle");
@@ -599,6 +599,25 @@ QJsonObject readOnlyScenesSchema() {
                        {"profile", stringSchema(1, 64)}});
 }
 
+QJsonObject authoritySchema() {
+  const QJsonObject path = stringSchema(1, 4096);
+  const QJsonObject sharedRoot =
+      strictObject({{"role", enumSchema(sharedRootRoles())},
+                    {"path", path},
+                    {"writable", QJsonObject{{"type", "boolean"}}}});
+  return strictObject(
+      {{"grants",
+        arraySchema(enumSchema({"inspect", "draft", "file", "job"}), 1, 4)},
+       {"domains", arraySchema(stringSchema(1, 32), 1, 64)},
+       {"workspace", path},
+       {"input_roots", arraySchema(path, 0, 16)},
+       {"shared_roots", arraySchema(sharedRoot, 0, 3)},
+       {"media_tools",
+        QJsonObject{
+            {"oneOf", QJsonArray{path, QJsonObject{{"type", "null"}}}}}},
+       {"digest", stringSchema(64, 64)}});
+}
+
 }  // namespace
 
 QJsonObject capabilitiesResultSchema() {
@@ -616,7 +635,8 @@ QJsonObject capabilitiesResultSchema() {
         QJsonObject{{"type", "string"}, {"const", "private_process"}}},
        {"platform", runtimeFieldSchema("platform")},
        {"worker", runtimeFieldSchema("worker")},
-       {"read_only_scenes", readOnlyScenesSchema()}});
+       {"read_only_scenes", readOnlyScenesSchema()},
+       {"authority", authoritySchema()}});
 }
 
 QJsonObject toolDescriptionResultSchema(int maximumTools) {
