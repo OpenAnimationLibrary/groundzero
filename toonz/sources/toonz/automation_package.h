@@ -66,6 +66,9 @@ struct PackageExtras final {
   // The document's intake records, written into the manifest as "intake";
   // empty for a document that imported no level through intake.
   QJsonObject intake;
+  // The project a draft is bound to, written into the manifest as "project":
+  // its id and the digest of its folder, never a path; empty for none.
+  QJsonObject project;
 };
 
 // A package written and verified in private storage.

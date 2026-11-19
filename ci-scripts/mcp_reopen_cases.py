@@ -408,3 +408,39 @@ def more_than_128_saves_per_worker(case: NativeAcceptance) -> None:
         case.assertIs(saved["registered"], True)
     last = case.mutate("scene.open", None, path=saved["package_directory"])
     case.assertEqual(last["location"]["path"], "save-128")
+
+
+@acceptance_case
+def a_bound_draft_keeps_its_project_through_a_package(case: NativeAcceptance) -> None:
+    """A draft created in a project records the project in its package, by id and folder
+    digest and never by path. A later worker reopens it bound to the same project once it
+    has listed that project, and refuses the open with a stated reason before then."""
+    (case.workspace / "projects").mkdir()
+    folder = case.workspace / "projects" / "Bound"
+    project = case.mutate("project.create", None, directory=str(folder))
+    draft = case.mutate("scene.create", None, name="Bound shot", project_id=project["project_id"])
+    saved = case.mutate(
+        "scene.save_copy", draft["document_id"], directory=str(case.workspace / "bound-package")
+    )
+    package = Path(saved["package_directory"])
+    recorded = json.loads((package / "manifest.json").read_text())["project"]
+    digest = hashlib.sha256(str(folder.resolve()).encode()).hexdigest()
+    case.assertEqual(recorded, {"project_id": project["project_id"], "root_sha256": digest})
+    restart(case, "bound")
+    refused = case.failure("scene.open", case.write_params(None, {"path": str(package)}))
+    details = refused["details"]
+    case.assertEqual(
+        (refused["code"], details["reason"], details["project_id"]),
+        ("project_unavailable", "not_listed", project["project_id"]),
+    )
+    case.assertEqual(case.success("automation.list_documents", {})["documents"], [])
+    listed = case.success("project.list", {"limit": 64})["projects"]
+    case.assertIn(project["project_id"], {row["project_id"] for row in listed})
+    reopened = case.mutate("scene.open", None, path=str(package))
+    summary = case.success("scene.summary", {"document_id": reopened["document_id"]})
+    case.assertEqual(summary["project"], draft["project"])
+    again = case.mutate(
+        "scene.save_copy", reopened["document_id"], directory=str(case.workspace / "bound-again")
+    )
+    manifest = json.loads((Path(again["package_directory"]) / "manifest.json").read_text())
+    case.assertEqual(manifest["project"], recorded)

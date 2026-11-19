@@ -241,6 +241,9 @@ QJsonValue executeSceneInventory(Context& context, const QString& method,
 QJsonObject nativeProjectSummary(const QString& projectFile);
 // project.inspect with a project_id this worker issued.
 QJsonValue inspectGrantedProject(Context& context, const QString& projectId);
+// The folder of a project this worker listed or created; not_found for an
+// id it has not issued.
+QString grantedProjectFolder(Context& context, const QString& projectId);
 // Register a project definition the worker wrote, as project.list would, and
 // return its project_id.
 QString registerWrittenProject(Context& context, const QString& projectFile);

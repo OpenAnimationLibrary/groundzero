@@ -1480,6 +1480,10 @@ bool projectNameRegistered(Context& context, const QString& name) {
   return false;
 }
 
+QString grantedProjectFolder(Context& context, const QString& projectId) {
+  return grantedProject(context, {{"project_id", projectId}}).folder;
+}
+
 QJsonValue inspectGrantedProject(Context& context, const QString& projectId) {
   const ProjectEntry project =
       grantedProject(context, {{"project_id", projectId}});

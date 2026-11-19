@@ -13,6 +13,7 @@
 #include "automation_macro.h"
 #include "automation_sheet_record.h"
 #include "automation_package.h"
+#include "automation_projects.h"
 #include "automation_root_publish.h"
 #include "automation_scene_host.h"
 #include "automation_storyboard.h"
@@ -460,6 +461,8 @@ Package writePackage(const Context& context, ToonzScene& scene,
   if (!tags.isEmpty()) package.manifest.insert("tags_sha256", tags);
   if (!extras.intake.isEmpty())
     package.manifest.insert("intake", extras.intake);
+  if (!extras.project.isEmpty())
+    package.manifest.insert("project", extras.project);
   if (!extras.provenance.isEmpty())
     package.manifest.insert("provenance", extras.provenance);
   package.manifest.insert("save_mode", "self_contained");
@@ -727,6 +730,40 @@ Package writeVerified(Context& context, ToonzScene& scene,
   return package;
 }
 
+QString projectRootDigest(Context& context, const QString& projectId) {
+  return QString::fromLatin1(
+      digest(grantedProjectFolder(context, projectId).toUtf8()));
+}
+
+// A bound draft's project as its package records it.
+QJsonObject projectManifest(Context& context, const Document& document) {
+  if (document.project.isEmpty()) return {};
+  const QString id = document.project.value("project_id").toString();
+  return {{"project_id", id}, {"root_sha256", projectRootDigest(context, id)}};
+}
+
+// The binding of the project a package's draft was created in. A project
+// this worker has not listed, cannot read or finds in another folder refuses
+// the open: a binding is never dropped silently.
+QJsonObject boundProject(Context& context, const QJsonValue& recorded) {
+  if (!recorded.isObject()) return {};
+  const QString id = recorded.toObject().value("project_id").toString();
+  QString reason   = "folder_changed";
+  try {
+    if (projectRootDigest(context, id) ==
+        recorded.toObject().value("root_sha256").toString())
+      return draftProject(context, id).binding;
+  } catch (const Error& error) {
+    reason = error.code == "not_found" ? "not_listed" : "unreadable";
+  }
+  throw Error(
+      "project_unavailable",
+      "The package's draft is bound to a project this worker cannot "
+      "use; list the project's folder with project.list, then open "
+      "the package again.",
+      {{"project_id", id}, {"reason", reason}, {"hint", "project.list"}});
+}
+
 Package publishPackage(Context& context, Document& document,
                        const PackageTarget& target,
                        const PackageExtras& extras) {
@@ -743,6 +780,7 @@ Package publishPackage(Context& context, Document& document,
                            "stage", QString(), false);
   PackageExtras written = extras;
   written.intake        = intakeManifest(document);
+  written.project       = projectManifest(context, document);
   Package package =
       writeVerified(context, *document.scene, document.revisionText(),
                     staging.path(), written);
@@ -1042,10 +1080,13 @@ Document& openAdmitted(Context& context, const Admission& admission,
   const QString copy = copyIn(context, admission);
   CopyGuard guard{copy};
   auto scene = reopenPackage(context, copy, admission.package, checkMacros);
+  const QJsonObject project =
+      boundProject(context, admission.package.manifest.value("project"));
   const auto sounds = adoptAutomationSounds(context, *scene);
   context.markMutationStarted();
   Document& document    = context.addDocument(std::move(scene));
   document.soundSources = sounds;
+  document.project      = project;
   document.privateCopies.append(copy);
   guard.keep = true;
   adoptIntakeManifest(document,

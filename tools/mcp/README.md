@@ -1152,7 +1152,11 @@ each (default 256, at most 1024) and 256 KiB per call. `pages` gives each list's
 `resource_limit` (use `include_drawings: false`). The writes that return a summary
 return its first page. A draft created with `scene.create` and a `project_id` reports
 `project {project_id, name, file_revision, file_path_rules_applied: false}`; every
-other document reports `project: null`.
+other document reports `project: null`. A package saved from a bound draft records
+`project {project_id, root_sha256}` in its manifest, never a path, and `scene.open`
+restores the binding. A worker that has not listed that project (`project.list`), cannot
+read it or finds it in another folder refuses the open as `project_unavailable` with
+`details.reason` `not_listed`, `unreadable` or `folder_changed`.
 
 `project.create` writes a native project definition in a new workspace folder (its last
 component is the project name) from explicit `folders`, `file_path_rules` and

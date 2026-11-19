@@ -742,5 +742,190 @@
         ]
       }
     ]
+  },
+  {
+    "id": "rig-column-move-position",
+    "file": "ci-scripts/mcp_property_objects.py",
+    "find": "index < before",
+    "replace": "index <= before",
+    "why": "A moved block goes before a position of the original order.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "rig-world-shift-sign",
+    "file": "ci-scripts/mcp_property_objects.py",
+    "find": "shift = [a - b for a, b in zip(shift, origin(scene, member), strict=True)]",
+    "replace": "shift = [a + b for a, b in zip(shift, origin(scene, member), strict=True)]",
+    "why": "Keeping the world placement subtracts the new parent's chain and adds the old one's.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "rig-world-animated-branch",
+    "file": "ci-scripts/mcp_property_objects.py",
+    "find": "if len(scene.curves.get((member, channel), {})) > 1:",
+    "replace": "if len(scene.curves.get((member, channel), {})) > 2:",
+    "why": "A parent branch that moves over time cannot keep the world placement exactly.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "rig-group-whole-groups",
+    "file": "ci-scripts/mcp_property_objects.py",
+    "find": "        if any(member not in chosen for member in shown):\n            return \"invalid_params\"\n",
+    "replace": "",
+    "why": "An object shown in a group is grouped again only with the whole group.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "rig-ungroup-outermost",
+    "file": "ci-scripts/mcp_property_objects.py",
+    "find": "    if any(scene.stacks[name][-1] != group for name in inside):\n        return \"invalid_params\"\n",
+    "replace": "",
+    "why": "Only an outermost group is dissolved.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "rig-delete-reattaches-children",
+    "file": "ci-scripts/mcp_property_objects.py",
+    "find": "        scene.parents[child] = parent\n",
+    "replace": "        scene.parents[child] = None\n",
+    "why": "Children of a deleted object move to its parent.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "rig-duplicate-independent-keys",
+    "file": "ci-scripts/mcp_property_objects.py",
+    "find": "frame: dataclasses.replace(key) for frame, key in keys.items()",
+    "replace": "frame: key for frame, key in keys.items()",
+    "why": "A copied object's curves are independent of the source's.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "camera-replacement-is-not-itself",
+    "file": "ci-scripts/mcp_property_cameras.py",
+    "find": "if role not in held or replacement[role] == camera.name:",
+    "replace": "if role not in held:",
+    "why": "A camera cannot replace itself.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "camera-last-is-kept",
+    "file": "ci-scripts/mcp_property_cameras.py",
+    "find": "if len(scene.cameras) <= 1:",
+    "replace": "if len(scene.cameras) <= 0:",
+    "why": "A sheet keeps at least one camera.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "camera-reserved-name",
+    "file": "ci-scripts/mcp_property_cameras.py",
+    "find": "if RESERVED.match(name):",
+    "replace": "if False:",
+    "why": "Camera<digits> names follow camera numbers.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "output-sync-is-preview-only",
+    "file": "ci-scripts/mcp_property_output.py",
+    "find": "if \"sync\" in step and \"preview\" not in step[\"apply_to\"]:",
+    "replace": "if False:",
+    "why": "sync_color_settings belongs to the preview block.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "output-none-keeps-ratio",
+    "file": "ci-scripts/mcp_property_output.py",
+    "find": "if aspect[\"mode\"] != \"none\":",
+    "replace": "if True:",
+    "why": "An aspect export of none keeps the stored ratio and color.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "output-effective-range",
+    "file": "ci-scripts/mcp_property_output.py",
+    "find": "min(ranged[\"end_frame\"], frames - 1)",
+    "replace": "ranged[\"end_frame\"]",
+    "why": "A range is cut to the scene's length.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_rig.py"
+      }
+    ]
+  },
+  {
+    "id": "native-reopen-keeps-project-binding",
+    "file": "toonz/sources/toonz/automation_persistence.cpp",
+    "find": "  document.project      = project;\n",
+    "replace": "",
+    "why": "A package of a bound draft reopens bound to the same project.",
+    "native": true,
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "a_bound_draft_keeps_its_project_through_a_package"
+        ]
+      }
+    ]
   }
 ]
