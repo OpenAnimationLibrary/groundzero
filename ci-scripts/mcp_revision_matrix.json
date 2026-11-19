@@ -1155,6 +1155,20 @@
      }
     }
    ]
+  },
+  "project": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "project.create",
+     "args": {
+      "directory": "${workspace}/FixtureShow${serial}"
+     },
+     "save": {
+      "project": "project_id"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -7096,6 +7110,68 @@
      }
     },
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "project.create": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "scene",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes a new project definition folder in the workspace",
+   "bumps": "none; a project definition is a file, not document content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "directory": "${workspace}/MatrixShow${serial}"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "directory": "/nonexistent-root/Show"
+     },
+     "code": "path_denied"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/MatrixShow${serial}/MatrixShow${serial}_otprj.xml"
+   }
+  },
+  "project.duplicate": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "project",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes a copy of a project definition in a new workspace folder",
+   "bumps": "none; a project definition is a file, not document content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "project_id": "$project",
+     "directory": "${workspace}/CopyShow${serial}"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "project_id": "project_missing",
+      "directory": "${workspace}/Missing${serial}"
+     },
+     "code": "not_found"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/CopyShow${serial}/CopyShow${serial}_otprj.xml"
    }
   }
  },

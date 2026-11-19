@@ -227,6 +227,7 @@ set(HEADERS
     automation_shared.h
     automation_shared_parse.h
     automation_media_decode.h
+    automation_projects.h
     automation_activity.h
     automation_shutdown.h
     automation_scene_host.h
@@ -359,6 +360,7 @@ set(SOURCES
     automation_shared.cpp
     automation_shared_parse.cpp
     automation_media_decode.cpp
+    automation_projects.cpp
     automation_studio_palette.cpp
     automation_library.cpp
     automation_scene_source.cpp

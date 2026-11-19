@@ -77,6 +77,9 @@ struct Document final {
   QHash<QString, TDoubleParamP> offsetLayers;
   // Set only for read-only documents opened from user scenes.
   std::shared_ptr<ReadOnlyScene> readOnly;
+  // The project a draft was created in (scene.create project_id): its
+  // identity only; the draft's native project stays the worker's private one.
+  QJsonObject project;
   // Selection handles issued for this document's drawings.
   std::shared_ptr<SelectionRegistry> selections;
 

@@ -528,6 +528,14 @@
     "handler": "updateStyle",
     "read": []
   },
+  "project.create": {
+    "handler": "createProject",
+    "read": []
+  },
+  "project.duplicate": {
+    "handler": "duplicateProject",
+    "read": []
+  },
   "project.inspect": {
     "handler": "inspectProject",
     "read": []

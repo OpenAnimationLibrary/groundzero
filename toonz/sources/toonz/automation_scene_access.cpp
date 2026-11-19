@@ -1403,6 +1403,24 @@ QJsonObject readOnlyCapabilities(Context&) {
 
 void closeSceneHosts(Context& context) { context.sceneHosts.reset(); }
 
+QString registerWrittenProject(Context& context, const QString& projectFile) {
+  const QString id = projectIdForFile(projectFile);
+  auto& projects   = registry(context).projects;
+  if (!projects.contains(id) && projects.size() >= MaxRegistered)
+    throw Error("resource_limit",
+                "This worker has registered its project limit; start a new "
+                "worker.");
+  const QString folder = QFileInfo(projectFile).absolutePath();
+  projects.insert(id, {projectFile, folder, QFileInfo(folder).fileName()});
+  return id;
+}
+
+bool projectNameRegistered(Context& context, const QString& name) {
+  for (const ProjectEntry& project : registry(context).projects)
+    if (project.name.compare(name, Qt::CaseInsensitive) == 0) return true;
+  return false;
+}
+
 QJsonValue inspectGrantedProject(Context& context, const QString& projectId) {
   const ProjectEntry project =
       grantedProject(context, {{"project_id", projectId}});

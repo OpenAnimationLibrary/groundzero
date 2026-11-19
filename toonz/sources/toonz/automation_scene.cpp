@@ -3,6 +3,7 @@
 #include "automation_animation_targets.h"
 #include "automation_audio.h"
 #include "automation_path.h"
+#include "automation_projects.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
 #include "automation_scene_shared.h"
@@ -162,7 +163,9 @@ QJsonObject describeScene(Document& document, bool includeDrawings = true,
                      ? QJsonValue(document.readOnly->summarySource())
                      : QJsonValue()},
       {"limit", page.limit},
-      {"pages", pages}};
+      {"pages", pages},
+      {"project", document.project.isEmpty() ? QJsonValue()
+                                             : QJsonValue(document.project)}};
 }
 
 struct Settings {
@@ -199,6 +202,23 @@ void applySettings(ToonzScene& scene, const Settings& settings) {
   setAutomationSoundFrameRate(scene, settings.fps);
 }
 
+// A project's scene defaults as explicit settings; a project without a
+// camera keeps the scene's.
+Settings projectSettings(const QJsonValue& defaults, ToonzScene& scene) {
+  const QJsonObject value = defaults.toObject();
+  QJsonObject params;
+  const std::pair<const char*, const char*> fields[]{
+      {"camera_width_px", "width_px"},
+      {"camera_height_px", "height_px"},
+      {"camera_width_in", "width_in"},
+      {"camera_height_in", "height_in"},
+      {"frame_rate", "frame_rate"}};
+  for (const auto& field : fields)
+    if (value.contains(field.first))
+      params.insert(field.second, value.value(field.first));
+  return readSettings(params, scene);
+}
+
 QJsonValue createScene(Context& context, const QJsonObject& params) {
   context.requireDocumentCapacity();
   const QString name = nameParam(params);
@@ -210,9 +230,15 @@ QJsonValue createScene(Context& context, const QJsonObject& params) {
   scene->setScenePath(TFilePath(
       QDir(context.workspace()).filePath(name + ".tnz").toStdWString()));
   applySettings(*scene, {1920, 1080, 16.0, 9.0, 24.0});
+  DraftProject project;
+  if (params.contains("project_id")) {
+    project = draftProject(context, requiredString(params, "project_id"));
+    applySettings(*scene, projectSettings(project.sceneDefaults, *scene));
+  }
   applySettings(*scene, readSettings(params, *scene));
   context.markMutationStarted();
   Document& document = context.addDocument(std::move(scene));
+  document.project   = project.binding;
   return describeScene(document);
 }
 
@@ -802,10 +828,18 @@ void addSceneOperations(QJsonArray& catalog) {
       {{"project_id",
         QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}}},
       {}));
-  catalog.append(
-      operation("scene.create",
-                "Create an isolated native scene. Timeline frames start at 0.",
-                merge(settings, {{"name", textSchema()}}), {"name"}, true));
+  catalog.append(operation(
+      "scene.create",
+      "Create an isolated native scene. Timeline frames start at 0. "
+      "project_id (from project.list or project.create) binds the "
+      "draft to that project: its scene defaults become the "
+      "settings unless given explicitly, and summaries report the "
+      "binding; files are still written only as worker packages.",
+      merge(settings, {{"name", textSchema()},
+                       {"project_id", QJsonObject{{"type", "string"},
+                                                  {"minLength", 1},
+                                                  {"maxLength", 64}}}}),
+      {"name"}, true));
   catalog.append(
       operation("scene.summary",
                 "Inspect native scene, levels, columns and stage objects; "
