@@ -42,7 +42,9 @@
     },
     "modify": {
      "tools": [
-      "scene.settings"
+      "scene.settings",
+      "scene.output.set",
+      "scene.guides.set"
      ]
     },
     "duplicate": {
@@ -332,12 +334,14 @@
      ]
     },
     "duplicate": {
-     "disposition": "planned",
-     "outcome": "timeline.column_copy_move_remove"
+     "tools": [
+      "column.duplicate"
+     ]
     },
     "reorder": {
-     "disposition": "planned",
-     "outcome": "timeline.column_copy_move_remove"
+     "tools": [
+      "column.move"
+     ]
     },
     "remove": {
      "tools": [
@@ -470,30 +474,35 @@
     "inspect": {
      "tools": [
       "camera.inspect",
-      "scene.summary"
+      "scene.summary",
+      "camera.list"
      ]
     },
     "create": {
-     "disposition": "planned",
-     "outcome": "camera.create_and_select"
+     "tools": [
+      "camera.create"
+     ]
     },
     "modify": {
      "tools": [
       "camera.update",
-      "scene.settings"
+      "scene.settings",
+      "camera.select"
      ]
     },
     "duplicate": {
-     "disposition": "planned",
-     "outcome": "camera.create_and_select"
+     "tools": [
+      "camera.duplicate"
+     ]
     },
     "reorder": {
-     "disposition": "planned",
-     "outcome": "camera.create_and_select"
+     "disposition": "unsupported",
+     "reason": "cameras are numbered in creation order and camera.remove keeps the numbers packed; no native command reorders them"
     },
     "remove": {
-     "disposition": "planned",
-     "outcome": "camera.create_and_select"
+     "tools": [
+      "camera.remove"
+     ]
     },
     "persist": {
      "tools": [
@@ -790,12 +799,14 @@
      "reason": "no tool copies a sound column"
     },
     "reorder": {
-     "disposition": "planned",
-     "outcome": "timeline.column_copy_move_remove"
+     "tools": [
+      "column.move"
+     ]
     },
     "remove": {
-     "disposition": "planned",
-     "outcome": "timeline.column_copy_move_remove"
+     "tools": [
+      "column.delete"
+     ]
     },
     "persist": {
      "tools": [

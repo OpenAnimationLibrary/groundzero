@@ -581,6 +581,12 @@ NOT_MODELLED: dict[str, str] = {
     "cells.copy": ("not written yet; it needs the copy and move modes and their overlap rules"),
     "cells.retime": ("none of the twelve retime kinds is written independently yet"),
     "cells.replace": ("not written yet; it needs level-to-level and drawing-pair replacement"),
+    "column.move": ("not written yet; the model's column list can carry a block move"),
+    "column.duplicate": ("not written yet; it needs the copied stage object, curves and FX branch"),
+    "camera.create": ("the model has one camera; a camera list with roles is not written yet"),
+    "camera.duplicate": ("the model has one camera; a camera list with roles is not written yet"),
+    "camera.select": ("the model has one camera; output and preview roles are not written yet"),
+    "camera.remove": ("the model has one camera; removal with role replacement is not written yet"),
 }
 
 

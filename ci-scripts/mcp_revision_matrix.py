@@ -115,6 +115,10 @@ def _shape_problems(key: str, entry: dict[str, Any], matrix: dict[str, Any]) -> 
     problems = [f"entry {key}: missing {field}" for field in ENTRY_FIELDS if field not in entry]
     if entry.get("kind") not in KINDS:
         problems.append(f"entry {key}: unknown kind {entry.get('kind')!r}")
+    if "domain" in entry and entry["domain"] not in DOMAIN_ORDER:
+        problems.append(
+            f"entry {key}: domain {entry['domain']!r} is not one of {list(DOMAIN_ORDER)}"
+        )
     if entry.get("fixture") not in matrix["fixtures"]:
         problems.append(f"entry {key}: unknown fixture {entry.get('fixture')!r}")
     if not entry.get("reject"):

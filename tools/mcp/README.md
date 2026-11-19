@@ -1188,20 +1188,22 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (121):
+- `core` toolset (132):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
   `animation.set_keys`, `artifact.read`, `assistance.inspect`, `assistance.neural.preview`,
-  `automation.capabilities`, `automation.list_documents`, `camera.inspect`, `camera.update`,
-  `cast.list`, `cast.usage`, `column.cells`, `column.create`, `column.delete`, `column.expose`,
-  `column.update`, `drawing.analysis.submit`, `drawing.clone`, `drawing.create`,
-  `drawing.inspect`, `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`,
-  `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`,
-  `fx.macro.create`, `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`,
-  `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`,
-  `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`, `job.status`, `journal.status`,
-  `level.create`, `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
+  `automation.capabilities`, `automation.list_documents`, `camera.create`, `camera.duplicate`,
+  `camera.inspect`, `camera.list`, `camera.remove`, `camera.select`, `camera.update`,
+  `cast.list`, `cast.usage`, `column.cells`, `column.create`, `column.delete`,
+  `column.duplicate`, `column.expose`, `column.kinds`, `column.move`, `column.update`,
+  `drawing.analysis.submit`, `drawing.clone`, `drawing.create`, `drawing.inspect`,
+  `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`, `fx.create`, `fx.delete`,
+  `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`, `fx.macro.create`,
+  `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`, `fx.parameter.set`,
+  `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`, `fx.terminal.set`,
+  `job.cancel`, `job.list`, `job.result`, `job.status`, `journal.status`, `level.create`,
+  `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
   `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
   `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
   `object.path.detach`, `operation.list`, `operation.status`, `palette.clone_style`,
@@ -1211,13 +1213,13 @@ the adapter and the live editor bridge add the rest.
   `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
   `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
   `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
-  `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
-  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
-  `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
-  `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
-  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
-  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
-  `vector.transform`
+  `scene.dependencies`, `scene.discard`, `scene.guides.set`, `scene.inventory`, `scene.open`,
+  `scene.open_read_only`, `scene.output.set`, `scene.package_info`, `scene.properties.inspect`,
+  `scene.save_copy`, `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`,
+  `text.fonts`, `tool.describe`, `vector.edit`, `vector.fill`, `vector.group.create`,
+  `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
+  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
+  `vector.structure`, `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

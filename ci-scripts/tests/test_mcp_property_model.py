@@ -110,7 +110,7 @@ class NotModelledTest(unittest.TestCase):
         writing = {
             name
             for name, entry in CENSUS["tools"].items()
-            if name.startswith(("animation.", "cells.")) and entry["writes"]
+            if name.startswith(("animation.", "cells.", "column.", "camera.")) and entry["writes"]
         }
         whole_curve = {"animation.copy_curve", "animation.retime_curve"}
         missing = writing - self.requested() - set(model.NOT_MODELLED) - whole_curve
