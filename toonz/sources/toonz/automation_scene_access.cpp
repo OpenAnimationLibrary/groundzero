@@ -1303,6 +1303,13 @@ QJsonObject hostJobRecord(Context& context, const QString& id) {
 
 // One active analysis job and 32 retained per worker, hosts included. A host
 // job last seen running is asked again, which its host answers at once.
+QJsonValue readFromSceneHost(Context& context, const QString& documentId,
+                             const QString& method, const QJsonObject& params) {
+  SceneHost* host = hostForDocument(context, documentId);
+  if (!host) throw Error("internal_error", "The document has no scene host.");
+  return forward(context, *host, method, params);
+}
+
 void requireAnalysisCapacity(Context& context) {
   QString active;
   int retained = 0;
@@ -1351,8 +1358,11 @@ bool routeToSceneHost(Context& context, const QString& method,
       (method == "render.preview" || method == "render.submit" ||
        method == "assistance.neural.preview"))
     requireRenderCapacity(context);
-  if (context.sceneHosts && document && method == "scene.check.submit")
+  if (context.sceneHosts && document && method == "scene.check.submit") {
     requireAnalysisCapacity(context);
+    // The worker decodes media in helpers it starts; a host starts none.
+    if (params.value("check") == "media_decode") return false;
+  }
   if (document) {
     SceneHost* host = hostForDocument(context, documentId);
     if (!host) throw Error("internal_error", "The document has no scene host.");

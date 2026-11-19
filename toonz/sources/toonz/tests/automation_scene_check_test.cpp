@@ -1,8 +1,13 @@
 #include "automation_scene_check.h"
 
 #include "automation_jobs.h"
+#include "automation_media_decode.h"
 
 #include "tfx.h"
+#include "timage_io.h"
+#include "traster.h"
+#include "tsound.h"
+#include "tsound_io.h"
 #include "tpalette.h"
 #include "tsimplecolorstyles.h"
 #include "tstroke.h"
@@ -20,6 +25,10 @@
 #include "toonz/txshsimplelevel.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QJsonArray>
 
@@ -332,6 +341,88 @@ void secondCheckIsBusy(Context& context) {
   require(busy, "A second check started while one ran");
 }
 
+// The helper side of media_decode, run in this process on a private folder:
+// a whole PNG and WAV decode, truncated ones are corrupt, and a level file of
+// an unknown kind is never decoded.
+QJsonObject decodedRows(const QString& folder, const QJsonArray& manifest) {
+  QFile list(QDir(folder).filePath("manifest.json"));
+  require(list.open(QIODevice::WriteOnly) &&
+              list.write(QJsonDocument(manifest).toJson()) > 0,
+          "Cannot write the media manifest");
+  list.close();
+  Context helper(folder, {});
+  QFile output(QDir(folder).filePath("replies.ndjson"));
+  require(output.open(QIODevice::WriteOnly), "Cannot open the reply file");
+  require(runMediaDecodeHelper(helper, output) == 0,
+          "The media helper did not answer every file");
+  output.close();
+  require(output.open(QIODevice::ReadOnly), "Cannot read the replies");
+  QJsonObject rows;
+  for (const QByteArray& line : output.readAll().split('\n')) {
+    const QJsonObject row = QJsonDocument::fromJson(line).object();
+    if (!row.isEmpty())
+      rows.insert(QString::number(row.value("index").toInt()), row);
+  }
+  return rows;
+}
+
+void truncateCopy(const QString& from, const QString& to) {
+  QFile source(from), target(to);
+  require(source.open(QIODevice::ReadOnly) && target.open(QIODevice::WriteOnly),
+          "Cannot copy a media fixture");
+  const QByteArray bytes = source.readAll();
+  target.write(bytes.left(bytes.size() / 2));
+}
+
+void mediaHelperDecodeTable(Context&) {
+  QTemporaryDir folder;
+  require(folder.isValid(), "Cannot create the media folder");
+  const QString png = folder.filePath("file0.png");
+  TRaster32P raster(6, 5);
+  raster->fill(TPixel32::Red);
+  TImageWriter::save(TFilePath(png.toStdWString()), raster);
+  const QString wav  = folder.filePath("file1.wav");
+  TSoundTrackP track = TSoundTrack::create(22050, 16, 1, 2205, TSound::INT);
+  require(TSoundTrackWriter::save(TFilePath(wav.toStdWString()), track),
+          "Cannot write the WAV fixture");
+  truncateCopy(png, folder.filePath("file2.png"));
+  truncateCopy(wav, folder.filePath("file3.wav"));
+  QJsonArray manifest;
+  const char* files[][2] = {{"file0.png", "png"},
+                            {"file1.wav", "wav"},
+                            {"file2.png", "png"},
+                            {"file3.wav", "wav"}};
+  for (int index = 0; index < 4; ++index)
+    manifest.append(QJsonObject{{"index", index},
+                                {"file", files[index][0]},
+                                {"format", files[index][1]}});
+  const QJsonObject rows = decodedRows(folder.path(), manifest);
+  const auto result      = [&rows](int index) {
+    return rows.value(QString::number(index)).toObject();
+  };
+  require(result(0).value("result") == "decoded" &&
+              result(0).value("width").toInt() == 6 &&
+              result(0).value("height").toInt() == 5,
+          "A whole PNG did not decode with its size");
+  require(result(1).value("result") == "decoded", "A whole WAV did not decode");
+  require(result(2).value("result") == "corrupt",
+          "A truncated PNG was not corrupt");
+  require(result(3).value("result") == "corrupt",
+          "A truncated WAV was not corrupt");
+  QJsonArray unknown{
+      QJsonObject{{"index", 0}, {"file", "file0.png"}, {"format", "mov"}}};
+  QFile list(folder.filePath("manifest.json"));
+  require(list.open(QIODevice::WriteOnly) &&
+              list.write(QJsonDocument(unknown).toJson()) > 0,
+          "Cannot write the media manifest");
+  list.close();
+  Context helper(folder.path(), {});
+  QFile output(folder.filePath("unknown.ndjson"));
+  require(output.open(QIODevice::WriteOnly), "Cannot open the reply file");
+  require(runMediaDecodeHelper(helper, output) != 0,
+          "The helper decoded a format outside the table");
+}
+
 }  // namespace
 
 void runAutomationSceneCheckTests(Context& context) {
@@ -345,7 +436,8 @@ void runAutomationSceneCheckTests(Context& context) {
       {"row limit", rowLimit},
       {"compatibility matches the native report",
        compatibilityMatchesTheNativeReport},
-      {"a second check is busy", secondCheckIsBusy}};
+      {"a second check is busy", secondCheckIsBusy},
+      {"media helper decode table", mediaHelperDecodeTable}};
   for (const auto& test : cases) {
     test.second(context);
     std::cout << "automation-scene-check-test: " << test.first << " PASS\n";

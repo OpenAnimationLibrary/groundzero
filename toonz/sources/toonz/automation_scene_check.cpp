@@ -3,6 +3,9 @@
 #include "automation_jobs.h"
 #include "automation_production.h"
 #include "automation_scene_host.h"
+#include "automation_files.h"
+#include "automation_media_decode.h"
+#include "automation_shared_parse.h"
 
 #include "tcolorstyles.h"
 #include "texception.h"
@@ -23,13 +26,21 @@
 #include "toonz/txshsimplelevel.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QMap>
+#include <QTemporaryDir>
 #include <QElapsedTimer>
 #include <QJsonDocument>
 #include <QThread>
 #include <QTimer>
 
 #include <algorithm>
+#include <cmath>
 #include <atomic>
+#include <memory>
 #include <map>
 #include <set>
 #include <vector>
@@ -49,6 +60,10 @@ constexpr int MaxResultBytes    = 1048576;
 // their own, so they report them unchanged.
 constexpr int UnusedFileBudget    = 4096;
 constexpr qint64 UnusedByteBudget = 2147483648LL;
+constexpr int DefaultMediaFiles    = UnusedFileBudget;
+constexpr int MaxMediaFiles        = 65536;
+constexpr qint64 DefaultMediaBytes = UnusedByteBudget;
+constexpr qint64 MaxMediaBytes     = 17179869184LL;
 
 enum class State { Running, Completed, Failed, Canceled, DeadlineExceeded };
 
@@ -73,7 +88,13 @@ struct Cost final {
   qint64 strokes  = 0;
   qint64 regions  = 0;
   qint64 pixels   = 0;
+  qint64 files    = 0;
+  qint64 bytes    = 0;
+  qint64 helpers  = 0;
 };
+
+// How long a job that waits on a helper process sleeps between polls.
+constexpr int HelperPollMs = 10;
 
 // One scene check. Work runs on the application thread in steps of at most
 // SceneCheckSliceMs plus the item in progress; cancel() ends the job at once
@@ -208,6 +229,9 @@ protected:
   virtual QJsonObject budget() const    = 0;
   // Drop pointers into the document once the job ended.
   virtual void release() = 0;
+  // Whether the job waits on a process: its slice ends and the next one
+  // starts after HelperPollMs instead of at once.
+  virtual bool waiting() const { return false; }
 
   // Keep a row; false (and row_limit) once the job holds MaxRows rows.
   bool append(const QJsonObject& row) {
@@ -235,9 +259,9 @@ private:
                            {"strokes_scanned", double(m_cost.strokes)},
                            {"regions_built", double(m_cost.regions)},
                            {"pixels_scanned", double(m_cost.pixels)},
-                           {"files_checked", 0},
-                           {"bytes_read", 0},
-                           {"helpers_started", 0}};
+                           {"files_checked", double(m_cost.files)},
+                           {"bytes_read", double(m_cost.bytes)},
+                           {"helpers_started", double(m_cost.helpers)}};
     return {{"check", m_check},
             {"estimate", estimate()},
             {"cost", cost},
@@ -255,7 +279,8 @@ private:
 
   void schedule() {
     const auto self = shared_from_this();
-    QTimer::singleShot(0, QCoreApplication::instance(),
+    QTimer::singleShot(waiting() ? HelperPollMs : 0,
+                       QCoreApplication::instance(),
                        [self]() { self->step(); });
   }
 
@@ -291,7 +316,8 @@ private:
     bool more = true;
     int items = 0;
     try {
-      while (more && (items == 0 || slice.elapsed() < SceneCheckSliceMs)) {
+      while (more && (items == 0 || slice.elapsed() < SceneCheckSliceMs) &&
+             !(items > 0 && waiting())) {
         more = work(*document);
         ++items;
 #ifdef BUILD_UI_PORT_TESTS
@@ -808,11 +834,422 @@ private:
   int m_byCertainty[3]  = {0, 0, 0};
 };
 
+// One dependency file media_decode looks at, and what is known before decoding.
+struct MediaFile final {
+  QJsonObject owner;
+  QString role;
+  QString path;
+  QString format;
+  QString result;  // set when the file is not decoded
+  QString message;
+  qint64 size = -1;
+};
+
+QString mediaFormat(const QString& path) {
+  return QFileInfo(path).suffix().toLower().left(16);
+}
+
+// A dependency availability that already decides the result.
+QString availabilityResult(const QString& availability) {
+  if (availability == "missing" || availability == "unresolved")
+    return "missing";
+  if (availability == "forbidden") return "outside_roots";
+  if (availability == "unreadable") return "unreadable";
+  if (availability == "unsupported") return "unsupported_format";
+  return {};
+}
+
+QJsonObject mediaOwner(const QJsonObject& item) {
+  const QString role = item.value("role").toString();
+  if (role == "raster_drawing_palette")
+    return {{"kind", "palette"}, {"id", item.value("owner_id")}};
+  return {{"kind", role == "sound" ? "sound" : "level"},
+          {"id", item.value("owner_id")}};
+}
+
+QString mediaRole(const QString& role) {
+  return role == "raster_drawing_palette" ? QString("palette") : role;
+}
+
+// media_decode of a read-only document: the worker reads the dependency list
+// from the scene host, copies each image and sound file it may read, and has
+// parse helpers decode the copies, so a decoder crash costs one helper.
+class MediaDecodeJob final : public SceneCheckJob {
+public:
+  MediaDecodeJob(Context& context, Document& document, int deadlineMs,
+                 int maxFiles, qint64 maxBytes)
+      : SceneCheckJob(context, document, "media_decode", deadlineMs)
+      , m_revision(document.revisionText())
+      , m_maxFiles(maxFiles)
+      , m_maxBytes(maxBytes) {}
+
+protected:
+  bool work(Document& document) override {
+    if (m_listing) return listPage(document);
+    if (m_expand < m_patterns.size()) return expand(m_patterns[m_expand++]);
+    if (m_helper) return pollHelper();
+    if (!m_retry.empty()) return startRetry();
+    if (m_copy) return copyChunk();
+    if (m_next < m_files.size()) return nextFile();
+    if (!m_batch.empty()) return startHelper();
+    return false;
+  }
+
+  bool waiting() const override { return m_helper != nullptr; }
+
+  QJsonObject summary() const override {
+    QJsonObject results;
+    for (auto it = m_results.constBegin(); it != m_results.constEnd(); ++it)
+      results.insert(it.key(), it.value());
+    return {{"files", int(m_files.size())},
+            {"files_reported", int(m_reported)},
+            {"results", results}};
+  }
+
+  QString progressUnit() const override { return "files"; }
+  qint64 progressDone() const override { return m_reported; }
+  qint64 progressTotal() const override { return qint64(m_files.size()); }
+
+  QJsonObject estimate() const override {
+    qint64 bytes = 0;
+    for (const MediaFile& file : m_files)
+      bytes += std::max<qint64>(file.size, 0);
+    return {{"drawings", 0},
+            {"strokes", 0},
+            {"control_points", 0},
+            {"pixels", 0},
+            {"files", double(m_files.size())},
+            {"bytes", double(bytes)}};
+  }
+
+  QJsonObject budget() const override {
+    return {{"max_drawings", 0},
+            {"max_strokes", 0},
+            {"max_pixels", 0},
+            {"max_files", m_maxFiles},
+            {"max_bytes", double(m_maxBytes)}};
+  }
+
+  void release() override {
+    if (m_helper) m_helper->kill();
+    m_helper.reset();
+    m_copy.reset();
+    m_batch.clear();
+    m_retry.clear();
+    m_directory.reset();
+  }
+
+private:
+  struct Copy final {
+    std::size_t index;
+    QFile source;
+    QFile target;
+    QDateTime modified;
+  };
+
+  struct Batched final {
+    std::size_t index;
+    QString file;
+  };
+
+  bool listPage(Document& document) {
+    const QJsonObject page =
+        readFromSceneHost(m_context, document.id, "scene.dependencies",
+                          {{"document_id", document.id},
+                           {"expected_revision", m_revision},
+                           {"offset", m_offset},
+                           {"limit", 128}})
+            .toObject();
+    for (const QJsonValue& item : page.value("items").toArray())
+      addDependency(item.toObject());
+    if (page.value("next_offset").isDouble()) {
+      m_offset = page.value("next_offset").toInt();
+      return true;
+    }
+    if (!page.value("traversal_complete").toBool(true)) incomplete("row_limit");
+    m_listing = false;
+    return true;
+  }
+
+  void addDependency(const QJsonObject& item) {
+    static const QStringList roles{"primary", "palette",
+                                   "scan",    "reference_image",
+                                   "sound",   "raster_drawing_palette"};
+    const QString role = item.value("role").toString();
+    if (!roles.contains(role)) return;
+    MediaFile file{mediaOwner(item),
+                   mediaRole(role),
+                   item.value("resolved_path")
+                       .toString(item.value("coded_path").toString()),
+                   QString(),
+                   QString(),
+                   QString(),
+                   -1};
+    file.format = mediaFormat(file.path);
+    file.result = availabilityResult(item.value("availability").toString());
+    if (item.value("availability") == "unsaved") return;
+    if (item.value("path_kind") == "sequence_pattern" &&
+        file.result.isEmpty()) {
+      m_patterns.push_back(file);
+      return;
+    }
+    if (item.value("availability") == "present")
+      file.size = qint64(item.value("size_bytes").toDouble(-1));
+    addFile(file);
+  }
+
+  void addFile(MediaFile file) {
+    if (file.path.isEmpty()) return;
+    if (file.result.isEmpty() && !mediaDecodeFormats().contains(file.format))
+      file.result = "unsupported_format";
+    if (m_files.size() >= std::size_t(MaxRows)) {
+      incomplete("row_limit");
+      return;
+    }
+    m_files.push_back(file);
+  }
+
+  // Each frame file of a sequence, found by its level name in its folder.
+  bool expand(const MediaFile& pattern) {
+    const TFilePath level(pattern.path.toStdWString());
+    const QDir folder(QFileInfo(pattern.path).path());
+    const QStringList names =
+        folder.entryList(QDir::Files | QDir::Hidden | QDir::System, QDir::Name);
+    for (const QString& name : names) {
+      const QString path = folder.filePath(name);
+      if (TFilePath(path.toStdWString()).getLevelNameW() !=
+          level.getLevelNameW())
+        continue;
+      MediaFile frame = pattern;
+      frame.role      = "frame";
+      frame.path      = path;
+      frame.size      = QFileInfo(path).size();
+      addFile(frame);
+    }
+    return true;
+  }
+
+  void report(std::size_t index, const QJsonObject& decoded) {
+    MediaFile& file      = m_files[index];
+    const QString result = decoded.value("result").toString(file.result);
+    m_results[result]    = m_results.value(result) + 1;
+    ++m_reported;
+    const QJsonValue size =
+        file.size >= 0 ? QJsonValue(double(file.size)) : QJsonValue();
+    append({{"row_kind", "media_file"},
+            {"owner", file.owner},
+            {"role", file.role},
+            {"path", file.path.left(4096)},
+            {"format", file.format},
+            {"size_bytes", size},
+            {"result", result},
+            {"frames_checked", decoded.value("frames_checked").toInt(0)},
+            {"width", decoded.value("width")},
+            {"height", decoded.value("height")},
+            {"message",
+             decoded.value("message").toString(file.message).left(512)}});
+  }
+
+  void skip(std::size_t index, const QString& result, const QString& reason,
+            const QString& message = QString()) {
+    if (!reason.isEmpty()) incomplete(reason);
+    m_files[index].message = message;
+    report(index, {{"result", result},
+                   {"width", QJsonValue()},
+                   {"height", QJsonValue()}});
+  }
+
+  // Admit the next file to a batch, or report why it is not decoded.
+  bool nextFile() {
+    const std::size_t index = m_next++;
+    MediaFile& file         = m_files[index];
+    if (!file.result.isEmpty()) {
+      skip(index, file.result, QString());
+      return true;
+    }
+    if (m_admitted >= m_maxFiles) {
+      skip(index, "skipped_budget", "file_budget");
+      return true;
+    }
+    if (file.size > MediaDecodeFileLimitBytes) {
+      skip(index, "too_large", QString(), "Larger than 256 MiB.");
+      return true;
+    }
+    if (m_bytes + std::max<qint64>(file.size, 0) > m_maxBytes) {
+      skip(index, "skipped_budget", "byte_budget");
+      return true;
+    }
+    return openCopy(index);
+  }
+
+  bool openCopy(std::size_t index) {
+    MediaFile& file   = m_files[index];
+    auto copy         = std::make_unique<Copy>();
+    copy->index       = index;
+    OpenResult opened = OpenResult::Failed;
+    try {
+      m_context.resolvePath(file.path, false);
+      opened = openApprovedFile(copy->source, file.path);
+    } catch (const Error&) {
+      skip(index, "outside_roots", QString());
+      return true;
+    }
+    if (opened != OpenResult::Opened) {
+      skip(index, "unreadable", QString(), "The file cannot be opened.");
+      return true;
+    }
+    if (!ensureDirectory()) return false;
+    file.size      = copy->source.size();
+    copy->modified = QFileInfo(file.path).lastModified();
+    copy->target.setFileName(m_directory->filePath(
+        QString("file%1.%2").arg(m_batch.size()).arg(file.format)));
+    if (!copy->target.open(QIODevice::WriteOnly))
+      throw Error("io_error", "Cannot write the private media copy.");
+    ++m_admitted;
+    m_copy = std::move(copy);
+    return true;
+  }
+
+  bool ensureDirectory() {
+    if (m_directory) return true;
+    if (m_context.runtimeDirectory.isEmpty())
+      throw Error("io_error", "The worker has no private runtime directory.");
+    m_directory = std::make_unique<QTemporaryDir>(
+        QDir(m_context.runtimeDirectory).filePath("media-check-XXXXXX"));
+    if (!m_directory->isValid())
+      throw Error("io_error", "Cannot create the private media directory.");
+    return true;
+  }
+
+  // Copy at most one chunk per unit of work; a finished copy whose source
+  // changed meanwhile is unreadable, not decoded.
+  bool copyChunk() {
+    constexpr qint64 chunk = 8 * 1024 * 1024;
+    const QByteArray bytes = m_copy->source.read(chunk);
+    if (bytes.size() > 0) {
+      m_copy->target.write(bytes);
+      m_bytes += bytes.size();
+      m_cost.bytes += bytes.size();
+      if (!m_copy->source.atEnd()) return true;
+    }
+    const std::size_t index = m_copy->index;
+    const QFileInfo after(m_files[index].path);
+    const bool changed = after.size() != m_files[index].size ||
+                         after.lastModified() != m_copy->modified ||
+                         m_copy->target.size() != m_files[index].size;
+    const QString file = QFileInfo(m_copy->target).fileName();
+    m_copy->target.close();
+    m_copy.reset();
+    if (changed) {
+      QFile::remove(m_directory->filePath(file));
+      skip(index, "unreadable", QString(), "changed_during_check");
+      return true;
+    }
+    m_batch.push_back({index, file});
+    if (int(m_batch.size()) >= MediaFilesPerHelper) return startHelper();
+    return true;
+  }
+
+  bool startHelper() {
+    m_running = std::move(m_batch);
+    m_batch.clear();
+    QJsonArray manifest;
+    for (std::size_t slot = 0; slot < m_running.size(); ++slot)
+      manifest.append(
+          QJsonObject{{"index", int(slot)},
+                      {"file", m_running[slot].file},
+                      {"format", m_files[m_running[slot].index].format}});
+    QFile file(m_directory->filePath("manifest.json"));
+    if (!file.open(QIODevice::WriteOnly) ||
+        file.write(QJsonDocument(manifest).toJson()) < 0)
+      throw Error("io_error", "Cannot write the media helper manifest.");
+    file.close();
+    m_answered.assign(m_running.size(), false);
+    m_helper = std::make_unique<ParseHelperRun>(m_context, m_directory->path(),
+                                                "media");
+    ++m_cost.helpers;
+    return true;
+  }
+
+  bool pollHelper() {
+    const bool running = m_helper->poll();
+    for (const QByteArray& line : m_helper->takeLines()) {
+      const QJsonObject reply = QJsonDocument::fromJson(line).object();
+      const int slot          = reply.value("index").toInt(-1);
+      if (slot < 0 || slot >= int(m_running.size()) || m_answered[slot])
+        continue;
+      m_answered[slot] = true;
+      ++m_cost.files;
+      report(m_running[slot].index, reply);
+    }
+    if (running) return true;
+    helperEnded(m_helper->cause());
+    return true;
+  }
+
+  // The files a failed helper did not answer: each is decoded again in its
+  // own helper, so the file that fails is the one named.
+  void helperEnded(const QString& cause) {
+    m_helper.reset();
+    std::vector<Batched> unanswered;
+    for (std::size_t slot = 0; slot < m_running.size(); ++slot)
+      if (!m_answered[slot]) unanswered.push_back(m_running[slot]);
+    if (!unanswered.empty() && cause.isEmpty()) {
+      for (const Batched& file : unanswered)
+        skip(file.index, "crashed", QString(), "The helper gave no answer.");
+    } else if (unanswered.size() == 1) {
+      ++m_cost.files;
+      skip(unanswered.front().index, cause, QString(),
+           "The decoder " + cause + " on this file.");
+    } else {
+      for (const Batched& file : unanswered) m_retry.push_back(file);
+    }
+    m_running.clear();
+    if (m_retry.empty()) m_directory.reset();
+  }
+
+  bool startRetry() {
+    m_batch.push_back(m_retry.front());
+    m_retry.erase(m_retry.begin());
+    return startHelper();
+  }
+
+  QString m_revision;
+  int m_maxFiles;
+  qint64 m_maxBytes;
+  bool m_listing = true;
+  int m_offset   = 0;
+  std::vector<MediaFile> m_patterns;
+  std::size_t m_expand = 0;
+  std::vector<MediaFile> m_files;
+  std::size_t m_next = 0;
+  qint64 m_reported  = 0;
+  int m_admitted     = 0;
+  qint64 m_bytes     = 0;
+  QMap<QString, int> m_results;
+  std::unique_ptr<QTemporaryDir> m_directory;
+  std::unique_ptr<Copy> m_copy;
+  std::vector<Batched> m_batch;
+  std::vector<Batched> m_running;
+  std::vector<Batched> m_retry;
+  std::vector<bool> m_answered;
+  std::unique_ptr<ParseHelperRun> m_helper;
+};
+
 QSet<TXshLevel*> selectedLevels(Document& document, const QJsonObject& params) {
   QSet<TXshLevel*> selected;
   for (const QJsonValue& id : params.value("level_ids").toArray())
     selected.insert(document.level(id.toString()));
   return selected;
+}
+
+qint64 mediaBytes(const QJsonObject& params) {
+  const double bytes =
+      params.value("max_bytes").toDouble(double(DefaultMediaBytes));
+  if (bytes < 1 || bytes > double(MaxMediaBytes) || bytes != std::floor(bytes))
+    throw Error("invalid_params",
+                "max_bytes must be an integer from 1 to 17179869184.");
+  return qint64(bytes);
 }
 
 // The request as admitted: the caller's arguments with every default filled.
@@ -821,6 +1258,12 @@ QJsonObject admittedRequest(const QJsonObject& params, int deadlineMs) {
   request.remove("operation_id");
   request.remove("expected_revision");
   request.insert("deadline_ms", deadlineMs);
+  if (request.value("check") == "media_decode") {
+    if (!request.contains("max_files"))
+      request.insert("max_files", DefaultMediaFiles);
+    if (!request.contains("max_bytes"))
+      request.insert("max_bytes", double(DefaultMediaBytes));
+  }
   return request;
 }
 
@@ -834,6 +1277,16 @@ QJsonValue submit(Context& context, const QJsonObject& params) {
   const QString check = requiredString(params, "check");
   if (params.contains("level_ids") && check != "unused_styles")
     throw Error("invalid_params", "level_ids applies to unused_styles only.");
+  if ((params.contains("max_files") || params.contains("max_bytes")) &&
+      check != "media_decode")
+    throw Error("invalid_params",
+                "max_files and max_bytes apply to media_decode only.");
+  if (check == "media_decode" && !document.readOnly)
+    throw Error("invalid_params",
+                "media_decode checks the files of a read-only document; an "
+                "editable document's drawings are already decoded and its "
+                "files are written and verified by the worker.",
+                {{"reason", "editable_document"}});
   const int deadlineMs =
       integerParam(params, "deadline_ms", 1000, 600000, DefaultDeadlineMs);
   requireAnalysisCapacity(context);
@@ -843,6 +1296,11 @@ QJsonValue submit(Context& context, const QJsonObject& params) {
                                             selectedLevels(document, params));
   else if (check == "compatibility")
     job = std::make_shared<CompatibilityJob>(context, document, deadlineMs);
+  else if (check == "media_decode")
+    job = std::make_shared<MediaDecodeJob>(
+        context, document, deadlineMs,
+        integerParam(params, "max_files", 1, MaxMediaFiles, DefaultMediaFiles),
+        mediaBytes(params));
   else
     job = std::make_shared<InventoryJob>(context, document, deadlineMs);
   job->common.request = admittedRequest(params, deadlineMs);
@@ -866,22 +1324,34 @@ QJsonArray sceneCheckOperations() {
       "sheet_path of the first sheet that exposes it, without the read's "
       "record limit) or compatibility (what a legacy OpenToonz reader drops, "
       "may refuse or may not support, one row per finding with a stable "
-      "code and certainty; it loads every vector drawing). Poll job.status "
+      "code and certainty; it loads every vector drawing) or media_decode "
+      "(read-only documents: every image, level and sound file the scene "
+      "uses, frames of sequences included, copied privately and decoded in "
+      "isolated helpers; one row per file with decoded, corrupt, "
+      "unreadable, unsupported_format, too_large, missing, outside_roots, "
+      "crashed, timeout, memory or skipped_budget). Poll job.status "
       "and read rows with job.result; a "
       "canceled or deadline-ended job keeps its rows, marked incomplete.",
       {{"document_id", handle},
        {"expected_revision",
         QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 80}}},
-       {"check", QJsonObject{{"type", "string"},
-                             {"enum", QJsonArray{"unused_styles", "inventory",
-                                                 "compatibility"}}}},
+       {"check",
+        QJsonObject{{"type", "string"},
+                    {"enum", QJsonArray{"unused_styles", "inventory",
+                                        "compatibility", "media_decode"}}}},
        {"level_ids", QJsonObject{{"type", "array"},
                                  {"items", handle},
                                  {"minItems", 1},
                                  {"maxItems", MaxLevelIds}}},
        {"deadline_ms",
         QJsonObject{
-            {"type", "integer"}, {"minimum", 1000}, {"maximum", 600000}}}},
+            {"type", "integer"}, {"minimum", 1000}, {"maximum", 600000}}},
+       {"max_files",
+        QJsonObject{
+            {"type", "integer"}, {"minimum", 1}, {"maximum", MaxMediaFiles}}},
+       {"max_bytes", QJsonObject{{"type", "integer"},
+                                 {"minimum", 1},
+                                 {"maximum", double(MaxMediaBytes)}}}},
       {"document_id", "expected_revision", "check"}, true);
   descriptor.insert("mutates_document", false);
   // A check only reads the document; starting one changes no state a retry
