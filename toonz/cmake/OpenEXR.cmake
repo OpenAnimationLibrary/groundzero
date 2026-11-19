@@ -30,6 +30,13 @@ else()
         set(PYTHON OFF)
         set(PYBIND11 OFF)
 
+        # toonz/sources adds -Di386 on macOS for Toonz's own byte-order code.
+        # OpenEXR reads i386 as an x86 target and includes <cpuid.h>, which
+        # does not exist on arm64, so hide it from the fetched projects and
+        # restore it for the rest of the directory afterwards.
+        get_directory_property(_ot_definitions COMPILE_DEFINITIONS)
+        remove_definitions(-Di386)
+
         FetchContent_Declare(
             Imath
             URL https://github.com/AcademySoftwareFoundation/Imath/archive/5f27ba266d3ea1565e912570c30b5eafc89959f1.tar.gz
@@ -66,6 +73,8 @@ else()
             URL_HASH SHA256=4a96d1371022041ac05444916afc90197d9a134af09f445a5d05b0cf02b54984
         )
         FetchContent_MakeAvailable(OpenEXR)
+
+        set_directory_properties(PROPERTIES COMPILE_DEFINITIONS "${_ot_definitions}")
     endfunction()
 
     ot_configure_openexr()
