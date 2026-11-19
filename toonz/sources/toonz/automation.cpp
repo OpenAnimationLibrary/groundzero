@@ -858,7 +858,7 @@ void openJournal(Context& context, const Options& options,
   }
   start.faults = &context;
 #ifdef BUILD_UI_PORT_TESTS
-  if (options.smallJournal) start.limits = JournalLimits::small();
+  if (options.smallJournal) start.limits = JournalLimits::reduced();
 #else
   Q_UNUSED(options);
 #endif

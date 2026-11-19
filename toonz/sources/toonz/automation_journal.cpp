@@ -250,7 +250,7 @@ bool faultArmed(const Context* context, const char* point) {
 
 }  // namespace
 
-JournalLimits JournalLimits::small() {
+JournalLimits JournalLimits::reduced() {
   JournalLimits limits;
   limits.segmentBytes = 64 * 1024;
   limits.fullReceipts = 16;
