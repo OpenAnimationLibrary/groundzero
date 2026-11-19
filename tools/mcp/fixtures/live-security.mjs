@@ -311,8 +311,12 @@ function refusalFrame(stdout, code, label) {
 }
 
 async function rejectedFile(executable, path, token, label, code = undefined) {
+  // The loader trace a packaging run turns on is not connector output.
+  const environment = { ...process.env };
+  delete environment.DYLD_PRINT_LIBRARIES;
   const child = spawn(executable, ["--automation-live-connect", path], {
     stdio: ["pipe", "pipe", "pipe"],
+    env: environment,
   });
   const outcome = processOutcome(child);
   const output = [];
