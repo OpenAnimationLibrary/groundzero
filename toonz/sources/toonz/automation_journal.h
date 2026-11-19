@@ -1,0 +1,223 @@
+#pragma once
+
+#include <QHash>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QString>
+#include <QStringList>
+
+#include <functional>
+#include <memory>
+#include <vector>
+
+namespace GroundzeroAutomation {
+
+class Context;
+
+// The workspace journal: the durable record of every write and job of every
+// worker on one workspace, in <workspace>/.groundzero/journal. Appends are
+// serialised by an OS file lock that the kernel releases when its holder dies;
+// each is one write of complete, hash-verified JSON lines, flushed to the disk
+// before the step that depends on it. Readers take no lock: they verify each
+// line and treat an incomplete last line as not yet written.
+//
+// Only a worker opens it. A worker whose journal is unavailable refuses every
+// write; reads still answer.
+
+struct JournalLimits final {
+  qint64 segmentBytes     = 16 * 1024 * 1024;
+  int lineBytes           = 64 * 1024;
+  int inlineResponseBytes = 32 * 1024;
+  qint64 blobBytes        = 8 * 1024 * 1024;
+  qint64 journalBytes     = qint64(1024) * 1024 * 1024;
+  int fullReceipts        = 16384;
+  int receiptStubs        = 262144;
+  int packages            = 4096;
+  qint64 packageBytes     = qint64(512) * 1024 * 1024;
+  int jobs                = 4096;
+  int lockWaitMs          = 5000;
+  int outcomeLockWaitMs   = 30000;
+  // --test-journal-limits small: rotation, compaction and expiry in seconds.
+  static JournalLimits small();
+  // The limits journal.status reports.
+  QJsonObject report() const;
+};
+
+// What the journal holds for one operation id.
+struct JournalOperation final {
+  QString operationId;
+  QString method;
+  QString argumentsSha256;
+  QString authorityDigest;
+  QString documentId;
+  QString effectClass;
+  QString writer;
+  qint64 admittedSeq  = 0;
+  qint64 admittedAtMs = 0;
+  // The intent, outcome and reconcile records; empty when absent.
+  QJsonObject intent;
+  QJsonObject outcome;
+  QJsonObject reconcile;
+  // Set for an operation compacted to a stub: its state then.
+  QString stubState;
+};
+
+// A reconciliation verdict (contract section 4.2): {kind, reconciled,
+// evidence {target, expected_sha256, found, job_id, outputs_present}}.
+using JournalVerdict = QJsonObject;
+
+class Journal final {
+public:
+  struct Start final {
+    QString workspace;
+    QString instance;
+    QString runtimeName;
+    QString authorityDigest;
+    QString executableSha256;
+    JournalLimits limits;
+    // Test fault points (journal:...) are read from it; may be null.
+    const Context* faults = nullptr;
+  };
+
+  // Opens, creates or recovers the journal under its lock: a torn last line
+  // is quarantined and cut off, a damaged segment is quarantined and
+  // reported, operations and jobs of dead workers are reconciled, and this
+  // worker's start is recorded. Never throws: a journal that cannot be used is
+  // returned unavailable with its reason.
+  static std::shared_ptr<Journal> open(const Start& start);
+  ~Journal();
+  Journal(const Journal&)            = delete;
+  Journal& operator=(const Journal&) = delete;
+
+  bool available() const { return m_reason.isEmpty(); }
+  // Whether the journal was opened and read, even if it cannot be written.
+  bool readable() const { return m_lockDescriptor >= 0; }
+  // journal.status of a process without a journal.
+  static QJsonObject absentStatus();
+  // ok, damaged or unavailable.
+  QString state() const;
+  QString unavailableReason() const { return m_reason; }
+  const QString& instance() const { return m_start.instance; }
+  const QString& authorityDigest() const { return m_start.authorityDigest; }
+
+  // Reads what other workers appended since the last read; takes no lock.
+  void refresh();
+  // The operation as last read, or null.
+  const JournalOperation* find(const QString& operationId) const;
+  // Whether the worker instance that wrote records is running.
+  bool writerAlive(const QString& instance) const;
+  // The full instance id of a worker whose id starts with `prefix`, or empty.
+  QString writerWithPrefix(const QString& prefix) const;
+  // The verdict for an admitted operation without outcome, from its effect
+  // class and, for a publication, what is at its target now.
+  JournalVerdict verdict(const JournalOperation& operation) const;
+  // The recorded response ({result} or {error}) of a completed or failed
+  // operation; throws journal_unavailable when its blob is missing or altered.
+  QJsonObject response(const JournalOperation& operation) const;
+
+  // Appends and flushes an admit record, unless another worker admitted the
+  // id meanwhile (false; nothing appended). Throws journal_busy when the lock
+  // is not obtained within the admission wait, journal_unavailable when the
+  // journal cannot be written.
+  bool admit(const QJsonObject& fields);
+  // An admitted operation refused before any change; not flushed.
+  void release(const QString& operationId);
+  // Appends and flushes the intent of a publication.
+  void intent(const QJsonObject& fields);
+  // Appends and flushes the outcome of an admitted operation. On failure the
+  // journal becomes unavailable for this worker and false is returned.
+  bool outcome(const QString& operationId, const QJsonObject& response,
+               const QJsonObject& summary);
+  // Appends a reconcile record for an operation of a dead worker unless one
+  // is already there; returns the verdict either way.
+  JournalVerdict reconcile(const JournalOperation& operation);
+
+  // Job records (newest record per job id).
+  void recordJob(const QJsonObject& record);
+  // The job record as job.status answers it from the journal: observed_by
+  // journal, and status unknown with worker_loss when its worker died before
+  // a terminal record.
+  QJsonObject jobView(const QJsonObject& stored) const;
+  const QJsonObject* job(const QString& jobId) const;
+  QStringList jobIds() const;
+
+  // Operations, newest admission first, for operation.list.
+  std::vector<const JournalOperation*> operationsNewestFirst() const;
+  qint64 horizonSeq() const;
+
+  // journal.status.
+  QJsonObject status() const;
+
+private:
+  explicit Journal(Start start);
+  struct Segment;
+  struct Lock;
+  void fail(const QString& reason);
+  void recover();
+  void scanSegment(Segment& segment, bool recovery);
+  void applyRecord(const QJsonObject& record, Segment& segment);
+  void apply(const QJsonObject& record);
+  // Quarantines and cuts off a torn last line (and, with verifyLast, a last
+  // line whose hash is wrong); returns the bytes cut, or -1 on an I/O error.
+  qint64 repairTail(Segment& segment, bool verifyLast);
+  void quarantineSegment(Segment& segment, const std::vector<QByteArray>& good,
+                         qint64 firstSeq, qint64 lastSeq);
+  void reconcileDead();
+  void compactSegments();
+  void compactSegment(Segment& segment, const QHash<QString, QString>& fate);
+  QJsonObject jobLoss(const QJsonObject& record) const;
+  // Appends records under the lock; `check` runs after the tail is read
+  // under the lock and returns false to append nothing.
+  bool append(QList<QJsonObject> records, int waitMs, bool flush,
+              const std::function<bool()>& check = {});
+  QByteArray line(QJsonObject& record, qint64 seq) const;
+  QString storeBlob(const QByteArray& bytes);
+  QByteArray readBlob(const QString& digest, qint64 bytes) const;
+  Segment& writableSegment(qint64 nextSeq, qint64 bytes);
+  QString path(const QString& name) const;
+  void listSegments();
+
+  Start m_start;
+  QString m_root;
+  QString m_reason;
+  int m_lockDescriptor = -1;
+  std::vector<std::unique_ptr<Segment>> m_segments;
+  QHash<QString, JournalOperation> m_operations;
+  QHash<QString, QJsonObject> m_writers;
+  QStringList m_writerOrder;
+  QHash<QString, QJsonObject> m_jobs;
+  QJsonArray m_damage;
+  QJsonArray m_quarantined;
+  QJsonObject m_lastRecovery;
+  bool m_locked       = false;
+  bool m_recovering   = false;
+  qint64 m_lastSeq    = 0;
+  qint64 m_runtimeBad = 0;
+};
+
+// The SHA-256 of a file, or of a folder as the sorted list of its files'
+// relative paths, sizes and SHA-256s; empty when it cannot be read, holds a
+// link or exceeds the package limits.
+QString journalContentDigest(const QString& path);
+
+// Before a publication's final rename: the durable intent naming its target
+// and the digest of what will appear there. Nothing without a journal or
+// outside a write.
+void recordPublicationIntent(Context& context, const QString& staged,
+                             const QString& target);
+
+// The worker's journal, or null outside a worker.
+Journal* workspaceJournal(Context& context);
+// automation.capabilities journal: {available, state, format_version, path}.
+QJsonObject journalCapability(Context& context);
+
+// The tools operation.status, journal.status and operation.list.
+QJsonArray journalOperations();
+QJsonValue executeJournal(Context& context, const QString& method,
+                          const QJsonObject& params);
+
+#ifdef BUILD_UI_PORT_TESTS
+void runAutomationJournalTests(Context& context);
+#endif
+
+}  // namespace GroundzeroAutomation

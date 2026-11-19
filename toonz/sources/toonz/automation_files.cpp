@@ -1,5 +1,6 @@
 #include "automation_files.h"
 #include "automation.h"
+#include "automation_journal.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -7,7 +8,9 @@
 #include <QFileInfo>
 #include <QJsonObject>
 
+#include <chrono>
 #include <cstdlib>
+#include <thread>
 
 #ifdef _WIN32
 #include <qt_windows.h>
@@ -99,6 +102,18 @@ int pinDirectory(const QString& directory) {
     redirected();
   }
   return descriptor;
+}
+
+// Pushes a descriptor's data to the device; on macOS only F_FULLFSYNC also
+// empties the drive's own cache.
+bool flushDescriptor(int descriptor, bool device) {
+#ifdef __APPLE__
+  if (device && fcntl(descriptor, F_FULLFSYNC) == 0) return true;
+  return fsync(descriptor) == 0;
+#else
+  Q_UNUSED(device);
+  return fdatasync(descriptor) == 0;
+#endif
 }
 
 #ifdef BUILD_UI_PORT_TESTS
@@ -450,7 +465,10 @@ OpenResult openApprovedFile(QFile& file, const QString& path) {
   return OpenResult::Opened;
 }
 
-PublishResult publishApproved(const QString& staged, const QString& path) {
+PublishResult publishApproved(const QString& staged, const QString& path,
+                              bool* flushed) {
+  // Windows has no folder flush; NTFS journals the name with the move.
+  if (flushed) *flushed = true;
   const QFileInfo target(path);
   const Handle directory = pinDirectory(target.absolutePath(), FILE_ADD_FILE);
   if (!directory.valid()) return PublishResult::Failed;
@@ -549,7 +567,8 @@ OpenResult openApprovedFile(QFile& file, const QString& path) {
   return OpenResult::Opened;
 }
 
-PublishResult publishApproved(const QString& staged, const QString& path) {
+PublishResult publishApproved(const QString& staged, const QString& path,
+                              bool* flushed) {
   const QFileInfo target(path);
   const int directory = pinDirectory(target.absolutePath());
   if (directory < 0) return PublishResult::Failed;
@@ -559,6 +578,9 @@ PublishResult publishApproved(const QString& staged, const QString& path) {
   racingStaged() = staged;
 #endif
   const PublishResult result = exclusivePublish(staged, directory, name);
+  // The folder that received the name, through the descriptor pinned to it.
+  if (flushed && result == PublishResult::Published)
+    *flushed = flushDescriptor(directory, true);
   ::close(directory);
   return result;
 }
@@ -626,18 +648,6 @@ bool flushDirectory(const QString&) { return true; }
 
 namespace {
 
-// Pushes a descriptor's data to the device; on macOS only F_FULLFSYNC also
-// empties the drive's own cache.
-bool flushDescriptor(int descriptor, bool device) {
-#ifdef __APPLE__
-  if (device && fcntl(descriptor, F_FULLFSYNC) == 0) return true;
-  return fsync(descriptor) == 0;
-#else
-  Q_UNUSED(device);
-  return fdatasync(descriptor) == 0;
-#endif
-}
-
 bool flushPath(const QString& path, bool directory, bool device) {
   const int descriptor =
       ::open(QFile::encodeName(path).constData(),
@@ -691,6 +701,8 @@ bool writeFaultFires(const Context& context, const char* point) {
 #ifdef BUILD_UI_PORT_TESTS
   if (!context.writeFaultArmed(point)) return false;
   if (context.writeFaultMode == "crash") std::_Exit(WriteFaultCrashExitCode);
+  if (context.writeFaultMode == "hold")
+    std::this_thread::sleep_for(std::chrono::seconds(10));
   return true;
 #else
   Q_UNUSED(context);
@@ -703,6 +715,7 @@ void publishStaged(Context& context, const QString& staged, const QString& path,
                    const QString& failureCode, const QString& failureMessage) {
   context.markMutationStarted();
   const bool durable = context.writeClass == "publication";
+  if (durable) recordPublicationIntent(context, staged, path);
   if (durable &&
       (writeFaultFires(context, "publish:flush") || !flushTree(staged)))
     throw stagedWriteError(failureCode,
@@ -712,7 +725,8 @@ void publishStaged(Context& context, const QString& staged, const QString& path,
   if (writeFaultFires(context, "publish"))
     throw stagedWriteError(failureCode, failureMessage, "publish", QString(),
                            false);
-  switch (publishApproved(staged, path)) {
+  bool flushed = true;
+  switch (publishApproved(staged, path, durable ? &flushed : nullptr)) {
   case PublishResult::Published:
     break;
   case PublishResult::Unsupported:
@@ -731,7 +745,7 @@ void publishStaged(Context& context, const QString& staged, const QString& path,
                            false);
   }
   writeFaultFires(context, "publish:renamed");
-  if (durable && !flushDirectory(QFileInfo(path).absolutePath()))
+  if (!flushed)
     throw stagedWriteError(failureCode,
                            "The output was published but its folder could not "
                            "be flushed to disk.",

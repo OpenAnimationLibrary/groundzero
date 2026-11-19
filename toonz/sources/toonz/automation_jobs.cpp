@@ -1,6 +1,7 @@
 #include "automation_jobs.h"
 
 #include "automation_build_identity.h"
+#include "automation_journal.h"
 #include "automation_scene_host.h"
 
 #include <QCoreApplication>
@@ -106,8 +107,24 @@ QJsonArray retainedRecords(Context& context) {
   return records;
 }
 
+// Jobs of earlier or other workers that the journal holds, newest first.
+QJsonArray journalRecords(Context& context) {
+  QJsonArray records;
+  Journal* journal = workspaceJournal(context);
+  if (!journal) return records;
+  journal->refresh();
+  JobRegistry& registry = jobRegistry(context);
+  const QString own     = "job_" + registry.instance().left(8) + "_";
+  for (const QString& id : journal->jobIds())
+    if (!id.startsWith(own))
+      records.append(journal->jobView(*journal->job(id)));
+  return records;
+}
+
 QJsonValue listJobs(Context& context, const QJsonObject& params) {
-  const QJsonArray records = retainedRecords(context);
+  QJsonArray records = retainedRecords(context);
+  for (const QJsonValue& record : journalRecords(context))
+    records.append(record);
   if (params.contains("document_id"))
     requireListedDocument(context, requiredString(params, "document_id"),
                           records);
@@ -406,7 +423,7 @@ QJsonObject jobSummary(const QJsonObject& record) {
   for (const char* key : {"job_id", "kind", "lane", "document_id",
                           "source_revision", "status", "terminal", "timing"})
     summary.insert(key, record.value(key));
-  summary.insert("observed_by", "worker");
+  summary.insert("observed_by", record.value("observed_by").toString("worker"));
   return summary;
 }
 
@@ -444,11 +461,43 @@ QJsonArray jobOperations() {
                     result, {"job_id"})};
 }
 
+namespace {
+
+// A job of an earlier or other worker of the workspace, answered from its
+// last journal record: never resumed, cancelled or read for artifacts here.
+QJsonValue journalJob(Context& context, const QString& method,
+                      const QJsonObject& stored) {
+  const QJsonObject record = workspaceJournal(context)->jobView(stored);
+  if (method == "job.status") return record;
+  if (method == "job.cancel")
+    jobRegistry(context).refuseUnknown(record.value("job_id").toString());
+  const bool completed = record.value("status") == "completed";
+  throw Error(completed ? "artifacts_unavailable" : "result_unavailable",
+              "This job ran in an earlier worker of the workspace; its "
+              "outputs are listed by digest in its record and cannot be read "
+              "here.",
+              {{"reason", "previous_worker"},
+               {"status", record.value("status")},
+               {"job_id", record.value("job_id")}});
+}
+
+}  // namespace
+
 QJsonValue executeJobs(Context& context, const QString& method,
                        const QJsonObject& params) {
   if (method == "job.list") return listJobs(context, params);
-  const auto job =
-      jobRegistry(context).require(requiredString(params, "job_id"));
+  const QString id      = requiredString(params, "job_id");
+  JobRegistry& registry = jobRegistry(context);
+  Journal* journal      = workspaceJournal(context);
+  // Only another worker's job is answered from the journal; this worker's own
+  // ids keep the registry's reasons (expired, not_issued).
+  if (!registry.find(id) && journal &&
+      !id.startsWith("job_" + registry.instance().left(8) + "_")) {
+    journal->refresh();
+    if (const QJsonObject* stored = journal->job(id))
+      return journalJob(context, method, *stored);
+  }
+  const auto job = registry.require(id);
   if (method == "job.status") return job->record();
   if (method == "job.result") return job->result(context, params);
   if (method != "job.cancel")

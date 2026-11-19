@@ -354,6 +354,30 @@ def _jobs(f: Fixture) -> list[Call]:
     ]
 
 
+def _operation(_f: Fixture) -> list[Call]:
+    return [
+        Call("recorded write", {"operation_id": "operation-1"}),
+        Call("never used", {"operation_id": "operation-never-used"}),
+        Call("empty id", {"operation_id": ""}, SCHEMA),
+    ]
+
+
+def _journal(_f: Fixture) -> list[Call]:
+    return [
+        Call("status", {}),
+        Call("unknown field", {"segment": 1}, SCHEMA),
+    ]
+
+
+def _operations(_f: Fixture) -> list[Call]:
+    return [
+        Call("unresolved", {}),
+        Call("every state, two rows", {"state": "any", "limit": 2}),
+        Call("admitted before the second record", {"state": "any", "before_seq": 2}),
+        Call("zero limit", {"limit": 0}, SCHEMA),
+    ]
+
+
 def _artifact(f: Fixture) -> list[Call]:
     return [
         Call("preview", {"artifact_id": f.ids["artifact"]}),
@@ -741,6 +765,9 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "job.status": _job,
     "job.result": _job,
     "artifact.read": _artifact,
+    "operation.status": _operation,
+    "journal.status": _journal,
+    "operation.list": _operations,
     "scene.package_info": _package,
     "cast.list": _pinned_with("stale_revision"),
     "cast.usage": _pinned_with("stale_revision"),

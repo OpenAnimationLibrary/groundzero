@@ -200,6 +200,7 @@ set(HEADERS
     automation_animation.h
     automation_build_identity.h
     automation_jobs.h
+    automation_journal.h
     automation_fx_profile.h
     automation_path.h
     automation_audio.h
@@ -351,6 +352,8 @@ set(SOURCES
     automation_scene_inventory.cpp
     automation_build_identity.cpp
     automation_jobs.cpp
+    automation_journal.cpp
+    automation_journal_tools.cpp
     automation_live.cpp
     automation_live_protocol.cpp
     automation_live_state.cpp
@@ -1201,6 +1204,7 @@ endif()
 if(BUILD_UI_PORT_TESTS)
     add_executable(mcp_path_test
         automation_context.cpp automation_error.cpp automation_path.cpp
+        automation_journal.cpp automation_files.cpp automation_ownership.cpp
         automation_animation.cpp tests/automation_path_test.cpp)
     target_include_directories(mcp_path_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     set_target_properties(mcp_path_test PROPERTIES
@@ -1323,6 +1327,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_runtime_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_jobs_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_journal_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_drawing_analysis_test.cpp)
     target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
     target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)

@@ -51,7 +51,11 @@ enum class PublishResult { Published, Exists, Unsupported, Failed };
 //
 // Throws:
 //   Error: path_denied when a component of the path was redirected.
-PublishResult publishApproved(const QString& staged, const QString& path);
+//
+// With `flushed` given, the pinned destination folder is flushed to the disk
+// after a publication and *flushed says whether that succeeded.
+PublishResult publishApproved(const QString& staged, const QString& path,
+                              bool* flushed = nullptr);
 
 // Record the publication as started and publish, or throw: failureCode when
 // the destination exists or the move fails, publication_unsupported (with the
@@ -83,7 +87,8 @@ bool flushDirectory(const QString& directory);
 constexpr int WriteFaultCrashExitCode = 86;
 // At an armed test write fault point: in crash mode the process ends at once
 // with WriteFaultCrashExitCode and no destructor runs, as under SIGKILL; in
-// fail mode the call returns true and the caller throws its typed error.
+// fail mode the call returns true and the caller throws its typed error; in
+// hold mode the thread sleeps ten seconds first.
 // Always false outside test builds.
 bool writeFaultFires(const Context& context, const char* point);
 

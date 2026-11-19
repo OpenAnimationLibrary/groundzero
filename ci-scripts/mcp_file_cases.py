@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import uuid
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
 FOLDING = {"case alias of an existing name", "decomposed spelling of a composed name"}
 FOLDING |= {"composed spelling of a decomposed name"}
 PERMISSION = {"unreadable folder", "read-only folder"}
+JOURNAL = "/.groundzero/journal/"
 SCHEMA_REJECTION = "INVALID_ARGUMENTS"
 
 
@@ -55,6 +57,10 @@ def file_tools_are_all_qualified(case: NativeAcceptance) -> None:
     case.assertTrue(named <= covered, named - covered)
 
 
+def _without_journal(files: dict[str, Any]) -> dict[str, Any]:
+    return {path: state for path, state in files.items() if JOURNAL not in str(path)}
+
+
 class Observation:
     """What a call left behind: the files under the roots and the processes below the worker."""
 
@@ -67,11 +73,16 @@ class Observation:
         self.processes = descendants(self.worker.process.pid)
 
     def unchanged(self) -> tuple[bool, str]:
-        """Compare with now: whether nothing changed, and what did if something did."""
-        files = tree_state(self.roots)
-        added = sorted(set(files) - set(self.files))
-        removed = sorted(set(self.files) - set(files))
-        changed = sorted(p for p in set(files) & set(self.files) if files[p] != self.files[p])
+        """Compare with now: whether nothing changed, and what did if something did.
+
+        The workspace journal is left out: a write refused after its admission records the
+        admission and its release there by design.
+        """
+        files = _without_journal(tree_state(self.roots))
+        before = _without_journal(self.files)
+        added = sorted(set(files) - set(before))
+        removed = sorted(set(before) - set(files))
+        changed = sorted(p for p in set(files) & set(before) if files[p] != before[p])
         started = sorted(descendants(self.worker.process.pid) - self.processes)
         problems = {"created": added, "removed": removed, "changed": changed, "started": started}
         return not any(problems.values()), repr({k: v for k, v in problems.items() if v})
@@ -155,12 +166,30 @@ def _no_logs_name(case: NativeAcceptance, marker: str, started: float) -> None:
         if path.suffix not in {".log", ".dmg"}
         and marker not in path.name
         and marker not in str(path.parent)
+        and JOURNAL not in str(path)
     ]
     case.assertEqual(stray, [], "a file outside the logs records a denied path")
+    _journal_names_only_admitted_paths(case, marker)
     mentioned = unified_log_mentions(marker, started)
     if mentioned is None:
         print(f"note: no readable system log on {os.uname().sysname}; its check was skipped")
     case.assertFalse(mentioned, "the system log names a denied path")
+
+
+def _journal_names_only_admitted_paths(case: NativeAcceptance, marker: str) -> None:
+    """The journal keeps the results of admitted calls and the targets of admitted
+    publications, paths included, and nothing of a refused call."""
+    for segment in case.directory.glob("**/.groundzero/journal/seg-*.jsonl"):
+        for line in segment.read_bytes().splitlines():
+            if marker.encode() not in line:
+                continue
+            record = json.loads(line[65:])
+            kind = (record["type"], record.get("state"))
+            case.assertIn(
+                kind,
+                {("outcome", "completed"), ("intent", None)},
+                f"the journal records a refused path: {kind}",
+            )
 
 
 def run_matrix(case: NativeAcceptance, mode: str) -> None:

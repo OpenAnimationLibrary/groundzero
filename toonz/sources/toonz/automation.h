@@ -25,6 +25,7 @@ namespace GroundzeroAutomation {
 
 struct ReadOnlyScene;
 class JobRegistry;
+class Journal;
 struct SceneHostRegistry;
 struct RuntimeState;
 struct SelectionRegistry;
@@ -101,6 +102,8 @@ public:
   Context& operator=(const Context&) = delete;
 
   Document& document(const QString& id);
+  // document_not_found details for an id that names no document here.
+  QJsonObject missingDocument(const QString& id) const;
   /// Refuse with resource_limit while the worker holds its maximum documents.
   void requireDocumentCapacity() const;
   Document& addDocument(std::unique_ptr<ToonzScene> scene);
@@ -154,8 +157,12 @@ public:
   // The private per-process runtime directory inside the workspace.
   QString runtimeDirectory;
   // Set by the dispatcher while a write runs: the effect class of its tool
-  // (memory, publication or job); empty outside a write.
+  // (memory, publication or job) and its operation_id; empty outside a write.
   QString writeClass;
+  QString writeOperation;
+  // The workspace journal of a worker; null in scene hosts, parse helpers and
+  // domain tests.
+  std::shared_ptr<Journal> journal;
   // The read-only document a scene host process owns; empty in a worker.
   QString sceneHostDocument;
   // The worker's scene host processes, keyed by read-only document.
@@ -164,7 +171,11 @@ public:
   // false outside test builds.
   bool writeFaultArmed(const char* point) const {
 #ifdef BUILD_UI_PORT_TESTS
-    return writeFault == point;
+    // With faultOperation set, a point inside a write fires only in the write
+    // with that operation_id.
+    return writeFault == point &&
+           (faultOperation.isEmpty() || writeOperation.isEmpty() ||
+            writeOperation == faultOperation);
 #else
     Q_UNUSED(point);
     return false;
@@ -183,9 +194,12 @@ public:
   // gl-context-failure or teardown-hang (worker teardown never finishes).
   QString renderFault;
   // Test-only file-writing fault point (publish, package:level, ...) and its
-  // mode: fail makes the step throw its typed error, crash ends the process.
+  // mode: fail makes the step throw its typed error, crash ends the process,
+  // hold blocks the application thread for ten seconds there.
   QString writeFault;
   QString writeFaultMode = "fail";
+  // Test-only: the operation_id of the one write in which fault points fire.
+  QString faultOperation;
 #endif
 
 private:

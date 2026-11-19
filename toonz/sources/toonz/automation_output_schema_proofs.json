@@ -238,6 +238,27 @@
     "handler": "record",
     "read": []
   },
+  "journal.status": {
+    "handler": "journalStatus",
+    "read": [
+      "alive",
+      "at_seq",
+      "by_worker",
+      "bytes",
+      "current",
+      "first_seq",
+      "last_seq",
+      "name",
+      "quarantined_segments",
+      "reconciled_jobs",
+      "reconciled_operations",
+      "registered_packages",
+      "segment",
+      "started_at_ms",
+      "truncated_tail_bytes",
+      "worker_instance_id"
+    ]
+  },
   "level.create": {
     "handler": "createLevel",
     "read": []
@@ -337,6 +358,22 @@
   "offset_layer.update": {
     "handler": "updateLayer",
     "read": []
+  },
+  "operation.list": {
+    "handler": "listOperations",
+    "read": []
+  },
+  "operation.status": {
+    "handler": "operationStatus",
+    "read": [
+      "evidence",
+      "expected_sha256",
+      "found",
+      "kind",
+      "outputs_present",
+      "reconciled",
+      "target"
+    ]
   },
   "palette.clone_style": {
     "handler": "cloneStyle",

@@ -500,6 +500,11 @@
    "toolset": "core",
    "writes": false
   },
+  "journal.status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
   "level.create": {
    "origin": "worker",
    "toolset": "core",
@@ -654,6 +659,16 @@
    "origin": "worker",
    "toolset": "rigging",
    "writes": true
+  },
+  "operation.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "operation.status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
   },
   "palette.clone_style": {
    "origin": "worker",
@@ -2821,6 +2836,20 @@
    "disposition": {
     "kind": "restricted",
     "reason": "Needs separate authority; a live session stops through the editor's own action."
+   }
+  },
+  {
+   "id": "session.durable_receipts",
+   "domain": "Session and capability discovery",
+   "outcome": "Recover the outcome of a write after a worker restart or crash by its operation identifier, and list writes whose outcome is unresolved.",
+   "classification": "exposed",
+   "tools": [
+    "operation.status",
+    "operation.list",
+    "journal.status"
+   ],
+   "disposition": {
+    "kind": "implemented"
    }
   }
  ]
