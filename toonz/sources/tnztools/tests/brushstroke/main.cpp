@@ -8,15 +8,21 @@
 //                                               this platform
 //   brushstroke_test <golden folder> --case <text>   only the cases whose
 //                                               name contains <text>
-//   brushstroke_test <golden folder> --tolerant compare with the reference
-//                                               platform within the tolerance
-//                                               even where exact data exists
+//   brushstroke_test <golden folder> --tolerant compare as the other
+//                                               platforms do
 //
-// The golden folder is tnztools/tests/brushstroke/golden. It holds one folder
-// per platform ("macos-arm64-qt5"); the gestures are in ../gestures. A
-// platform with a folder of its own must reproduce it exactly. Any other
-// platform is compared with the reference platform within the tolerance
-// described in golden.h, and the differences it let through are printed.
+// The golden folder is tnztools/tests/brushstroke/golden; the gestures are in
+// ../gestures. golden/macos-arm64-qt5 is the reference: every case, with its
+// rasters as images. On that platform a result must equal it exactly.
+//
+// On another platform everything but the coordinates must equal it too:
+// counts, order, styles, flags, saveboxes and every pixel. Coordinates,
+// thicknesses and region boxes may differ by numberTolerance, because the
+// processors and compilers do not round the stroke fit the same way. Where a
+// platform gives another result for a known reason, golden/<platform> holds
+// its own record of that case, which replaces the reference there. --update
+// writes those records; a failing case prints its record, so that one can be
+// taken from the log of a platform there is no machine for.
 
 #include "cases.h"
 #include "golden.h"
@@ -34,6 +40,9 @@ namespace {
 using namespace brushstroke;
 
 const char* const referencePlatform = "macos-arm64-qt5";
+
+// The largest difference a coordinate may have on another platform.
+const double numberTolerance = 1e-6;
 
 struct Options {
   QString goldenRoot;
@@ -63,36 +72,76 @@ Options parse(int argc, char* argv[]) {
   return options;
 }
 
-// Returns whether the case matched (or was recorded).
-bool check(const Case& test, const Record& record, const Options& options) {
+struct Totals {
+  int failed     = 0;
+  int numbersOff = 0;
+  double largest = 0;
+  std::string where;  // the case with the largest difference
+};
+
+void printRecord(const Case& test, const Record& record) {
+  std::cout << "  record of " << test.name << " on "
+            << platformKey().toStdString() << ":" << std::endl;
+  for (const std::string& line : record.lines)
+    std::cout << "  | " << line << std::endl;
+}
+
+// Writes the golden data of this platform: the whole record on the reference
+// platform, and elsewhere only a record the reference does not cover.
+void update(const Case& test, const Record& record, const Options& options) {
   const QString own       = options.goldenRoot + "/" + platformKey();
   const QString reference = options.goldenRoot + "/" + referencePlatform;
-  if (options.update) {
-    saveGolden(own, test.name, record);
+  if (platformKey() == referencePlatform) {
+    saveGolden(own, test.name, record, true);
     std::cout << "brushstroke: " << test.name << " recorded" << std::endl;
-    return true;
+    return;
   }
-  const bool exact  = !options.tolerant && goldenExists(own, test.name);
-  const QString dir = exact ? own : reference;
+  const bool covered =
+      goldenExists(reference, test.name) &&
+      compare(loadGolden(reference, test.name), record, numberTolerance)
+          .problems.empty();
+  if (covered)
+    removeGolden(own, test.name);
+  else
+    saveGolden(own, test.name, record, false);
+  std::cout << "brushstroke: " << test.name
+            << (covered ? " equals the reference" : " recorded") << std::endl;
+}
+
+void check(const Case& test, const Record& record, const Options& options,
+           Totals& totals) {
+  const QString own       = options.goldenRoot + "/" + platformKey();
+  const QString reference = options.goldenRoot + "/" + referencePlatform;
+  const bool exact  = platformKey() == referencePlatform && !options.tolerant;
+  const QString dir = !exact && goldenExists(own, test.name) ? own : reference;
   if (!goldenExists(dir, test.name)) {
     std::cout << "brushstroke: " << test.name
               << " FAIL: no golden data; record it with --update" << std::endl;
-    return false;
+    ++totals.failed;
+    return;
   }
   const Comparison result = compare(loadGolden(dir, test.name), record,
-                                    exact ? Mode::Exact : Mode::Tolerant);
-  if (result.problems.empty()) {
-    std::cout << "brushstroke: " << test.name
-              << (exact ? " exact" : " within tolerance:") << result.note
-              << std::endl;
-    return true;
+                                    exact ? 0.0 : numberTolerance);
+  if (result.largest > totals.largest) {
+    totals.largest = result.largest;
+    totals.where   = test.name;
   }
-  std::cout << "brushstroke: " << test.name << " FAIL ("
-            << (exact ? "exact" : "tolerant") << " against "
-            << QDir(dir).dirName().toStdString() << ")" << std::endl;
-  for (const std::string& problem : result.problems)
-    std::cout << "  " << problem << std::endl;
-  return false;
+  totals.numbersOff += result.numbersOff;
+  std::cout << "brushstroke: " << test.name
+            << (result.problems.empty() ? " ok" : " FAIL") << " against "
+            << QDir(dir).dirName().toStdString();
+  if (result.numbersOff)
+    std::cout << ": " << result.numbersOff << " numbers differ, by up to "
+              << result.largest;
+  std::cout << std::endl;
+  if (result.problems.empty()) return;
+  ++totals.failed;
+  for (size_t i = 0; i < result.problems.size() && i < 8; ++i)
+    std::cout << "  " << result.problems[i] << std::endl;
+  if (result.problems.size() > 8)
+    std::cout << "  and " << result.problems.size() - 8 << " more lines"
+              << std::endl;
+  printRecord(test, record);
 }
 
 int run(const Options& options) {
@@ -106,7 +155,8 @@ int run(const Options& options) {
   Fixture fixture(application,
                   QDir::cleanPath(QDir(options.goldenRoot).absolutePath() +
                                   "/../gestures"));
-  int failed = 0, ran = 0;
+  Totals totals;
+  int ran = 0;
   for (const Case& test : cases) {
     if (!QString(test.name).contains(options.filter)) continue;
     ++ran;
@@ -117,16 +167,24 @@ int run(const Options& options) {
     } catch (const std::exception& error) {
       std::cout << "brushstroke: " << test.name << " FAIL: " << error.what()
                 << std::endl;
-      ++failed;
+      ++totals.failed;
       continue;
     }
-    if (!check(test, record, options)) ++failed;
+    if (options.update)
+      update(test, record, options);
+    else
+      check(test, record, options, totals);
   }
   fixture.begin();
   require(ran > 0, "no case matches the filter");
-  std::cout << "brushstroke: " << (ran - failed) << " of " << ran
+  if (totals.numbersOff)
+    std::cout << "brushstroke: " << totals.numbersOff
+              << " numbers differ from the golden data, by up to "
+              << totals.largest << " (" << totals.where << "); "
+              << numberTolerance << " is allowed" << std::endl;
+  std::cout << "brushstroke: " << (ran - totals.failed) << " of " << ran
             << " cases passed on " << platformKey().toStdString() << std::endl;
-  return failed ? 1 : 0;
+  return totals.failed ? 1 : 0;
 }
 
 }  // namespace

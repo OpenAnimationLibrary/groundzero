@@ -109,92 +109,50 @@ bool isNumber(const QString& token, double& value) {
   return ok;
 }
 
-bool closeEnough(double a, double b) {
-  return std::fabs(a - b) <= 1e-6 + 1e-9 * std::max(std::fabs(a), std::fabs(b));
-}
-
 // "<label> raster ..." or "afterUndo <label> raster ...": a line that has an
 // image.
 bool isRasterLine(const QString& line) {
   return line.contains(" raster kind=");
 }
 
-QString field(const QString& line, const QString& key) {
-  for (const QString& token : line.split(' '))
-    if (token.startsWith(key + "=")) return token.mid(key.size() + 1);
-  return QString();
-}
-
-bool tonesClose(int a, int b) { return std::abs(a - b) <= 4; }
-
-bool pixelClose(QRgb a, QRgb b, bool colourMap) {
-  if (a == b) return true;
-  if (!colourMap) {
-    for (int shift = 0; shift < 32; shift += 8)
-      if (!tonesClose((a >> shift) & 0xff, (b >> shift) & 0xff)) return false;
-    return true;
-  }
-  const int toneA = a & 0xff, toneB = b & 0xff;
-  if (!tonesClose(toneA, toneB)) return false;
-  if (((a >> 8) & 0xfff) != ((b >> 8) & 0xfff)) return false;
-  // The ink of a pixel no ink covers is not visible.
-  return (a >> 20) == (b >> 20) || (toneA >= 251 && toneB >= 251);
-}
-
-// The raster line of a tolerant comparison: same kind and size, savebox
-// within a pixel, and nearly all pixels within the tolerance.
-void compareRaster(const QString& expected, const QString& actual,
-                   const QImage& expectedImage, const QImage& actualImage,
-                   Comparison& result) {
-  const std::string label =
-      expected.left(expected.indexOf(" raster kind=")).toStdString();
-  if (field(expected, "kind") != field(actual, "kind") ||
-      field(expected, "size") != field(actual, "size") ||
-      expectedImage.size() != actualImage.size()) {
-    result.problems.push_back(label + ": raster kind or size differs");
-    return;
-  }
-  const QStringList boxA = field(expected, "savebox").split(',');
-  const QStringList boxB = field(actual, "savebox").split(',');
-  for (int i = 0; i < 4; ++i)
-    if (std::abs(boxA.value(i).toInt() - boxB.value(i).toInt()) > 1) {
-      result.problems.push_back(
-          label + ": savebox " + field(actual, "savebox").toStdString() +
-          ", expected " + field(expected, "savebox").toStdString());
-      return;
-    }
-  const bool colourMap = field(expected, "kind") == "cm32";
-  int different = 0, far = 0;
-  for (int y = 0; y < expectedImage.height(); ++y) {
-    const QRgb* a =
-        reinterpret_cast<const QRgb*>(expectedImage.constScanLine(y));
-    const QRgb* b = reinterpret_cast<const QRgb*>(actualImage.constScanLine(y));
-    for (int x = 0; x < expectedImage.width(); ++x) {
-      if (a[x] != b[x]) ++different;
-      if (!pixelClose(a[x], b[x], colourMap)) ++far;
+// How far two images are apart, for the report of a raster that differs.
+std::string pixelDifference(const QImage& expected, const QImage& actual) {
+  if (expected.size() != actual.size()) return "the sizes differ";
+  int different = 0, largest = 0;
+  for (int y = 0; y < expected.height(); ++y) {
+    const QRgb* a = reinterpret_cast<const QRgb*>(expected.constScanLine(y));
+    const QRgb* b = reinterpret_cast<const QRgb*>(actual.constScanLine(y));
+    for (int x = 0; x < expected.width(); ++x) {
+      if (a[x] == b[x]) continue;
+      ++different;
+      for (int shift = 0; shift < 32; shift += 8)
+        largest = std::max(largest, std::abs(int((a[x] >> shift) & 0xff) -
+                                             int((b[x] >> shift) & 0xff)));
     }
   }
-  const int allowed = std::max(2, field(expected, "changed").toInt() / 100);
-  if (far > allowed)
-    result.problems.push_back(label + ": " + std::to_string(far) +
-                              " pixels differ by more than the tolerance (" +
-                              std::to_string(allowed) + " allowed)");
-  else if (different)
-    result.note += " " + label + ": " + std::to_string(different) +
-                   " pixels differ, " + std::to_string(far) +
-                   " beyond 4 levels;";
+  return std::to_string(different) + " pixels differ, by up to " +
+         std::to_string(largest) + " in one byte";
 }
 
-bool tokensMatch(const QString& expected, const QString& actual) {
+// Compares two lines that are not equal token by token. Returns what is
+// wrong, or nothing when only numbers differ and none by more than the
+// tolerance.
+std::string compareTokens(const QString& expected, const QString& actual,
+                          double tolerance, Comparison& result) {
   const QStringList a = expected.split(' '), b = actual.split(' ');
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size()) return "the fields differ";
+  double worst = 0;
   for (int i = 0; i < a.size(); ++i) {
     if (a[i] == b[i]) continue;
     double x, y;
-    if (!isNumber(a[i], x) || !isNumber(b[i], y) || !closeEnough(x, y))
-      return false;
+    if (!isNumber(a[i], x) || !isNumber(b[i], y)) return "the fields differ";
+    const double difference = std::fabs(x - y);
+    ++result.numbersOff;
+    result.largest = std::max(result.largest, difference);
+    worst          = std::max(worst, difference);
   }
-  return true;
+  if (worst <= tolerance) return std::string();
+  return "a number differs by " + QString::number(worst, 'g', 3).toStdString();
 }
 
 }  // namespace
@@ -339,21 +297,24 @@ Record loadGolden(const QString& dir, const std::string& name) {
   require(file.open(QIODevice::ReadOnly | QIODevice::Text),
           "cannot read golden data " + textPath(dir, name).toStdString());
   QTextStream stream(&file);
+  int rasters = 0;
   while (!stream.atEnd()) {
     const QString line = stream.readLine();
     if (line.isEmpty()) continue;
     record.lines.push_back(line.toStdString());
     if (!isRasterLine(line)) continue;
-    const QString path = imagePath(dir, name, int(record.images.size()));
+    const QString path = imagePath(dir, name, rasters++);
+    if (!QFile::exists(path)) continue;
     QImage image(path);
     require(!image.isNull(), "cannot read golden image " + path.toStdString());
     record.images.push_back(image.convertToFormat(QImage::Format_ARGB32));
   }
+  if (int(record.images.size()) != rasters) record.images.clear();
   return record;
 }
 
 void saveGolden(const QString& dir, const std::string& name,
-                const Record& record) {
+                const Record& record, bool withImages) {
   require(QDir().mkpath(dir), "cannot create " + dir.toStdString());
   QFile file(textPath(dir, name));
   require(file.open(QIODevice::WriteOnly | QIODevice::Truncate),
@@ -362,40 +323,42 @@ void saveGolden(const QString& dir, const std::string& name,
   for (const std::string& line : record.lines)
     text += QByteArray::fromStdString(line) + '\n';
   require(file.write(text) == text.size(), "short write of golden data");
-  for (int i = 0; i < int(record.images.size()); ++i)
+  for (int i = 0; withImages && i < int(record.images.size()); ++i)
     require(
         record.images[i].save(imagePath(dir, name, i), "PNG"),
         "cannot write golden image " + imagePath(dir, name, i).toStdString());
 }
 
-Comparison compare(const Record& expected, const Record& actual, Mode mode) {
+void removeGolden(const QString& dir, const std::string& name) {
+  QFile::remove(textPath(dir, name));
+}
+
+Comparison compare(const Record& expected, const Record& actual,
+                   double tolerance) {
   Comparison result;
   if (expected.lines.size() != actual.lines.size())
     result.problems.push_back(
         "the result has " + std::to_string(actual.lines.size()) +
         " lines, the golden data " + std::to_string(expected.lines.size()));
   const size_t count = std::min(expected.lines.size(), actual.lines.size());
-  int image          = 0;
-  for (size_t i = 0; i < count && result.problems.size() < 8; ++i) {
+  size_t image       = 0;
+  for (size_t i = 0; i < count; ++i) {
     const QString a   = QString::fromStdString(expected.lines[i]);
     const QString b   = QString::fromStdString(actual.lines[i]);
     const bool raster = isRasterLine(a) && isRasterLine(b);
     if (raster) ++image;
     if (a == b) continue;
-    if (mode == Mode::Tolerant && raster &&
-        image <= int(expected.images.size()) &&
-        image <= int(actual.images.size())) {
-      compareRaster(a, b, expected.images[image - 1], actual.images[image - 1],
-                    result);
-      continue;
-    }
-    if (mode == Mode::Tolerant && !raster && tokensMatch(a, b)) {
-      if (result.note.find("numbers") == std::string::npos)
-        result.note += " numbers differ within 1e-6;";
-      continue;
-    }
-    result.problems.push_back("line " + std::to_string(i + 1) + ":\n    got  " +
-                              actual.lines[i] + "\n    want " +
+    std::string wrong;
+    if (!raster)
+      wrong = compareTokens(a, b, tolerance, result);
+    else if (image <= expected.images.size() && image <= actual.images.size())
+      wrong =
+          pixelDifference(expected.images[image - 1], actual.images[image - 1]);
+    else
+      wrong = "the raster differs";
+    if (wrong.empty()) continue;
+    result.problems.push_back("line " + std::to_string(i + 1) + ": " + wrong +
+                              "\n    got  " + actual.lines[i] + "\n    want " +
                               expected.lines[i]);
   }
   return result;
