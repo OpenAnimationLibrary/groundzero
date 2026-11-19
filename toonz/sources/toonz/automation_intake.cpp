@@ -1099,8 +1099,9 @@ void requireExposureRoom(Document& document, const SourcePlan& plan,
                 {{"reason", "frame_range"}});
 }
 
-QJsonValue exposeLevel(Document& document, const SourcePlan& plan,
-                       const ImportOptions& options, TXshSimpleLevel* level) {
+QJsonValue exposeLevel(Context& context, Document& document,
+                       const SourcePlan& plan, const ImportOptions& options,
+                       TXshSimpleLevel* level) {
   if (options.exposure != "new_column") return QJsonValue();
   TXsheet* sheet  = document.scene->getXsheet();
   const int index = sheet->getColumnCount();
@@ -1120,7 +1121,7 @@ QJsonValue exposeLevel(Document& document, const SourcePlan& plan,
       {CellOp::Write, options.startFrame, int(cells.size()), cells, {}, {}});
   modelCellPlan(cellPlan);
   std::vector<CellPlan> plans{cellPlan};
-  applyCellPlans(document, plans);
+  applyCellPlans(context, document, plans);
   int missing = 0;
   gapRanges(plan, missing);
   return QJsonObject{{"column_id", cellPlan.columnId},
@@ -1240,8 +1241,8 @@ ImportPlan planImport(Context& context, Document& document,
 // Put decoded files into the document. `changed` runs once the cast has
 // changed; before that a refusal leaves the document and the level store as
 // they were.
-QJsonObject applyImport(Document& document, const ImportPlan& plan,
-                        std::vector<LoadedFile>& loaded,
+QJsonObject applyImport(Context& context, Document& document,
+                        const ImportPlan& plan, std::vector<LoadedFile>& loaded,
                         const std::function<void()>& changed) {
   const QJsonObject wanted = wantedRecord(plan.sources, plan.options, loaded);
   if (plan.exists) return reuseExisting(document, plan.options.name, wanted);
@@ -1265,7 +1266,7 @@ QJsonObject applyImport(Document& document, const ImportPlan& plan,
   record.insert("copies", copies);
   document.intake.insert(document.idForLevel(level), record);
   const QJsonValue exposure =
-      exposeLevel(document, plan.sources, plan.options, level);
+      exposeLevel(context, document, plan.sources, plan.options, level);
   QJsonObject result = importResult(document, level, record, "created");
   result.insert("copied_files", copies);
   result.insert("exposure", exposure);
@@ -1439,8 +1440,18 @@ void IntakeJob::apply() {
                   "The document changed after the import began.",
                   {{"revision", document.revisionText()}});
     bool changed = false;
-    outcome =
-        applyImport(document, plan, loaded, [&changed]() { changed = true; });
+    // The job applies outside any request: the cell write's mutation mark
+    // must not reach the outcome of whichever request runs next.
+    const bool marked = context->mutationStarted();
+    struct MarkGuard {
+      Context* context;
+      bool marked;
+      ~MarkGuard() {
+        if (!marked) context->resetMutationStarted();
+      }
+    } guard{context, marked};
+    outcome = applyImport(*context, document, plan, loaded,
+                          [&changed]() { changed = true; });
     if (changed) ++document.revision;
     outcome.insert("document_id", document.id);
     outcome.insert("revision", document.revisionText());
@@ -1569,7 +1580,7 @@ QJsonValue importIntake(Context& context, const QJsonObject& params) {
     throw Error("io_error", "Cannot create a private staging directory.");
   std::vector<LoadedFile> loaded = loadSources(
       context, plan.sources, plan.options, plan.copy ? &staging : nullptr);
-  return applyImport(document, plan, loaded,
+  return applyImport(context, document, plan, loaded,
                      [&context]() { context.markMutationStarted(); });
 }
 
