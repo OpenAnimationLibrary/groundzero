@@ -264,14 +264,23 @@ def _valid_string(schema: dict[str, Any]) -> str:
     return "x" * max(1, schema.get("minLength", 1))
 
 
+def _fill_choice(schema: dict[str, Any]) -> Any:
+    """Build an instance of a schema that chooses between alternatives."""
+    first = schema["oneOf"][0]
+    own = {key: value for key, value in schema.items() if key != "oneOf"}
+    if "type" not in first and "required" in first:
+        required = [*own.get("required", []), *first["required"]]
+        return _fill({**own, "type": "object", "required": required})
+    alternative = _fill(first)
+    if isinstance(alternative, dict):
+        return {**_fill({"type": "object", **own}), **alternative}
+    return alternative
+
+
 def _fill(schema: dict[str, Any]) -> Any:
     """Build the smallest instance of a schema that the dispatcher admits."""
     if "oneOf" in schema:
-        alternative = _fill(schema["oneOf"][0])
-        if isinstance(alternative, dict):
-            own = {key: value for key, value in schema.items() if key != "oneOf"}
-            return {**_fill({"type": "object", **own}), **alternative}
-        return alternative
+        return _fill_choice(schema)
     if "enum" in schema:
         return schema["enum"][0]
     kind = schema.get("type")

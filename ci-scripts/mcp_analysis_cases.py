@@ -37,7 +37,9 @@ def _number(index: int) -> dict[str, Any]:
     return {"number": index, "suffix": ""}
 
 
-def _heavy_level(case: NativeAcceptance, drawings: int = DRAWINGS) -> tuple[str, str]:
+def _heavy_level(
+    case: NativeAcceptance, drawings: int = DRAWINGS, strokes: int = STROKES
+) -> tuple[str, str]:
     """A level of identical overlapping-square drawings whose region rebuild takes time."""
     document = case.mutate("scene.create", None, name="Analysis")["document_id"]
     level = case.mutate("level.create", document, name="Ink", format="vector")["level_id"]
@@ -50,8 +52,8 @@ def _heavy_level(case: NativeAcceptance, drawings: int = DRAWINGS) -> tuple[str,
     )
     target = {"level_id": level, "drawing_id": _number(1)}
     case.mutate("drawing.create", document, **target, format="vector")
-    squares = [_square((i % 16) * 30, (i // 16) * 30, 1 + i % 2) for i in range(STROKES)]
-    for start in range(0, STROKES, 128):
+    squares = [_square((i % 16) * 30, (i // 16) * 30, 1 + i % 2) for i in range(strokes)]
+    for start in range(0, strokes, 128):
         case.mutate(
             "vector.edit",
             document,
@@ -397,3 +399,30 @@ def drawing_analysis_lost_worker(case: NativeAcceptance) -> None:
     answer = fresh.call("job.status", {"job_id": job["job_id"]})
     case.assertEqual(answer["error"]["code"], "unknown_job", answer)
     case.assertEqual(answer["error"]["details"]["reason"], "other_worker")
+
+
+def drawing_analysis_polls_during_a_long_rebuild(case: NativeAcceptance) -> None:
+    """Polls and a cancellation are answered while one large drawing's regions are built.
+
+    Args:
+        case: A fresh native worker acceptance fixture.
+    """
+    document, level = _heavy_level(case, drawings=1, strokes=1600)
+    job = _submit(case, document, level, check="regions")
+    slowest = 0.0
+    for _ in range(10):
+        started = time.monotonic()
+        status = case.success("job.status", {"job_id": job["job_id"]})
+        slowest = max(slowest, time.monotonic() - started)
+        case.assertIn(status["status"], {"preparing", "running", "completed"})
+        time.sleep(0.02)
+    case.assertLess(slowest, 0.5)
+    started = time.monotonic()
+    asked = case.success("job.cancel", case.write_params(None, {"job_id": job["job_id"]}))
+    case.assertIn(asked["status"], {"cancellation_requested", "canceled", "completed"})
+    ended = case.wait_job(job["job_id"])
+    case.assertIn(ended["status"], {"canceled", "completed"})
+    case.assertLess(time.monotonic() - started, 5)
+    if ended["status"] == "canceled":
+        case.assertEqual(ended["analysis"]["reasons"], ["canceled"])
+        case.assertEqual(ended["cancellation"], {**ended["cancellation"], "effective": True})

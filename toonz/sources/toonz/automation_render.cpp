@@ -1652,6 +1652,7 @@ static QJsonObject jobOperation(const QString& name, const QString& description,
   QJsonObject descriptor =
       operation(name, description, properties, required, true);
   descriptor.insert("mutates_document", false);
+  descriptor.insert("starts_job", true);
   return descriptor;
 }
 

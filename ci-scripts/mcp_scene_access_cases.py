@@ -736,8 +736,8 @@ def read_only_documents_refuse_every_other_tool(case: NativeAcceptance) -> None:
         details = refuse(
             case, worker, tool["name"], _tool_params(tool, document), "read_only_document"
         )
-        write = not tool["annotations"]["readOnlyHint"]
-        case.assertEqual(details["reason"], "mutation" if write else "not_qualified", tool)
+        mutates = not tool["annotations"]["readOnlyHint"] and not tool.get("starts_job", False)
+        case.assertEqual(details["reason"], "mutation" if mutates else "not_qualified", tool)
         refused += 1
     case.assertGreater(refused, 50)
     case.assertEqual(call(case, worker, "scene.summary", {"document_id": document}), before)

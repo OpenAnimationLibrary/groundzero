@@ -9,6 +9,7 @@
 #include "tcurveutil.h"
 #include "cornerdetector.h"
 
+#include <atomic>
 #include <limits>
 #include <stdexcept>
 
@@ -726,8 +727,10 @@ private:
 
 //-----------------------------------------------------------------------------
 
+// Atomic: the drawing analysis rebuilds regions of a clone on another thread,
+// and region computation creates strokes.
 namespace {
-int maxStrokeId = 0;
+std::atomic<int> maxStrokeId{0};
 }
 
 /*! init() is required to initialize all variable

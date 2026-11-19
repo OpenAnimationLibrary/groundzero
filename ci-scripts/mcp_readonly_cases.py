@@ -325,6 +325,11 @@ def _paged_limits(catalog: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     return limits
 
 
+def _mutates(tool: Mapping[str, Any]) -> bool:
+    """Whether a tool changes documents: it writes and is not declared a job start."""
+    return not tool["annotations"]["readOnlyHint"] and not tool.get("starts_job", False)
+
+
 def _refusals_on_read_only(catalog: Sequence[dict[str, Any]], document: str) -> list:
     pairs = []
     for tool in catalog:
@@ -338,7 +343,7 @@ def _refusals_on_read_only(catalog: Sequence[dict[str, Any]], document: str) -> 
             if write
             else f"{name} reads: add it to READ_ONLY_CALLS in mcp_readonly_calls.py"
         )
-        reason = "mutation" if write else "not_qualified"
+        reason = "mutation" if _mutates(tool) else "not_qualified"
         call = Call(
             "refused", minimal_arguments(tool, document), "read_only_document", reason, hint
         )

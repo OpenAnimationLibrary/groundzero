@@ -596,10 +596,14 @@ for an id this document never issued). `vector.opacity.set` and
 style), `regions` or `roles`. The record's `analysis` reports the `estimate`, the running
 `cost`, the `budget` and `complete` with its `reasons`; `job.result` pages the rows (up
 to 256 per page, 65,536 per job) with `next_offset` null on the last page. Regions are
-built on detached clones, one drawing per slice, so the document is never touched. A write
+built on detached clones on a worker thread, so the document is never touched and the
+application thread keeps answering: its slices (one drawing's clone and scan, or at most
+two million raster pixels) stay under 50 ms apart from image loading, and a cancellation
+ends the job at once while a rebuild in flight finishes unseen. A write
 to the document ends the job `failed` with `revision_changed`; `job.cancel` ends it
 `canceled` with the rows gathered so far. A second analysis while one runs is refused with
-`analysis_busy`. Read-only documents refuse `drawing.analysis.submit`.
+`analysis_busy`. A read-only document refuses `drawing.analysis.submit` with
+`read_only_document` and `details.reason` `not_qualified`.
 
 `render.submit` accepts `format: "png"` (the default) or `format: "mp4"` when the
 configured media tools and native movie writer are available. MP4 requires even

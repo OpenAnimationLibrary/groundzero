@@ -342,6 +342,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_drawing_analysis_toonz_raster(self) -> None:
         mcp_analysis_cases.drawing_analysis_toonz_raster(self)
 
+    def test_drawing_analysis_polls_during_a_long_rebuild(self) -> None:
+        mcp_analysis_cases.drawing_analysis_polls_during_a_long_rebuild(self)
+
     def test_drawing_analysis_lost_worker(self) -> None:
         mcp_analysis_cases.drawing_analysis_lost_worker(self)
 
