@@ -927,5 +927,70 @@
         ]
       }
     ]
+  },
+  {
+    "id": "delivery-discarded-job",
+    "file": "toonz/sources/toonz/automation_jobs.cpp",
+    "find": "  answeredWithoutRegistry(context, \"job.result\", id);\n",
+    "replace": "",
+    "why": "A job released by job.discard is refused for publication as job_discarded.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "delivery_refuses_jobs_it_cannot_publish"
+        ]
+      }
+    ],
+    "native": true
+  },
+  {
+    "id": "delivery-checks-before-write",
+    "file": "toonz/sources/toonz/automation_delivery.cpp",
+    "find": "  if (name.isNull()) return;\n",
+    "replace": "  return;\n",
+    "why": "A publication refuses on the first failed check before anything is written.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "delivery_to_other_volumes",
+          "delivery_paths_hold_the_output_root_boundary"
+        ]
+      }
+    ],
+    "native": true
+  },
+  {
+    "id": "delivery-staging-manifest-name",
+    "file": "toonz/sources/toonz/automation_journal.cpp",
+    "find": "stage.value(\"manifest_name\").toString(\"manifest.json\")",
+    "replace": "QString(\"manifest.json\")",
+    "why": "Recovery removes an abandoned delivery container by the files its own manifest names.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "delivery_interrupted_publication_is_recovered"
+        ]
+      }
+    ],
+    "native": true
+  },
+  {
+    "id": "delivery-progress-count",
+    "file": "toonz/sources/toonz/automation_delivery.cpp",
+    "find": "  error.details.insert(\"files_copied\", copied);\n",
+    "replace": "  error.details.insert(\"files_copied\", 0);\n",
+    "why": "A failed publication reports how many files of the plan it had copied.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "delivery_failures_report_file_by_file_and_leave_nothing"
+        ]
+      }
+    ],
+    "native": true
   }
 ]

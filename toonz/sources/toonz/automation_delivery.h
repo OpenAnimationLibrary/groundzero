@@ -48,8 +48,4 @@ QJsonArray deliveryOperations();
 QJsonValue executeDelivery(Context& context, const QString& method,
                            const QJsonObject& params);
 
-#ifdef BUILD_UI_PORT_TESTS
-void runAutomationDeliveryTests();
-#endif
-
 }  // namespace GroundzeroAutomation

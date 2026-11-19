@@ -97,6 +97,17 @@ def _artifacts(case: NativeAcceptance, job: str) -> dict[str, dict[str, Any]]:
     return named
 
 
+def _tree_digest(directory: Path) -> str:
+    """The journal's digest of a published tree: its sorted path, size and SHA-256 lines."""
+    lines = sorted(
+        f"{path.relative_to(directory).as_posix()}\0{path.stat().st_size}\0"
+        + hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in directory.rglob("*")
+        if path.is_file()
+    )
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
 def _shot(case: NativeAcceptance) -> tuple[str, str, str]:
     """A populated scene with a PNG and a half-float EXR sequence of it."""
     document, _level, _column = case.populated_scene()
@@ -148,6 +159,7 @@ def delivery_publishes_verified_render_files(case: NativeAcceptance) -> None:
         sum(row["size_bytes"] for row in expected.values())
         + (delivery / "delivery.json").stat().st_size,
     )
+    case.assertEqual(published["content_sha256"], _tree_digest(delivery))
     manifest = json.loads((delivery / "delivery.json").read_bytes())
     _require_manifest(case, manifest, params, document, png)
     case.assertEqual(_visible(root / "shots"), ["take1"])
