@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <typeinfo>
 #include <vector>
 
 //**********************************************************************************
@@ -26,6 +27,34 @@ namespace {
 
 inline void deleteValue(const std::pair<const std::string, TPropertyGroup *> &p) {
   delete p.second;
+}
+
+// The range of a property of this type, the part of its layout a writer can
+// change from one version to the next. True for other property types.
+template <class Property>
+bool sameRange(TProperty* a, TProperty* b) {
+  auto* p = dynamic_cast<Property*>(a);
+  return !p || p->getRange() == static_cast<Property*>(b)->getRange();
+}
+
+bool sameLayout(TProperty* a, TProperty* b) {
+  if (a->getName() != b->getName() || typeid(*a) != typeid(*b) ||
+      a->getVisible() != b->getVisible() || a->getId() != b->getId())
+    return false;
+  return sameRange<TIntProperty>(a, b) && sameRange<TDoubleProperty>(a, b) &&
+         sameRange<TIntPairProperty>(a, b) &&
+         sameRange<TDoublePairProperty>(a, b) && sameRange<TEnumProperty>(a, b);
+}
+
+// True when group has the properties of layout, in the same order and with
+// the same types and ranges: a group the writer made, not one read from a
+// scene that another version saved.
+bool sameLayout(TPropertyGroup* group, TPropertyGroup* layout) {
+  if (group->getPropertyCount() != layout->getPropertyCount()) return false;
+  for (int i = 0; i < layout->getPropertyCount(); ++i)
+    if (!sameLayout(group->getProperty(i), layout->getProperty(i)))
+      return false;
+  return true;
 }
 
 // Fills the part of ras outside keep, in the pixel type of the raster; color
@@ -253,11 +282,16 @@ TPropertyGroup *TOutputProperties::getFileFormatProperties(std::string ext) {
   } else if (ext == "mov" || ext == "3gp") {
     return it->second;
   } else {
-    // Try to merge settings instead of overriding them
-    TPropertyGroup *ret = Tiio::makeWriterProperties(ext);
+    // Callers keep the group they get (the format settings popup edits it
+    // while an autosave asks for it again), so a group in the writer's layout
+    // is returned as it is. One read from a scene saved by another version is
+    // replaced by the writer's properties, merging its values.
+    std::unique_ptr<TPropertyGroup> ret(Tiio::makeWriterProperties(ext));
+    if (sameLayout(it->second, ret.get())) return it->second;
     ret->setProperties(it->second);
-    m_formatProperties[ext] = ret;
-    return ret;
+    delete it->second;
+    m_formatProperties[ext] = ret.release();
+    return m_formatProperties[ext];
   }
 }
 
