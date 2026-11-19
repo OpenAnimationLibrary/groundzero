@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
+import shutil
 from typing import TYPE_CHECKING, Any
 
+import mcp_scene_access_cases as access
 from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
@@ -113,3 +116,50 @@ def scene_cell_limit_suppresses_unused_claims(case: NativeAcceptance) -> None:
     case.assertEqual(report["items"][0]["last_frame"], 99999)
     checks = _read(case, document, "scene.validate")
     case.assertNotIn("unusedLevel", [item["code"] for item in checks["items"]])
+
+
+def _recorded(level: str, attributes: str, text: str) -> str:
+    """Put recorded cast attributes on the level's path tag, as the editor writes them."""
+    pattern = rf"({level} \s*<info[^>]*>\s*<path) "
+    return re.sub(pattern, rf"\1 {attributes} ", text, count=1)
+
+
+def _origin(item: str, relationship: int) -> str:
+    fields = (
+        f'{{\\"id\\":\\"{item}-id\\",\\"item\\":\\"{item}\\",\\"kind\\":\\"symbol\\",'
+        f'\\"source\\":\\"$scenefolder/assets/{item}.pli\\",\\"revision\\":4,'
+        f'\\"relationship\\":{relationship}}}'
+    )
+    return f'libraryOrigin="{fields}"'
+
+
+def _cast_records(case: NativeAcceptance, document: str, revision: str) -> dict[str, Any]:
+    params = {"document_id": document, "expected_revision": revision, "limit": 128}
+    page = case.success("cast.list", params)
+    case.assertIsNone(page["next_offset"])
+    return {
+        row["name"]: {key: row[key] for key in ("native_cast_id", "tags", "library", "cover")}
+        for row in page["items"]
+    }
+
+
+@acceptance_case
+def read_only_cast_rows_show_recorded_tags_and_origins_only(case: NativeAcceptance) -> None:
+    """A scene file's cast tags and recorded Library origins come back exactly as stored, and
+    a level that records none shows no tags and no origin."""
+    package = case.inputs / "recorded"
+    shutil.copytree(access.base_package(case), package)
+    text = (package / "scene.tnz").read_text(encoding="utf-8")
+    tags = 'castTags="[\\"hero\\",\\"caf\u00e9\\"]"'
+    text = _recorded("Ink", f"{tags} {_origin('Rig', 2)}", text)
+    text = _recorded("Cel", _origin("Pose", 3), text)
+    (package / "scene.tnz").write_text(text, encoding="utf-8")
+    opened = access.open_scene(case, case.worker, package / "scene.tnz", "standalone")
+    before = _cast_records(case, opened["document_id"], "0")
+    case.assertEqual(before["Ink"]["tags"], ["hero", "caf\u00e9"])
+    case.assertEqual(before["Ink"]["library"]["relationship"], "local_copy")
+    case.assertEqual(before["Ink"]["library"]["item_path"], "Rig")
+    case.assertEqual(before["Cel"]["library"]["relationship"], "snapshot")
+    case.assertEqual((before["Cel"]["tags"], before["Paint"]["tags"]), ([], []))
+    case.assertIsNone(before["Paint"]["library"])
+    access.discard(case, case.worker, opened["document_id"])

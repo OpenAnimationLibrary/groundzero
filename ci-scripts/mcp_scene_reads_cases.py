@@ -170,6 +170,79 @@ def read_only_inventory_tells_instances_from_definitions(case: NativeAcceptance)
     access.discard(case, case.worker, document)
 
 
+RECURSIVE_ID = 6000000
+EXPOSURE = "0 6 <level id='1'/>0001 0"
+
+
+def _exposing_child(identifier: int, target: int) -> str:
+    """A sub-xsheet whose only column exposes the sub-xsheet `target` instead of a level."""
+    return access._child(identifier).replace(EXPOSURE, f"0 1 <childLevel id='{target}'/>1 0")
+
+
+def _recursive_scenes(text: str) -> dict[str, str]:
+    """Scenes whose sub-xsheet graph loops back on itself or points at nothing."""
+    first, second, missing = RECURSIVE_ID, RECURSIVE_ID + 100, RECURSIVE_ID + 200
+    columns = access._exposing(first, first + 100000)
+    return {
+        "self": access._with_children(text, [_exposing_child(first, first)], columns),
+        "mutual": access._with_children(
+            text, [_exposing_child(second, first), _exposing_child(first, second)], columns
+        ),
+        "dangling": access._with_children(text, [_exposing_child(first, missing)], columns),
+    }
+
+
+@acceptance_case
+def read_only_recursive_sub_xsheets_are_refused_at_open(case: NativeAcceptance) -> None:
+    """A sub-xsheet that contains itself is refused as a cycle; one that exposes a sub-xsheet
+    not yet defined, as in two that contain each other, or one that does not exist, is refused
+    as malformed. No document or host is left behind."""
+    base = access.base_package(case)
+    text = (base / "scene.tnz").read_text()
+    for name, broken in _recursive_scenes(text).items():
+        details = access._refused_open(
+            case, access._variant(case, base, name, broken), "invalid_scene"
+        )
+        case.assertEqual(details["cause"], "rejected", name)
+        cyclic = details["native_message"] == "cyclic sub-xsheet reference"
+        case.assertEqual(cyclic, name == "self", details)
+    case.assertEqual(access.host_processes(case.worker), [])
+    sound = access.open_scene(case, case.worker, base / "scene.tnz", "standalone")
+    case.assertEqual(sound["counts"]["sheets"], 1)
+    access.discard(case, case.worker, sound["document_id"])
+
+
+def _sparse(text: str) -> str:
+    """Two empty columns between the first and second columns of the top sheet."""
+    gap = "".join(
+        f"<levelColumn id='{960000 + index}'> <status> 0 </status> </levelColumn>\n"
+        for index in range(2)
+    )
+    return text.replace("<levelColumn id='6'>", gap + "<levelColumn id='6'>", 1)
+
+
+@acceptance_case
+def read_only_inventory_keeps_sparse_columns_in_place(case: NativeAcceptance) -> None:
+    """Empty columns between used ones keep their index, report no frames and no levels, and
+    reading them creates no stage object."""
+    base = access.base_package(case)
+    text = _sparse((base / "scene.tnz").read_text())
+    path = access._variant(case, base, "sparse", text)
+    document = access.open_scene(case, case.worker, path, "standalone")["document_id"]
+    objects = _count_objects(case, document)
+    rows = inventory(case, document, "columns", sheet_path=[])["items"]
+    case.assertEqual([row["index"] for row in rows], list(range(8)))
+    case.assertEqual([row["kind"] for row in rows[:4]], ["level", "empty", "empty", "level"])
+    case.assertEqual(len({row["column_id"] for row in rows}), 8)
+    for row in rows[1:3]:
+        case.assertEqual(
+            (row["first_frame"], row["last_frame"], row["level_ids"]), (None, None, [])
+        )
+    case.assertEqual(rows[3]["first_frame"], 0)
+    case.assertEqual(_count_objects(case, document), objects)
+    access.discard(case, case.worker, document)
+
+
 def _many_objects(base: Path, folder: Path) -> Path:
     """A sub-xsheet holding 16,000 pegbars, exposed by five columns."""
     pegbars = "".join(f'<pegbar id="Peg{index + 1}"> </pegbar>\n' for index in range(16000))

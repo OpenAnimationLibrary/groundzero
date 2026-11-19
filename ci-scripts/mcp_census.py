@@ -14,6 +14,7 @@ import ast
 import functools
 import json
 import re
+import subprocess
 import sys
 import tempfile
 from collections import Counter
@@ -37,6 +38,12 @@ ACCEPTANCE = "ci-scripts/mcp_acceptance.py"
 SCRIPT_EVIDENCE = ("mcp_shot.py", "mcp_live.py")
 NATIVE_ADAPTER_TEST = "tools/mcp/src/native.test.ts"
 REVISION_MATRIX_PATH = SCRIPTS / "mcp_revision_matrix.json"
+NATIVE_SOURCE_DIR = "toonz/sources/toonz"
+ADAPTER_TOOL_FILES = {
+    "adapter": "tools/mcp/src/toolsets.ts",
+    "live_bridge": "tools/mcp/src/live-protocol.ts",
+}
+PASSED_TEST = re.compile(r"^(test_\w+) \(\S+\) \.\.\. ok$", re.MULTILINE)
 
 CLASSIFICATIONS = (
     "exposed",
@@ -211,6 +218,84 @@ def check_tests(census: dict[str, Any], root: Path = ROOT) -> list[str]:
     return problems
 
 
+def derive_sources(census: dict[str, Any], root: Path = ROOT) -> dict[str, list[str]]:
+    """List, for each tool, the source files that name it: native evidence of its presence.
+
+    A worker tool is looked for in the native automation sources, an adapter or live-bridge
+    tool in the adapter file that defines its family. Nothing is stored: like the tests, the
+    lists follow the checkout.
+    """
+    native = {
+        str(path.relative_to(root)): path.read_text(encoding="utf-8")
+        for path in sorted((root / NATIVE_SOURCE_DIR).glob("automation*.cpp"))
+    }
+    adapter = {
+        origin: (relative, (root / relative).read_text(encoding="utf-8"))
+        for origin, relative in ADAPTER_TOOL_FILES.items()
+    }
+    result: dict[str, list[str]] = {}
+    for tool, entry in census["tools"].items():
+        quoted = f'"{tool}"'
+        if entry["origin"] == "worker":
+            result[tool] = [name for name, text in native.items() if quoted in text]
+        else:
+            name, text = adapter[entry["origin"]]
+            result[tool] = [name] if quoted in text else []
+    return result
+
+
+def check_sources(census: dict[str, Any], root: Path = ROOT) -> list[str]:
+    """Require every tool to be named by a native or adapter source file."""
+    return [
+        f"tool {tool}: no native or adapter source names it"
+        for tool, files in derive_sources(census, root).items()
+        if not files
+    ]
+
+
+def source_revision(root: Path = ROOT) -> str:
+    """Name the commit the sources come from, with a mark for uncommitted changes.
+
+    The revision is not stored in the census, which would change it on every commit; the
+    check prints it so the run that recorded the output carries it.
+    """
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown (not a git checkout)"
+    return f"{head} (uncommitted changes)" if dirty else head
+
+
+def passed_tests(logs: list[Path]) -> set[str]:
+    """Read the names of the acceptance tests that passed from replay or shard logs."""
+    return {name for log in logs for name in PASSED_TEST.findall(log.read_text("utf-8"))}
+
+
+def executed_tools(census: dict[str, Any], passed: set[str]) -> set[str]:
+    """Return the tools with at least one listed acceptance test that a log shows passing."""
+    prefix = f"{ACCEPTANCE}::"
+    return {
+        tool
+        for tool, entry in census["tools"].items()
+        if any(
+            test.removeprefix(prefix) in passed
+            for test in entry["tests"]
+            if test.startswith(prefix)
+        )
+    }
+
+
 def _quoted_names(text: str, pattern: str) -> set[str]:
     return set(re.findall(pattern, text))
 
@@ -341,13 +426,24 @@ def check_readme_index(census: dict[str, Any], readme: str) -> list[str]:
     return []
 
 
-def report(census: dict[str, Any]) -> dict[str, Any]:
-    """Count inventoried, implemented and tested outcomes and tools."""
+def report(
+    census: dict[str, Any], root: Path = ROOT, passed: set[str] | None = None
+) -> dict[str, Any]:
+    """Count inventoried, implemented, tested and executed outcomes and tools.
+
+    Args:
+        census: The census data.
+        root: The checkout the native evidence is read from.
+        passed: Names of acceptance tests that logs show passing, or None when no log is given;
+            the executed count is then None, not zero.
+    """
     tools = census["tools"]
     by_class = Counter(outcome["classification"] for outcome in census["outcomes"])
     implemented = [o for o in census["outcomes"] if o["disposition"]["kind"] == "implemented"]
     tested = [o for o in implemented if _outcome_tested(o, tools)]
     untested = sorted(name for name, entry in tools.items() if not entry["tests"])
+    unsourced = sorted(name for name, files in derive_sources(census, root).items() if not files)
+    executed = None if passed is None else executed_tools(census, passed)
     return {
         "inventoried": len(census["outcomes"]),
         "by_classification": {name: by_class.get(name, 0) for name in CLASSIFICATIONS},
@@ -355,6 +451,10 @@ def report(census: dict[str, Any]) -> dict[str, Any]:
         "tested": len(tested),
         "tools": len(tools),
         "tools_without_tests": untested,
+        "tools_without_source": unsourced,
+        "executed": None
+        if executed is None
+        else sum(all(tool in executed for tool in o["tools"]) for o in implemented),
         "platforms": {"summary": _platform_summary(census["platforms"], len(tested))},
     }
 
@@ -369,17 +469,27 @@ def _outcome_tested(outcome: dict[str, Any], tools: dict[str, Any]) -> bool:
     return all(tools[tool]["tests"] for tool in outcome["tools"])
 
 
-def format_report(counts: dict[str, Any]) -> str:
-    """Print the three measures separately."""
+def format_report(counts: dict[str, Any], revision: str = "not given") -> str:
+    """Print the measures separately: inventory, source, schema, tests and executed evidence."""
     classes = ", ".join(f"{name} {count}" for name, count in counts["by_classification"].items())
     platforms = counts["platforms"]
+    executed = counts["executed"]
+    executed_line = (
+        "executed outcomes: not measured (pass --executed with acceptance logs)"
+        if executed is None
+        else f"executed outcomes: {executed} of {counts['implemented']} implemented"
+    )
     return "\n".join(
         [
+            f"source revision: {revision}",
             f"inventoried outcomes: {counts['inventoried']} ({classes})",
             f"implemented outcomes: {counts['implemented']}",
             f"tested outcomes: {counts['tested']} of {counts['implemented']} implemented",
             f"tools: {counts['tools']}; without a listed test: "
             f"{len(counts['tools_without_tests'])}",
+            f"tools named by a native or adapter source: "
+            f"{counts['tools'] - len(counts['tools_without_source'])} of {counts['tools']}",
+            executed_line,
             f"platform-qualified outcomes: {platforms['summary']}",
         ]
     )
@@ -393,6 +503,7 @@ def static_problems(
     """Run every check that needs no worker."""
     problems = check_outcomes(census)
     problems += check_tests(census, root)
+    problems += check_sources(census, root)
     problems += check_adapter_sources(census, root)
     problems += check_readme(census, readme)
     problems += check_numeric_claims(census, readme, root)
@@ -729,6 +840,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, help="Compare with this worker's catalog")
     parser.add_argument("--update", action="store_true", help="Rewrite derived files")
+    parser.add_argument(
+        "--executed",
+        type=Path,
+        nargs="+",
+        help="Replay or shard logs; counts the outcomes whose tests they show passing",
+    )
     parser.add_argument("--document", type=Path, help="Write the census document to this file")
     args = parser.parse_args()
     census = load_census()
@@ -742,7 +859,8 @@ def main() -> int:
         args.document.write_text(render_document(census, report(census)), encoding="utf-8")
     if catalog:
         problems += check_live(census, catalog[0], catalog[1], readme)
-    print(format_report(report(census)))
+    passed = passed_tests(args.executed) if args.executed else None
+    print(format_report(report(census, passed=passed), source_revision()))
     for problem in problems:
         print(f"census: {problem}")
     return int(bool(problems))

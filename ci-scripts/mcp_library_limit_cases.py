@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
+from mcp_file_matrix import attach_volume
 from mcp_library_cases import _build_library, _package_scene
 from mcp_studio_palette_cases import call, refuse, shared_worker
 from mcp_worker import Worker
@@ -44,8 +45,8 @@ def _png(width: int, height: int, size: int = 0) -> bytes:
     return encoded
 
 
-def _folder(case: NativeAcceptance, name: str) -> Path:
-    library = case.directory / name
+def _folder(case: NativeAcceptance, name: str, parent: Path | None = None) -> Path:
+    library = (parent or case.directory) / name
     (library / "templates" / "sceneIcons").mkdir(parents=True)
     (library / "poses").mkdir()
     return library
@@ -230,22 +231,34 @@ def library_listing_revision_tracks_real_changes(case: NativeAcceptance) -> None
         )
 
 
+def _distinct_case_names(folder: Path, names: tuple[str, ...]) -> bool:
+    """Whether the volume under folder keeps names that differ only by case apart."""
+    for name in names:
+        (folder / f"{name}.probe").write_bytes(b"")
+    found = len(list(folder.glob("*.probe")))
+    for probe in folder.glob("*.probe"):
+        probe.unlink()
+    return found == len(names)
+
+
 @acceptance_case
 def library_case_fold_collisions_are_reported(case: NativeAcceptance) -> None:
-    """Flag items whose names differ only by case, and no others.
+    """Flag items whose names differ only by case, and no others; on a case-insensitive
+    output volume the Library lives on a case-sensitive disk image the case creates and detaches.
 
     Args:
         case: A fresh native-worker acceptance fixture.
     """
     library = _folder(case, "folding")
     names = ("Rig", "rig", "RIG", "Other")
+    if not _distinct_case_names(library / "templates", names):
+        mount, reason = attach_volume(case, "Case-sensitive APFS", "casefold")
+        if mount is None:
+            case.skipTest(f"The output volume is case-insensitive and {reason}")
+        library = _folder(case, "folding", mount)
     for name in names:
         (library / "templates" / f"{name}.tnz").write_bytes(b"")
-    if len(list((library / "templates").glob("*.tnz"))) != len(names):
-        case.skipTest(
-            "The output volume is case-insensitive, so Rig.tnz, rig.tnz and RIG.tnz are one file; "
-            "run with --output on a case-sensitive volume"
-        )
+    case.assertEqual(len(list((library / "templates").glob("*.tnz"))), len(names))
     worker = shared_worker(case, {"library": library})
     listing = _list(case, worker)
     flags = {item["name"]: item["case_fold_collision"] for item in listing["items"]}

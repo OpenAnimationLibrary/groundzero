@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -10,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
 from mcp_failure_cases import _descendants
-from mcp_scene_access_cases import corpus, open_scene
+from mcp_scene_access_cases import base_package, corpus, open_scene
 from mcp_studio_palette_cases import call
 from mcp_worker import Worker
 
@@ -306,3 +307,30 @@ def compatibility_check_codes_and_certainty(case: NativeAcceptance) -> None:
         {"document_id": document, "expected_revision": case.revisions[document], "limit": 128},
     )["items"]
     case.assertFalse([item for item in issues if item["code"].startswith("compat.")])
+
+
+@acceptance_case(name="scene_check_compatibility_marks_unknown_support")
+def compatibility_check_marks_unknown_support(case: NativeAcceptance) -> None:
+    """An effect only a Groundzero build has is reported as unknown support at info severity,
+    never as a confirmed loss or a refusal risk, and the check changes nothing."""
+    base = base_package(case)
+    effect = (
+        "<fxnode> <STD_lut3DBakeFx id='4000000'> <name> Bake </name> </STD_lut3DBakeFx> </fxnode>"
+    )
+    text = (base / "scene.tnz").read_text().replace("<internal>", "<internal>" + effect, 1)
+    path = case.inputs / "unknown-support" / "shot.tnz"
+    shutil.copytree(base / "assets", path.parent / "assets")
+    path.write_text(text)
+    worker = case.worker
+    document = open_scene(case, worker, path, "standalone")["document_id"]
+    params = {"document_id": document, "expected_revision": "0", "operation_id": "unknown-support"}
+    job = call(case, worker, "scene.check.submit", {**params, "check": "compatibility"})
+    case.assertEqual(_host_wait(case, worker, job["job_id"])["status"], "completed")
+    result = call(case, worker, "job.result", {"job_id": job["job_id"], "limit": 256})
+    case.assertIs(result["complete"], True, result)
+    rows = [row for row in result["rows"] if row["code"] == "compat.groundzero_effect"]
+    case.assertEqual(len(rows), 1, result["rows"])
+    case.assertEqual((rows[0]["certainty"], rows[0]["severity"]), ("unknown_support", "info"))
+    case.assertEqual(
+        (rows[0]["row_kind"], rows[0]["reader"]), ("compatibility", "legacy_opentoonz")
+    )
