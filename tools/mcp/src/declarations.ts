@@ -77,6 +77,7 @@ export const EFFECTS_SCHEMA = {
       "job_start",
       "job_control",
       "session",
+      "output_write",
     ]),
     document: choice(["none", "reads", "writes", "creates", "opens_read_only", "discards"]),
     files: list(

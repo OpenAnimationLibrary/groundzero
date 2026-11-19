@@ -148,7 +148,7 @@ void raceDestination(int directory, const QByteArray& name) {
 
 // The kernel call that renames without ever replacing: renameatx_np with
 // RENAME_EXCL on macOS, renameat2 with RENAME_NOREPLACE on Linux.
-int exclusiveRename(const QByteArray& from, int directory,
+int exclusiveRename(int source, const QByteArray& from, int directory,
                     const QByteArray& name) {
 #ifdef BUILD_UI_PORT_TESTS
   if (publishFaults().exclusiveRenameRefused) {
@@ -158,12 +158,13 @@ int exclusiveRename(const QByteArray& from, int directory,
   raceDestination(directory, name);
 #endif
 #ifdef __APPLE__
-  return renameatx_np(AT_FDCWD, from.constData(), directory, name.constData(),
+  return renameatx_np(source, from.constData(), directory, name.constData(),
                       RENAME_EXCL);
 #elif defined(__linux__)
-  return int(syscall(SYS_renameat2, AT_FDCWD, from.constData(), directory,
+  return int(syscall(SYS_renameat2, source, from.constData(), directory,
                      name.constData(), 1u));
 #else
+  Q_UNUSED(source);
   Q_UNUSED(from);
   Q_UNUSED(directory);
   Q_UNUSED(name);
@@ -203,7 +204,7 @@ PublishResult exclusivePublish(const QString& staged, int directory,
   struct stat source{};
   const bool folder =
       lstat(from.constData(), &source) == 0 && S_ISDIR(source.st_mode);
-  if (exclusiveRename(from, directory, name) == 0)
+  if (exclusiveRename(AT_FDCWD, from, directory, name) == 0)
     return PublishResult::Published;
   if (errno == EEXIST) return PublishResult::Exists;
   if (!refusedForLackOfSupport(errno)) return PublishResult::Failed;
@@ -745,6 +746,51 @@ int openRootDirectory(const QString& root, const QString& relative) {
   return current;
 }
 
+bool identityAt(int directory, const QString& name, FileIdentity* identity) {
+  struct stat status{};
+  if (::fstatat(directory, QFile::encodeName(name).constData(), &status,
+                AT_SYMLINK_NOFOLLOW) != 0)
+    return false;
+  identity->device = qint64(status.st_dev);
+  identity->inode  = qint64(status.st_ino);
+  identity->links  = qint64(status.st_nlink);
+  identity->size   = qint64(status.st_size);
+#ifdef __APPLE__
+  identity->modified = qint64(status.st_mtimespec.tv_sec) * 1000000000 +
+                       status.st_mtimespec.tv_nsec;
+#else
+  identity->modified =
+      qint64(status.st_mtim.tv_sec) * 1000000000 + status.st_mtim.tv_nsec;
+#endif
+  identity->regular   = S_ISREG(status.st_mode);
+  identity->directory = S_ISDIR(status.st_mode);
+  return true;
+}
+
+int createExclusive(int directory, const QString& name) {
+  return ::openat(directory, QFile::encodeName(name).constData(),
+                  O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+}
+
+int makeDirectoryAt(int directory, const QString& name) {
+  const QByteArray encoded = QFile::encodeName(name);
+  if (::mkdirat(directory, encoded.constData(), 0755) != 0) return -1;
+  return ::openat(directory, encoded.constData(),
+                  O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+}
+
+PublishResult renameBetween(int fromDirectory, const QString& from,
+                            int toDirectory, const QString& to) {
+  if (exclusiveRename(fromDirectory, QFile::encodeName(from), toDirectory,
+                      QFile::encodeName(to)) == 0)
+    return PublishResult::Published;
+  if (errno == EEXIST) return PublishResult::Exists;
+  return refusedForLackOfSupport(errno) ? PublishResult::Unsupported
+                                        : PublishResult::Failed;
+}
+
+bool fullSync(int descriptor) { return flushDescriptor(descriptor, true); }
+
 #endif
 
 PrivateDirectory::~PrivateDirectory() {
@@ -796,6 +842,10 @@ qint64 volumeOf(const QString& directory) {
 
 bool exclusivePublicationRefused(qint64 volume) {
   return refusedVolumes().contains(volume);
+}
+
+void noteExclusivePublicationRefused(qint64 volume) {
+  refusedVolumes().insert(volume);
 }
 
 void publishStaged(Context& context, const QString& staged, const QString& path,

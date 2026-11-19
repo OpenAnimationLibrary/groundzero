@@ -670,6 +670,11 @@
    "toolset": "core",
    "writes": false
   },
+  "package.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "palette.clone_style": {
    "origin": "worker",
    "toolset": "core",
@@ -1243,7 +1248,7 @@
   {
    "id": "scene.reopen_package",
    "domain": "Projects and scenes",
-   "outcome": "Inspect and reopen a package that this worker published, with unchanged-content verification.",
+   "outcome": "Inspect and reopen a package this workspace registered, wherever it now lies in the workspace, an input root or an output root, from a verified private copy.",
    "classification": "exposed",
    "tools": [
     "scene.open",
@@ -1284,6 +1289,18 @@
    "classification": "exposed",
    "tools": [
     "scene.save_preflight"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "workspace.package_cleanup",
+   "domain": "Projects and scenes",
+   "outcome": "Remove a registered package that matches its manifest exactly, deleting only its unchanged listed files and reporting anything else as residue.",
+   "classification": "exposed",
+   "tools": [
+    "package.remove"
    ],
    "disposition": {
     "kind": "implemented"

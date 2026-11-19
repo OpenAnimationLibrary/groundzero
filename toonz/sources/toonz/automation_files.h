@@ -75,6 +75,8 @@ void publishStaged(Context& context, const QString& staged, const QString& path,
 // Whether a publication into the volume with device number `volume` was
 // refused as publication_unsupported earlier in this process.
 bool exclusivePublicationRefused(qint64 volume);
+// Remember that the volume refused a publication as publication_unsupported.
+void noteExclusivePublicationRefused(qint64 volume);
 
 // An error of a staged write: details.stage names the step that failed,
 // details.file the staged file (relative to the staged folder) or null, and
@@ -196,6 +198,33 @@ QString rootPathProblem(const QString& relative, int creating);
 //   variant of the stored name; root_unavailable when the root cannot be
 //   opened as the granted canonical directory.
 int openRootDirectory(const QString& root, const QString& relative);
+
+#ifndef _WIN32
+// What an entry is, read without following a link: device, inode, link
+// count, size, modification time and kind.
+struct FileIdentity final {
+  qint64 device   = 0;
+  qint64 inode    = 0;
+  qint64 links    = 0;
+  qint64 size     = 0;
+  qint64 modified = 0;  // nanoseconds since the epoch
+  bool regular    = false;
+  bool directory  = false;
+};
+// False when `name` is absent from the directory (or cannot be read).
+bool identityAt(int directory, const QString& name, FileIdentity* identity);
+// A new file under a directory descriptor, never an existing name or a link:
+// an open write descriptor, or -1 with errno.
+int createExclusive(int directory, const QString& name);
+// A new directory under a directory descriptor, opened: a descriptor, or -1.
+int makeDirectoryAt(int directory, const QString& name);
+// Rename between two pinned directories without ever replacing: Exists when
+// the name is taken, Unsupported when the file system has no such rename.
+PublishResult renameBetween(int fromDirectory, const QString& from,
+                            int toDirectory, const QString& to);
+// Flush a file or directory descriptor to the device (F_FULLFSYNC on macOS).
+bool fullSync(int descriptor);
+#endif
 
 enum class ListResult { Listed, Failed, TooMany };
 

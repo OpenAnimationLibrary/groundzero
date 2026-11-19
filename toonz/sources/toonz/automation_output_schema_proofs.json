@@ -245,15 +245,23 @@
       "at_seq",
       "by_worker",
       "bytes",
+      "container",
       "current",
+      "entries",
       "first_seq",
+      "input_index",
       "last_seq",
+      "location",
       "name",
       "quarantined_segments",
       "reconciled_jobs",
       "reconciled_operations",
       "registered_packages",
+      "removed_containers",
+      "root",
+      "root_sha256",
       "segment",
+      "staging_residue",
       "started_at_ms",
       "truncated_tail_bytes",
       "worker_instance_id"
@@ -377,6 +385,15 @@
       "root",
       "root_sha256",
       "target"
+    ]
+  },
+  "package.remove": {
+    "handler": "removePackage",
+    "read": [
+      "input_index",
+      "path",
+      "root",
+      "root_sha256"
     ]
   },
   "palette.clone_style": {
@@ -517,9 +534,11 @@
   "scene.package_info": {
     "handler": null,
     "read": [
+      "class",
       "current",
       "input_index",
       "path",
+      "reason",
       "root",
       "root_sha256",
       "worker_instance_id"
@@ -529,6 +548,7 @@
     "handler": "saveCopy",
     "read": [
       "input_index",
+      "path",
       "root",
       "root_sha256"
     ]

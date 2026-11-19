@@ -53,7 +53,12 @@ def file_tools_are_all_qualified(case: NativeAcceptance) -> None:
     problems = mcp_file_tools.unqualified_tools(tools)
     case.assertEqual(problems, [], "\n".join(problems))
     named = {tool["name"] for tool in tools if mcp_file_tools.path_parameters(tool["inputSchema"])}
-    covered = set(PATH_TOOLS) | set(mcp_file_tools.SHARED_TOOLS) | set(mcp_file_tools.PROJECT_TOOLS)
+    covered = (
+        set(PATH_TOOLS)
+        | set(mcp_file_tools.SHARED_TOOLS)
+        | set(mcp_file_tools.PROJECT_TOOLS)
+        | set(mcp_file_tools.PACKAGE_TOOLS)
+    )
     case.assertTrue(named <= covered, named - covered)
 
 
@@ -178,8 +183,8 @@ def _no_logs_name(case: NativeAcceptance, marker: str, started: float) -> None:
 
 def _journal_names_only_admitted_paths(case: NativeAcceptance, marker: str) -> None:
     """The journal keeps the results of admitted calls, the targets of admitted
-    publications and the places packages were registered, paths included, and nothing
-    of a refused call."""
+    publications, the places packages were registered or staged and the admitted
+    packages an open reads (its pin), paths included, and nothing of a refused call."""
     for segment in case.directory.glob("**/.groundzero/journal/seg-*.jsonl"):
         for line in segment.read_bytes().splitlines():
             if marker.encode() not in line:
@@ -188,7 +193,13 @@ def _journal_names_only_admitted_paths(case: NativeAcceptance, marker: str) -> N
             kind = (record["type"], record.get("state"))
             case.assertIn(
                 kind,
-                {("outcome", "completed"), ("intent", None), ("package", None)},
+                {
+                    ("outcome", "completed"),
+                    ("intent", None),
+                    ("package", None),
+                    ("stage", None),
+                    ("pin", None),
+                },
                 f"the journal records a refused path: {kind}",
             )
 

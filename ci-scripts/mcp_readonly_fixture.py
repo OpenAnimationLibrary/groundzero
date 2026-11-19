@@ -350,6 +350,7 @@ def build(case: NativeAcceptance) -> Fixture:
     _render_and_analysis(case, document, ids)
     saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "saved"))
     package = Path(saved["package_directory"])
+    case.mutate("scene.save_copy", document, directory="saved", root="renders")
     project = case.inputs / "Shots" / "Shot A"
     project.mkdir(parents=True)
     (project / "Shot A_otprj.xml").write_text("<project/>\n")

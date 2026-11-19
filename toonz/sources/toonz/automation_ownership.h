@@ -28,6 +28,11 @@ public:
 
   // True when the directory carries a claim marker that no live process holds.
   static bool abandoned(const QString& directory);
+#ifndef _WIN32
+  // The same for the directory open at `directory`, reached without a path.
+  bool acquireAt(int directory);
+  static bool abandonedAt(int directory);
+#endif
   // Removes every directory under parent matching a name filter that carries an
   // unheld claim marker, and returns how many it removed.
   static int removeAbandoned(const QString& parent, const QStringList& filters);
@@ -39,6 +44,8 @@ private:
   AutomationOwnershipHandle m_handle = nullptr;
 #else
   int m_descriptor = -1;
+  // The claimed directory, for a claim taken by descriptor.
+  int m_directory = -1;
 #endif
 };
 

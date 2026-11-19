@@ -385,3 +385,201 @@ def _root_refusals(case: NativeAcceptance) -> None:
             case.assertEqual((error["code"], error["details"]["reason"]), ("invalid_path", reason))
     case.assertEqual(sorted(os.listdir(roots["renders"])), ["alias", "real"])
     case.assertEqual(os.listdir(roots["renders"] / "real"), [])
+
+
+def _image_root(case: NativeAcceptance, name: str, size: str, fs: str = "APFS") -> Path | None:
+    """A disk image of its own volume, mounted as a canonical directory for an output root."""
+    if platform.system() != "Darwin":
+        return None
+    image = case.directory / f"{name}.dmg"
+    mount = case.directory / name
+    mount.mkdir()
+    # FAT names are at most 11 upper-case characters.
+    volume = name.replace("-", "").upper()[:11]
+    subprocess.run(
+        ["hdiutil", "create", "-size", size, "-fs", fs, "-volname", volume, str(image)],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["hdiutil", "attach", str(image), "-mountpoint", str(mount), "-nobrowse"],
+        check=True,
+        capture_output=True,
+    )
+    case.addCleanup(
+        subprocess.run, ["hdiutil", "detach", "-force", str(mount)], capture_output=True
+    )
+    return mount.resolve()
+
+
+def _visible(directory: Path) -> list[str]:
+    """Entries a test cares about: the volume's own hidden files are left out."""
+    return sorted(
+        name for name in os.listdir(directory) if not name.startswith(".") or "groundzero" in name
+    )
+
+
+def _cause(error: dict[str, Any]) -> str:
+    """The code a failure after the save began reports under partially_applied."""
+    return error["details"].get("cause_code", error["code"])
+
+
+def _strings(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _strings(item)]
+    if isinstance(value, list):
+        return [text for item in value for text in _strings(item)]
+    return [value] if isinstance(value, str) else []
+
+
+@acceptance_case
+def package_published_to_an_output_root_on_another_volume(case: NativeAcceptance) -> None:
+    """A package saved into an output root on another volume is copied in from private
+    staging and published there under its location alone; it states its save mode and
+    what it does not contain, and opens again from that root."""
+    image = _image_root(case, "deliveries", "64m")
+    root = image if image is not None else _roots(case, "deliveries")["deliveries"]
+    (root / "shots").mkdir()
+    _granted(case, ("--output-root", f"deliveries={root}"))
+    document = _every_kind(case)
+    planned = _preflight(case, document, "shots/pkg", root="deliveries")
+    case.assertEqual(planned["plan"]["staging"], "private_then_copy")
+    saved = case.mutate("scene.save_copy", document, directory="shots/pkg", root="deliveries")
+    case.assertEqual(
+        (saved["location"]["root"], saved["location"]["path"], saved["staging"]),
+        ("deliveries", "shots/pkg", "private_then_copy"),
+    )
+    case.assertEqual(
+        (saved["package_directory"], saved["scene_path"], saved["manifest_path"]),
+        (None, None, None),
+    )
+    case.assertFalse([text for text in _strings(saved) if str(root) in text], saved)
+    case.assertIs(saved["registered"], True)
+    package = root / "shots" / "pkg"
+    files = [path for path in package.rglob("*") if path.is_file()]
+    case.assertEqual(
+        (saved["files"], saved["bytes"]),
+        (len(files), sum(path.stat().st_size for path in files)),
+    )
+    case.assertLessEqual(saved["bytes"], planned["plan"]["bytes_estimate"]["upper_bound"])
+    case.assertEqual(_visible(root / "shots"), ["pkg"])
+    manifest = json.loads((package / "manifest.json").read_text())
+    case.assertEqual(
+        (manifest["save_mode"], manifest["not_contained"]), ("self_contained", NOT_CONTAINED)
+    )
+    shape = case.success("scene.summary", {"document_id": document})
+    opened = case.mutate("scene.open", None, path="shots/pkg", root="deliveries")
+    case.assertEqual(
+        (opened["package_id"], opened["location"], opened["package_directory"]),
+        (saved["package_id"], saved["location"], None),
+    )
+    reopened = case.success("scene.summary", {"document_id": opened["document_id"]})
+    case.assertEqual(len(reopened["levels"]), len(shape["levels"]))
+    info = case.success("scene.package_info", {"path": "shots/pkg", "root": "deliveries"})
+    case.assertEqual((info["save_mode"], info["not_contained"]), ("self_contained", NOT_CONTAINED))
+    refused = case.failure("scene.package_info", {"path": "shots/absent", "root": "deliveries"})
+    case.assertEqual(refused["code"], "unregistered_package")
+
+
+@acceptance_case(worker_only="needs --test-publish-fault, which the adapter never passes")
+def package_publication_never_replaces(case: NativeAcceptance) -> None:
+    """An existing name is refused before any work, a name that appears just before the
+    rename is kept and the save refused, and a volume without a no-replace rename refuses
+    the save as publication_unsupported; none leaves a staging container."""
+    root = _roots(case, "deliveries")["deliveries"]
+    (root / "taken").mkdir()
+    _granted(case, ("--output-root", f"deliveries={root}"))
+    document = case.create("Never replaced")
+    params = case.write_params(document, {"directory": "taken", "root": "deliveries"})
+    case.assertEqual(case.failure("scene.save_copy", params)["code"], "already_exists")
+    _granted(
+        case,
+        ("--output-root", f"deliveries={root}", "--test-publish-fault", "racing_destination"),
+    )
+    document = case.create("Raced")
+    params = case.write_params(document, {"directory": "raced", "root": "deliveries"})
+    error = case.failure("scene.save_copy", params)
+    case.assertEqual(
+        (_cause(error), error["details"]["stage"], error["details"]["published"]),
+        ("package_write_failed", "publish", False),
+    )
+    case.assertEqual((root / "raced").read_text(), "other party\n")
+    case.assertEqual(_visible(root), ["raced", "taken"])
+    fat = _image_root(case, "fat", "40m", "MS-DOS FAT32")
+    if fat is None:
+        return
+    _granted(case, ("--output-root", f"deliveries={root}", "--output-root", f"fat={fat}"))
+    document = case.create("On FAT")
+    params = case.write_params(document, {"directory": "pkg", "root": "fat"})
+    error = case.failure("scene.save_copy", params)
+    case.assertEqual(error["code"], "publication_unsupported", error)
+    case.assertEqual(_visible(fat), [])
+    after = _preflight(case, document, "pkg", root="fat")
+    case.assertEqual(
+        {"state": "fail", "code": "publication_unsupported"}, _failed(after, "filesystem")
+    )
+
+
+@acceptance_case
+def disk_full_and_read_only_output_roots_leave_nothing(case: NativeAcceptance) -> None:
+    """A save that runs out of space in an output root is refused unpublished and removes
+    its container; a root the worker cannot write refuses the save before any work."""
+    roots = _roots(case, "locked")
+    full = _image_root(case, "full-root", "8m")
+    flags = ["--output-root", f"locked={roots['locked']}"]
+    if full is not None:
+        flags += ["--output-root", f"full={full}"]
+    roots["locked"].chmod(0o555)
+    case.addCleanup(roots["locked"].chmod, 0o755)
+    _granted(case, tuple(flags))
+    document = case.create("Too big")
+    big = case.inputs / "big.png"
+    _noise_png(big, 1024, 9)
+    level = case.mutate("level.import", document, path=str(big), name="Big", dpi=120)
+    for number in (2, 3):
+        _noise_png(big, 1024, 9 + number)
+        case.mutate(
+            "raster.import_png",
+            document,
+            level_id=level["level_id"],
+            drawing_id=_drawing(number),
+            path=str(big),
+            dpi=120,
+        )
+    params = case.write_params(document, {"directory": "pkg", "root": "locked"})
+    error = case.failure("scene.save_copy", params)
+    case.assertEqual(error["code"], "package_write_failed")
+    case.assertEqual(os.listdir(roots["locked"]), [])
+    if full is None:
+        return
+    params = case.write_params(document, {"directory": "pkg", "root": "full"})
+    error = case.failure("scene.save_copy", params)
+    case.assertEqual(
+        (_cause(error), error["details"]["published"]), ("package_write_failed", False)
+    )
+    case.assertEqual(_visible(full), [])
+
+
+@acceptance_case(worker_only="needs --test-write-fault, which the adapter never passes")
+def staged_file_changed_before_copy_is_refused(case: NativeAcceptance) -> None:
+    """A staged file that changes after the package was verified is refused by its manifest
+    hash while it is copied into the output root; nothing is published or left."""
+    root = _roots(case, "deliveries")["deliveries"]
+    _granted(
+        case,
+        (
+            "--output-root",
+            f"deliveries={root}",
+            "--test-write-fault",
+            "publish:staged-changed",
+        ),
+    )
+    document = case.create("Changed")
+    _level(case, document, "Ink", 1)
+    params = case.write_params(document, {"directory": "pkg", "root": "deliveries"})
+    error = case.failure("scene.save_copy", params)
+    case.assertEqual(
+        (_cause(error), error["details"]["reason"], error["details"]["published"]),
+        ("package_write_failed", "staged_changed", False),
+    )
+    case.assertEqual(os.listdir(root), [])

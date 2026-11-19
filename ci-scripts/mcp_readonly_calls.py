@@ -391,6 +391,8 @@ def _package(f: Fixture) -> list[Call]:
         Call("saved package", {"path": str(f.package)}),
         # Admitted by registered content wherever it lies in a read root.
         Call("copy under an input root", {"path": str(f.input_package)}),
+        Call("in an output root", {"path": "saved", "root": "renders"}),
+        Call("root not granted", {"path": "saved", "root": "archive"}, "root_unavailable"),
         Call("outside every root", {"path": "/etc"}, "path_denied"),
     ]
 

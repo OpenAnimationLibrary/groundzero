@@ -812,10 +812,15 @@ int executeDomainTests(QApplication& application, Context& context) {
 void openJournal(Context& context, const Options& options,
                  const QString& runtime) {
   Journal::Start start;
-  start.workspace       = context.workspace();
-  start.instance        = jobRegistry(context).instance();
-  start.runtimeName     = QFileInfo(runtime).fileName();
-  start.inputRoots      = context.inputRoots();
+  start.workspace   = context.workspace();
+  start.instance    = jobRegistry(context).instance();
+  start.runtimeName = QFileInfo(runtime).fileName();
+  start.inputRoots  = context.inputRoots();
+  for (auto it = context.outputRoots.constBegin();
+       it != context.outputRoots.constEnd(); ++it) {
+    start.outputRoots.insert(it.key(), it.value().path);
+    if (it.value().modify) start.outputModify.append(it.key());
+  }
   start.authorityDigest = authorityReport(context).value("digest").toString();
   // The build digest every other report names; computed on another thread
   // since prefetchBuildIdentity, so this waits for what is left of it.

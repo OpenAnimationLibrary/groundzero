@@ -386,6 +386,9 @@ SHARED_TOOLS = {
 }
 HANDLE_TOOLS = {"artifact.read": ("artifact_id",)}
 PROJECT_TOOLS = {"project.scenes": ("folder",)}
+# Package tools whose path cases live in mcp_collection_cases.py (preflight) and
+# mcp_cleanup_cases.py (removal), not yet in the boundary matrix.
+PACKAGE_TOOLS = {"scene.save_preflight": ("directory",), "package.remove": ("directory",)}
 
 
 def path_parameters(schema: Any, prefix: str = "") -> list[str]:
@@ -394,7 +397,9 @@ def path_parameters(schema: Any, prefix: str = "") -> list[str]:
     if not isinstance(schema, dict):
         return found
     for key, value in schema.get("properties", {}).items():
-        if PATH_PARAMETER.search(key) and isinstance(value, dict) and value.get("type") == "string":
+        # A patterned string is a name (an output root's), never a path.
+        named = isinstance(value, dict) and "pattern" in value
+        if PATH_PARAMETER.search(key) and not named and value.get("type") == "string":
             found.append(prefix + key)
         found.extend(path_parameters(value, f"{prefix}{key}."))
     found.extend(path_parameters(schema.get("items"), f"{prefix}[]."))
@@ -411,6 +416,13 @@ def _tool_problem(tool: dict[str, Any]) -> str:
         return (
             f"{name} is a new shared-library tool: add it to SHARED_TOOLS in "
             "ci-scripts/mcp_file_tools.py and give it cases in mcp_file_shared_cases.py"
+        )
+    if name in PACKAGE_TOOLS:
+        if PACKAGE_TOOLS[name] == found:
+            return ""
+        return (
+            f"{name} now takes path parameters {list(found)}: extend its cases and "
+            "PACKAGE_TOOLS in ci-scripts/mcp_file_tools.py"
         )
     if name in PROJECT_TOOLS:
         if PROJECT_TOOLS[name] == found:
@@ -433,7 +445,13 @@ def unqualified_tools(tools: list[dict[str, Any]]) -> list[str]:
     """Return what is wrong between the catalog and the qualification table, as messages."""
     problems = [message for tool in tools if (message := _tool_problem(tool))]
     names = {tool["name"] for tool in tools}
-    qualified = set(PATH_TOOLS) | set(SHARED_TOOLS) | set(HANDLE_TOOLS) | set(PROJECT_TOOLS)
+    qualified = (
+        set(PATH_TOOLS)
+        | set(SHARED_TOOLS)
+        | set(HANDLE_TOOLS)
+        | set(PROJECT_TOOLS)
+        | set(PACKAGE_TOOLS)
+    )
     for name in sorted(qualified - names):
         problems.append(f"{name} is qualified in mcp_file_tools.py but absent from the catalog")
     return problems

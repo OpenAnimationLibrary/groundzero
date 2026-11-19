@@ -20,6 +20,27 @@ constexpr int PackageMaxDependencies = 4096;
 //   Error: unsupported_level for a type a package cannot hold.
 QString packageLevelPath(int index, int type);
 
+// A package directory named by a request: in the workspace (or, for a read,
+// an input root) when `root` is absent, else relative to the named output
+// root.
+struct PackageTarget final {
+  QString root;      // workspace, or the output root's name
+  QString rootPath;  // the output root's canonical directory
+  QString relative;  // the package directory, relative to its root
+  QString absolute;  // the resolved path, in the workspace or an input root
+  QString parent;    // in an output root: the parent, relative to the root
+  QString name;      // the package directory's own name
+};
+
+// The package directory in params[field]; `write` for a directory to create.
+//
+// Throws:
+//   Error: path_denied or invalid_path from Context::resolvePath;
+//   root_unavailable for an output root not granted; invalid_path (reason
+//   grammar or reserved) for a root-relative path outside the grammar.
+PackageTarget packageTarget(Context& context, const QJsonObject& params,
+                            const QString& field, bool write);
+
 // What a package never contains, as the fixed rows {class, reason}.
 QJsonArray packageNotContained();
 

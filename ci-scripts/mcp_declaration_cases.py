@@ -52,7 +52,7 @@ def derived_grants(effects: dict[str, Any]) -> list[str]:
     grants = ["inspect"]
     if effects["document"] in {"writes", "creates", "discards"}:
         grants.append("draft")
-    if {"writes_caller_path", "writes_shared_roots"} & set(effects["files"]):
+    if {"writes_caller_path", "writes_shared_roots", "writes_output_roots"} & set(effects["files"]):
         grants.append("file")
     if effects["job"] in {"starts", "controls"}:
         grants.append("job")
@@ -78,8 +78,13 @@ def _check_effects(case: NativeAcceptance, tool: dict[str, Any]) -> None:
     case.assertEqual(
         effects["after_change_failure"], "partially_applied" if writes else "not_applicable"
     )
+    # Only removal (output_write) deletes at a caller's path; nothing replaces one.
     if "writes_caller_path" in effects["files"]:
-        case.assertFalse(effects["overwrites"], "Caller paths are never overwritten")
+        case.assertEqual(
+            effects["overwrites"],
+            effects["class"] == "output_write",
+            "Caller paths are never overwritten",
+        )
 
 
 def _schema_keys(schema: Any) -> set[str]:

@@ -106,47 +106,6 @@ private:
   QMap<QString, QJsonObject> m_checks;
 };
 
-// The package directory a save would create.
-struct Destination final {
-  QString root;      // workspace, or the output root's name
-  QString rootPath;  // the output root's canonical directory
-  QString relative;  // the package directory, relative to its root
-  QString absolute;  // in the workspace only
-  QString parent;    // in an output root: the parent, relative to the root
-  QString name;      // the package directory's own name
-};
-
-Destination destination(Context& context, const QJsonObject& params) {
-  const QString directory = requiredString(params, "directory");
-  Destination result;
-  if (!params.contains("root")) {
-    result.root     = "workspace";
-    result.absolute = context.resolvePath(directory, true);
-    result.relative =
-        QDir(context.workspace()).relativeFilePath(result.absolute);
-    result.name = QFileInfo(result.absolute).fileName();
-    return result;
-  }
-  result.root = requiredString(params, "root");
-  if (!context.outputRoots.contains(result.root))
-    throw Error("root_unavailable", "Name an output root granted at launch.",
-                {{"root", result.root}});
-  const QString problem = rootPathProblem(directory, 1);
-  if (!problem.isEmpty())
-    throw Error("invalid_path",
-                "Name the package directory with forward slashes, no . or .. "
-                "and a new last component of letters, digits, . _ or - that "
-                "does not start with .groundzero-.",
-                {{"reason", problem == "reserved" ? "reserved" : "grammar"},
-                 {"field", "directory"}});
-  result.rootPath = context.outputRoots.value(result.root).path;
-  result.relative = directory;
-  const int slash = directory.lastIndexOf('/');
-  result.parent   = slash < 0 ? QString() : directory.left(slash);
-  result.name     = directory.mid(slash + 1);
-  return result;
-}
-
 // What the file system says about the destination at this moment.
 struct Facts final {
   QString rootCode;
@@ -165,7 +124,7 @@ struct Facts final {
 
 void describeParent(int, const QString&, const Context&, Facts&) {}
 
-Facts observeWorkspace(const Context& context, const Destination& target) {
+Facts observeWorkspace(const Context& context, const PackageTarget& target) {
   Facts facts;
   const QFileInfo parent(QFileInfo(target.absolute).absolutePath());
   facts.parentFound = parent.isDir() && !parent.isSymLink();
@@ -218,7 +177,7 @@ void describeParent(int parent, const QString& name, const Context& context,
   facts.rename = renameSupport(parent, qint64(here.st_dev));
 }
 
-Facts observeWorkspace(const Context& context, const Destination& target) {
+Facts observeWorkspace(const Context& context, const PackageTarget& target) {
   Facts facts;
   const QString parent = QFileInfo(target.absolute).absolutePath();
   const int directory = ::open(QFile::encodeName(parent).constData(),
@@ -237,7 +196,7 @@ Facts observeWorkspace(const Context& context, const Destination& target) {
 
 #endif
 
-Facts observeOutputRoot(const Context& context, const Destination& target) {
+Facts observeOutputRoot(const Context& context, const PackageTarget& target) {
   Facts facts;
   int directory = -1;
   try {
@@ -449,7 +408,8 @@ void checkDocument(Checks& checks, Document& document) {
   }
 }
 
-void checkPlace(Checks& checks, const Destination& target, const Facts& facts) {
+void checkPlace(Checks& checks, const PackageTarget& target,
+                const Facts& facts) {
   if (!facts.rootCode.isEmpty()) {
     checks.fail("root", facts.rootCode, facts.rootDetail);
     return;
@@ -556,7 +516,7 @@ void checkExternalPaths(Checks& checks, const Items& items) {
                    "The dependency walk stopped before its end.");
 }
 
-QJsonObject plan(Context& context, const Destination& target,
+QJsonObject plan(Context& context, const PackageTarget& target,
                  const Estimate& bound, const Facts& facts) {
   const QJsonObject location =
       target.root == "workspace"
@@ -643,8 +603,9 @@ QJsonObject savePreflightOperation() {
 }
 
 QJsonObject savePreflight(Context& context, const QJsonObject& params) {
-  Document& document       = editableDocument(context, params);
-  const Destination target = destination(context, params);
+  Document& document = editableDocument(context, params);
+  const PackageTarget target =
+      packageTarget(context, params, "directory", true);
   const int offset =
       integerParam(params, "offset", 0, PackageMaxDependencies, 0);
   const int limit   = integerParam(params, "limit", 1, 128, 64);
