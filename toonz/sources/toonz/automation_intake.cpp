@@ -1166,9 +1166,20 @@ QJsonValue importIntake(Context& context, const QJsonObject& params) {
   if (exists) return reuseExisting(document, options.name, wanted);
   const QJsonArray copies =
       copy ? publishCopies(plan, loaded, path) : QJsonArray();
+  // Nothing in the document changes before the level joins the cast, so a
+  // refusal there takes the copies back and is not a partial application.
+  TXshSimpleLevel* level = nullptr;
+  try {
+    level = insertLevel(document, plan, options, loaded, path);
+  } catch (const Error&) {
+    const QDir store(path.getParentDir().getQString());
+    for (const QJsonValue& copied : copies)
+      QFile::remove(
+          store.filePath(copied.toObject().value("copy_name").toString()));
+    throw;
+  }
   context.markMutationStarted();
-  TXshSimpleLevel* level = insertLevel(document, plan, options, loaded, path);
-  QJsonObject record     = wanted;
+  QJsonObject record = wanted;
   record.insert("copies", copies);
   document.intake.insert(document.idForLevel(level), record);
   const QJsonValue exposure = exposeLevel(document, plan, options, level);

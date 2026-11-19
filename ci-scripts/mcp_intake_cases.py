@@ -250,7 +250,10 @@ def intake_link_and_copy_keep_different_provenance(case: NativeAcceptance) -> No
     source = case.inputs / "shared"
     _sequence(source, [1, 2, 3])
     copied = _import(case, document, **_source(source), name="Copied")
-    linked = _import(case, document, **_source(source), name="Linked", storage="link")
+    linked = _import(
+        case, document, **_source(source), name="Linked", storage="link", exposure="new_column"
+    )
+    case.assertTrue(case.preview(document))
     case.assertEqual(len(copied["copied_files"]), 3)
     case.assertEqual(linked["copied_files"], [])
     case.assertEqual(linked["drawings"], copied["drawings"])
