@@ -320,3 +320,34 @@ def analysis_admission_across_hosts(case: NativeAcceptance) -> None:
         {**params, "document_id": second, "operation_id": "host-three"},
     )
     case.assertEqual(_host_wait(case, case.worker, admitted["job_id"])["status"], "completed")
+
+
+def _findings(case: NativeAcceptance, document: str) -> set[tuple[str, str]]:
+    job = _submit(case, document, "compatibility")["job_id"]
+    case.assertEqual(case.wait_job(job)["status"], "completed")
+    result = _rows(case, job)
+    case.assertIs(result["complete"], True, result)
+    for row in result["rows"]:
+        case.assertEqual((row["row_kind"], row["reader"]), ("compatibility", "legacy_opentoonz"))
+        expected = "info" if row["certainty"] == "unknown_support" else "warning"
+        case.assertEqual(row["severity"], expected, row)
+    return {(row["code"], row["certainty"]) for row in result["rows"]}
+
+
+def compatibility_check_codes_and_certainty(case: NativeAcceptance) -> None:
+    """An offset layer is a refusal risk for a legacy reader; the findings survive a save and
+    reopen unchanged, and scene.validate reports none of them."""
+    document, _levels = _scene(case)
+    peg = case.mutate("object.create", document, name="Peg", kind="pegbar")["object_id"]
+    case.mutate("offset_layer.create", document, object_id=peg, name="Sway")
+    findings = _findings(case, document)
+    case.assertIn(("compat.offset_layers", "refusal_risk"), findings)
+    case.assertIn(("compat.cast_asset_identities", "confirmed_loss"), findings)
+    saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "compat"))
+    reopened = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
+    case.assertEqual(_findings(case, reopened), findings)
+    issues = case.success(
+        "scene.validate",
+        {"document_id": document, "expected_revision": case.revisions[document], "limit": 128},
+    )["items"]
+    case.assertFalse([item for item in issues if item["code"].startswith("compat.")])

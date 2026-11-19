@@ -958,7 +958,10 @@ QJsonArray productionOperations() {
        "not_checked, unresolved or unsaved; unreadable files report no "
        "size."},
       {"scene.validate",
-       "Read basic in-memory scene issues without loading artwork or media."}};
+       "Read basic in-memory scene issues without loading artwork or media. "
+       "Compatibility with older readers is not reported here: it loads every "
+       "vector drawing, so it is the compatibility check of "
+       "scene.check.submit."}};
   for (auto it = descriptions.constBegin(); it != descriptions.constEnd(); ++it)
     result.append(operation(it.key(), it.value(), inputProperties(),
                             {"document_id", "expected_revision"}));

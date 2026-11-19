@@ -2,11 +2,15 @@
 
 #include "automation_jobs.h"
 
+#include "tfx.h"
 #include "tpalette.h"
 #include "tsimplecolorstyles.h"
 #include "tstroke.h"
 #include "tvectorimage.h"
+#include "toonz/fxdag.h"
 #include "toonz/scenechecker.h"
+#include "toonz/tcolumnfxset.h"
+#include "toonz/tstageobject.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tproject.h"
 #include "toonz/txshcell.h"
@@ -21,6 +25,7 @@
 
 #include <functional>
 #include <iostream>
+#include <map>
 #include <set>
 #include <stdexcept>
 
@@ -266,6 +271,50 @@ void rowLimit(Context& context) {
           "A scan past 65,536 rows did not stop at the limit with row_limit");
 }
 
+// Findings of four certainty kinds: 3D tilt (confirmed loss), opacity
+// envelopes (refusal risk), a Groundzero-only effect (unknown support) and
+// Scene Cast tags and identities (confirmed loss).
+void compatibilityMatchesTheNativeReport(Context& context) {
+  Fixture fixture(context);
+  ToonzScene& scene = *fixture.document.scene;
+  TXsheet* sheet    = scene.getTopXsheet();
+  sheet->getStageObject(TStageObjectId::ColumnId(0))
+      ->getParam(TStageObject::T_RotX)
+      ->setDefaultValue(10);
+  TVectorImageP drawing = fixture.level->getFrame(TFrameId(3), false);
+  require(drawing->getStroke(0)->setOpacityProfile({{0, 1}, {1, 0.5}}),
+          "Cannot set an opacity envelope");
+  fixture.level->setCastTags({"hero"});
+  TFx* effect = TFx::create("STD_transform3DFx");
+  require(effect != nullptr, "Cannot create a Groundzero-only effect");
+  sheet->getFxDag()->getInternalFxs()->addFx(effect);
+  const QString id = fixture.submit("compatibility").value("job_id").toString();
+  require(fixture.finish(id).value("status") == "completed",
+          "The compatibility check failed");
+  const QJsonArray rows =
+      fixture.job("job.result", id, {{"limit", 256}}).value("rows").toArray();
+  std::multiset<std::pair<QString, QString>> job, native;
+  std::map<QString, QString> certainty;
+  for (const QJsonValue& value : rows) {
+    const QJsonObject row = value.toObject();
+    job.insert({row.value("code").toString(), row.value("message").toString()});
+    certainty[row.value("code").toString()] = row.value("certainty").toString();
+  }
+  for (const SceneChecker::Issue& issue :
+       SceneChecker::compatibilityReport(&scene))
+    native.insert({QString::fromStdString(issue.code), issue.text});
+  require(job == native, "The job's findings differ from the native report");
+  const std::map<QString, QString> expected{
+      {"compat.camera_depth_channels", "confirmed_loss"},
+      {"compat.opacity_envelopes", "refusal_risk"},
+      {"compat.groundzero_effect", "unknown_support"},
+      {"compat.cast_organization", "confirmed_loss"},
+      {"compat.cast_asset_identities", "confirmed_loss"}};
+  for (const auto& entry : expected)
+    require(certainty[entry.first] == entry.second,
+            "A compatibility rule reported the wrong code or certainty");
+}
+
 void secondCheckIsBusy(Context& context) {
   Fixture fixture(context);
   setSceneCheckItemDelayMs(5);
@@ -294,6 +343,8 @@ void runAutomationSceneCheckTests(Context& context) {
       {"a write ends the scan", writeEndsTheScan},
       {"inventory lists level rows", inventoryListsLevelRows},
       {"row limit", rowLimit},
+      {"compatibility matches the native report",
+       compatibilityMatchesTheNativeReport},
       {"a second check is busy", secondCheckIsBusy}};
   for (const auto& test : cases) {
     test.second(context);

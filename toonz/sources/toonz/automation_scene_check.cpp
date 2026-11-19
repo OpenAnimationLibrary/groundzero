@@ -14,6 +14,7 @@
 #include "ttoonzimage.h"
 #include "tvectorimage.h"
 #include "toonz/levelproperties.h"
+#include "toonz/scenechecker.h"
 #include "toonz/levelset.h"
 #include "toonz/toonzscene.h"
 #include "toonz/txsheet.h"
@@ -669,6 +670,137 @@ private:
   int m_levelsDone = 0;
 };
 
+// The native compatibility report as a job: the rules that load no drawing in
+// the first step, then each vector drawing in its own unit of work.
+class CompatibilityJob final : public SceneCheckJob {
+public:
+  CompatibilityJob(Context& context, Document& document, int deadlineMs)
+      : SceneCheckJob(context, document, "compatibility", deadlineMs) {
+    QStringList reasons;
+    m_sheets = sheetPaths(document, reasons);
+    for (const QString& reason : reasons) incomplete(analysisReason(reason));
+    const TLevelSet* cast = document.scene->getLevelSet();
+    for (int index = 0; index < cast->getLevelCount(); ++index) {
+      TXshSimpleLevel* level = cast->getLevel(index)
+                                   ? cast->getLevel(index)->getSimpleLevel()
+                                   : nullptr;
+      if (!level || level->getType() != PLI_XSHLEVEL) continue;
+      m_levels.push_back({level, level->getFids()});
+      m_drawings += level->getFrameCount();
+    }
+  }
+
+protected:
+  bool work(Document& document) override {
+    if (!m_sceneDone) {
+      m_sceneDone = true;
+      return report(document, SceneChecker::sceneCompatibilityReport(
+                                  document.scene.get())) &&
+             !m_levels.empty();
+    }
+    VectorLevel& level = m_levels[m_level];
+    if (m_drawing < level.fids.size()) {
+      const int profiled = SceneChecker::opacityEnvelopeDrawing(
+          level.level, level.fids[m_drawing++]);
+      if (profiled > 0) ++level.profiled;
+      if (profiled < 0) level.incomplete = true;
+      ++m_cost.drawings;
+      return true;
+    }
+    const bool kept =
+        report(document, SceneChecker::levelDrawingCompatibility(
+                             level.level, level.profiled, level.incomplete));
+    m_drawing = 0;
+    return kept && ++m_level < m_levels.size();
+  }
+
+  QJsonObject summary() const override {
+    return {
+        {"findings", double(m_findings)},
+        {"by_certainty", QJsonObject{{"confirmed_loss", m_byCertainty[0]},
+                                     {"refusal_risk", m_byCertainty[1]},
+                                     {"unknown_support", m_byCertainty[2]}}},
+        {"drawings_scanned", double(m_cost.drawings)},
+        {"reader", "legacy_opentoonz"}};
+  }
+
+  QString progressUnit() const override { return "drawings"; }
+  qint64 progressDone() const override { return m_cost.drawings; }
+  qint64 progressTotal() const override { return m_drawings; }
+
+  QJsonObject estimate() const override {
+    return {{"drawings", double(m_drawings)},
+            {"strokes", 0},
+            {"control_points", 0},
+            {"pixels", 0},
+            {"files", 0},
+            {"bytes", 0}};
+  }
+
+  QJsonObject budget() const override {
+    return {{"max_drawings", double(MaxDrawings)},
+            {"max_strokes", 0},
+            {"max_pixels", 0},
+            {"max_files", UnusedFileBudget},
+            {"max_bytes", double(UnusedByteBudget)}};
+  }
+
+  void release() override {
+    m_levels.clear();
+    m_sheets.clear();
+  }
+
+private:
+  struct VectorLevel final {
+    TXshSimpleLevel* level;
+    std::vector<TFrameId> fids;
+    int profiled    = 0;
+    bool incomplete = false;
+  };
+
+  bool report(Document& document,
+              const std::vector<SceneChecker::Issue>& issues) {
+    for (const SceneChecker::Issue& issue : issues) {
+      ++m_findings;
+      ++m_byCertainty[issue.certainty];
+      if (!append(row(document, issue))) return false;
+    }
+    return true;
+  }
+
+  // As scene.validate rows: info for unknown support, a warning otherwise.
+  QJsonObject row(Document& document, const SceneChecker::Issue& issue) const {
+    TXshLevel* level =
+        issue.levelName.empty()
+            ? nullptr
+            : document.scene->getLevelSet()->getLevel(issue.levelName);
+    const bool unknown = issue.certainty == SceneChecker::UnknownSupport;
+    return {{"row_kind", "compatibility"},
+            {"code", QString::fromStdString(issue.code)},
+            {"certainty", SceneChecker::certaintyName(issue.certainty)},
+            {"reader", "legacy_opentoonz"},
+            {"severity", unknown ? "info" : "warning"},
+            {"message", issue.text.left(2048)},
+            {"sheet_path", m_sheets.value(issue.xsheet)},
+            {"sheet_name", QString::fromStdWString(issue.subXsheet)},
+            {"level_id", level ? QJsonValue(document.idForLevel(level))
+                               : QJsonValue(QJsonValue::Null)},
+            {"column_index", issue.column >= 0 ? QJsonValue(issue.column)
+                                               : QJsonValue(QJsonValue::Null)},
+            {"frame", issue.row >= 0 ? QJsonValue(issue.row)
+                                     : QJsonValue(QJsonValue::Null)}};
+  }
+
+  QHash<TXsheet*, QJsonArray> m_sheets;
+  std::vector<VectorLevel> m_levels;
+  std::size_t m_level   = 0;
+  std::size_t m_drawing = 0;
+  qint64 m_drawings     = 0;
+  bool m_sceneDone      = false;
+  int m_findings        = 0;
+  int m_byCertainty[3]  = {0, 0, 0};
+};
+
 QSet<TXshLevel*> selectedLevels(Document& document, const QJsonObject& params) {
   QSet<TXshLevel*> selected;
   for (const QJsonValue& id : params.value("level_ids").toArray())
@@ -702,6 +834,8 @@ QJsonValue submit(Context& context, const QJsonObject& params) {
   if (check == "unused_styles")
     job = std::make_shared<UnusedStylesJob>(context, document, deadlineMs,
                                             selectedLevels(document, params));
+  else if (check == "compatibility")
+    job = std::make_shared<CompatibilityJob>(context, document, deadlineMs);
   else
     job = std::make_shared<InventoryJob>(context, document, deadlineMs);
   job->common.request = admittedRequest(params, deadlineMs);
@@ -723,14 +857,17 @@ QJsonArray sceneCheckOperations() {
       "Toonz raster levels uses; regions are built on detached clones) or "
       "inventory (every dependency row of scene.dependencies, each with the "
       "sheet_path of the first sheet that exposes it, without the read's "
-      "record limit). Poll job.status and read rows with job.result; a "
+      "record limit) or compatibility (what a legacy OpenToonz reader drops, "
+      "may refuse or may not support, one row per finding with a stable "
+      "code and certainty; it loads every vector drawing). Poll job.status "
+      "and read rows with job.result; a "
       "canceled or deadline-ended job keeps its rows, marked incomplete.",
       {{"document_id", handle},
        {"expected_revision",
         QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 80}}},
-       {"check",
-        QJsonObject{{"type", "string"},
-                    {"enum", QJsonArray{"unused_styles", "inventory"}}}},
+       {"check", QJsonObject{{"type", "string"},
+                             {"enum", QJsonArray{"unused_styles", "inventory",
+                                                 "compatibility"}}}},
        {"level_ids", QJsonObject{{"type", "array"},
                                  {"items", handle},
                                  {"minItems", 1},

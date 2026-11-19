@@ -1274,6 +1274,7 @@
     "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
     "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_compatibility_codes_and_certainty",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
     "toonz/sources/toonz/tests/automation_rig_test.cpp",
     "tools/mcp/src/native.test.ts"

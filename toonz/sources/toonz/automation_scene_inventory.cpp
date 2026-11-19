@@ -368,6 +368,17 @@ QHash<TXshLevel*, QJsonArray> levelSheetPaths(Document& document,
   return paths;
 }
 
+QHash<TXsheet*, QJsonArray> sheetPaths(Document& document,
+                                       QStringList& reasons) {
+  const Walk walk = walkDocument(document);
+  reasons         = walk.reasons;
+  QHash<TXsheet*, QJsonArray> paths;
+  for (const Instance& instance : walk.instances)
+    if (!paths.contains(instance.sheet))
+      paths.insert(instance.sheet, instance.path);
+  return paths;
+}
+
 QJsonValue executeSceneInventory(Context& context, const QString& method,
                                  const QJsonObject& params) {
   if (method != "scene.inventory")

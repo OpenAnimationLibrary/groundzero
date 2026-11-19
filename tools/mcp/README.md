@@ -574,6 +574,11 @@ the used vector and Toonz raster levels uses (optionally only for `level_ids`); 
 two styles of the first page and style 0 are never listed, and vector regions are built
 on a copy of each drawing. `check: "inventory"` lists every row of `scene.dependencies`,
 each with the `sheet_path` of the first sheet that exposes its level, up to 65,536 rows.
+`check: "compatibility"` lists what a legacy OpenToonz reader drops, may refuse or may not
+support: one row per finding of the native compatibility report, with a `code` naming
+which of its 19 rules fired, a `certainty` (`confirmed_loss`, `refusal_risk` or
+`unknown_support`), `severity`, `message`, `sheet_path`, `level_id`, `column_index` and
+`frame`. It loads every vector drawing, so `scene.validate` does not report it.
 `job.result` pages the rows (up to 256 per page) with a `summary`, `complete` and
 `reasons`. The work runs on the worker's main thread in steps that stop once 20 ms have
 passed, after the drawing or level in progress; `job.cancel` ends a check at once and

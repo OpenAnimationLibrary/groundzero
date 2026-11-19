@@ -151,6 +151,9 @@ QJsonObject sheetPathSchema();
 // receives depth_limit, cycle or row_limit when the walk stopped early.
 QHash<TXshLevel*, QJsonArray> levelSheetPaths(Document& document,
                                               QStringList& reasons);
+// Each sheet's first instance path, top sheet first; reasons as above.
+QHash<TXsheet*, QJsonArray> sheetPaths(Document& document,
+                                       QStringList& reasons);
 // Refuse a new analysis job while one runs in this worker or any of its scene
 // hosts, or when they retain 32 (analysis_busy, resource_limit).
 void requireAnalysisCapacity(Context& context);
