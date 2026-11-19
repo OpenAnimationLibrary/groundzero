@@ -2,14 +2,17 @@
 #include "automation_dispatch.h"
 #include "automation_rig.h"
 
+#include "tdoubleparam.h"
 #include "tvectorimage.h"
 #include "toonz/hook.h"
 #include "toonz/levelset.h"
+#include "toonz/poselibrary.h"
 #include "toonz/stageunits.h"
 #include "toonz/toonzscene.h"
 #include "toonz/tpinnedrangeset.h"
 #include "toonz/tstageobject.h"
 #include "toonz/tstageobjecttree.h"
+#include "toonz/txshcell.h"
 #include "toonz/txshcolumn.h"
 #include "toonz/txsheet.h"
 #include "toonz/txshsimplelevel.h"
@@ -36,8 +39,9 @@ void near(double actual, double expected, const char* message,
           message);
 }
 
-const QStringList Reads{"rig.inspect", "rig.evaluate", "hook.inspect",
-                        "scene.summary", "animation.sample"};
+const QStringList Reads{"rig.inspect",   "rig.evaluate",     "hook.inspect",
+                        "scene.summary", "animation.sample", "rig.dependents",
+                        "object.groups"};
 
 QJsonObject request(Dispatcher& dispatcher, const QString& method,
                     QJsonObject params) {
@@ -739,6 +743,323 @@ void hookKeyBudgets(Context& context) {
   context.removeDocument(document.id);
 }
 
+QString createPeg(Dispatcher& dispatcher, Document& document,
+                  const QString& name) {
+  return result(dispatcher, "object.create",
+                at(document, {{"name", name}, {"kind", "pegbar"}}))
+      .value("object_id")
+      .toString();
+}
+
+void setKeys(Dispatcher& dispatcher, Document& document, const QString& object,
+             const QString& channel, const QString& unit,
+             const QList<QPair<int, double>>& keys) {
+  QJsonArray records;
+  for (const auto& key : keys)
+    records.append(QJsonObject{{"frame", key.first},
+                               {"value", key.second},
+                               {"interpolation", "linear"}});
+  result(dispatcher, "animation.set_keys",
+         at(document, {{"object_id", object},
+                       {"channel", channel},
+                       {"unit", unit},
+                       {"keys", records}}));
+}
+
+QString errorCode(const QJsonObject& response) {
+  return response.value("error").toObject().value("code").toString();
+}
+
+QJsonObject errorDetails(const QJsonObject& response) {
+  return response.value("error").toObject().value("details").toObject();
+}
+
+// Probe P5: getParams + assignParams(clone) gives the copy its own curves,
+// observers and layers, the source's handles, and no schematic groups.
+void duplicateIsIndependent(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document     = createDocument(context, dispatcher);
+  const QString root = createPeg(dispatcher, document, "Root");
+  const QString peg  = createPeg(dispatcher, document, "Peg");
+  auto parent        = parentParams(peg, root);
+  parent.insert("parent_handle",
+                QJsonObject{{"kind", "peg_hole"}, {"letter", "C"}});
+  result(dispatcher, "object.parent", at(document, parent));
+  setKeys(dispatcher, document, peg, "x", "inch", {{0, 0}, {10, 2}});
+  const QString layer = createLayer(dispatcher, document, peg, "Walk");
+  result(
+      dispatcher, "object.group",
+      at(document, {{"object_ids", QJsonArray{root, peg}}, {"name", "Rig"}}));
+  QJsonObject params = at(document, {{"object_id", peg}, {"name", "Copy"}});
+  params.insert("operation_id", "duplicate-once");
+  const auto copied = result(dispatcher, "object.duplicate", params);
+  const auto replay = request(dispatcher, "object.duplicate", params);
+  require(replay.value("result") == copied,
+          "A replayed duplicate did not return its recorded result");
+  const auto record = copied.value("object").toObject();
+  require(record.value("parent_id") == root &&
+              record.value("parent_handle").toObject().value("native") == "C" &&
+              record.value("name") == "Copy",
+          "The copy lost its parent, parent handle or name");
+  const auto map = copied.value("layer_map").toArray();
+  require(map.size() == 1 &&
+              map[0].toObject().value("source_layer_id") == layer &&
+              map[0].toObject().value("layer_id") != layer &&
+              copied.value("control_map").toArray().isEmpty(),
+          "The layer map is wrong");
+  TStageObject* source = document.object(peg);
+  TStageObject* copy   = document.object(record.value("object_id").toString());
+  require(copy->getParam(TStageObject::T_X) !=
+                  source->getParam(TStageObject::T_X) &&
+              copy->getOffsetLayer(0).m_weight.getPointer() !=
+                  source->getOffsetLayer(0).m_weight.getPointer(),
+          "The copy shares curves with its source");
+  require(!copy->isGrouped() && source->isGrouped(),
+          "Native copies are not grouped, unlike their sources");
+  near(copy->getPlacement(5).a13, source->getPlacement(5).a13,
+       "The copy is not placed like its source", 1e-9);
+  source->getParam(TStageObject::T_X)->setValue(10, 5);
+  near(copy->getParam(TStageObject::T_X)->getValue(10), 2,
+       "Editing the source changed the copy");
+  const double before = copy->getPlacement(10).a13;
+  copy->getParam(TStageObject::T_X)->setValue(10, 3);
+  near(copy->getPlacement(10).a13 - before, Stage::inch,
+       "The copy's curve does not invalidate its placement");
+  const QString column = columnObject(createColumn(
+      dispatcher, document, createLevel(dispatcher, document, "Art", 1), {1}));
+  rejected(dispatcher, document, "object.duplicate",
+           at(document, {{"object_id", column}, {"name", "Column"}}),
+           "unsupported_kind");
+  rejected(
+      dispatcher, document, "object.duplicate",
+      at(document,
+         {{"object_id", column}, {"name", "Column"}, {"scope", "subtree"}}),
+      "invalid_params");
+  context.removeDocument(document.id);
+}
+
+void subtreeDuplicateSharesLevels(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document       = createDocument(context, dispatcher);
+  const QString level  = createLevel(dispatcher, document, "Body", 2);
+  const QString peg    = createPeg(dispatcher, document, "Rig");
+  const auto column    = createColumn(dispatcher, document, level, {1, 2, 1});
+  const QString object = columnObject(column);
+  result(dispatcher, "object.parent", at(document, parentParams(object, peg)));
+  createLayer(dispatcher, document, object, "Bounce");
+  const int columns = document.scene->getXsheet()->getColumnCount();
+  const auto copied = result(dispatcher, "object.duplicate",
+                             at(document, {{"object_id", peg},
+                                           {"name", "Rig copy"},
+                                           {"scope", "subtree"},
+                                           {"level_sharing", "shared"}}));
+  const auto copies = copied.value("objects").toArray();
+  require(copies.size() == 2, "The subtree copy has the wrong size");
+  const auto columnCopy = copies[1].toObject();
+  require(columnCopy.value("source_object_id") == object &&
+              columnCopy.value("output_connected").toBool(),
+          "The column copy is not mapped or not connected to the output");
+  TXsheet* sheet = document.scene->getXsheet();
+  require(sheet->getColumnCount() == columns + 1,
+          "The column copy was not appended");
+  for (int row = 0; row < 3; ++row)
+    require(sheet->getCell(row, columns).m_level ==
+                    sheet->getCell(row, 0).m_level &&
+                sheet->getCell(row, columns).m_frameId ==
+                    sheet->getCell(row, 0).m_frameId,
+            "The column copy does not show the same cells and level");
+  TStageObject* copy =
+      document.object(columnCopy.value("object_id").toString());
+  require(copy->getParent() == document
+                                   .object(copied.value("object")
+                                               .toObject()
+                                               .value("object_id")
+                                               .toString())
+                                   ->getId(),
+          "The column copy is not parented to the pegbar copy");
+  require(copy->getOffsetLayerCount() == 1,
+          "The column copy lost its offset layer");
+  const QString package = savePackage(dispatcher, document, "rig-subtree");
+  const auto opened     = result(dispatcher, "scene.open", {{"path", package}});
+  auto& reopened = context.document(opened.value("document_id").toString());
+  require(reopened.scene->getXsheet()->getColumnCount() == columns + 1,
+          "The reopened scene lost the column copy");
+  context.removeDocument(reopened.id);
+  context.removeDocument(document.id);
+}
+
+void renameAndDeleteObjects(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document      = createDocument(context, dispatcher);
+  const QString root  = createPeg(dispatcher, document, "Root");
+  const QString child = createPeg(dispatcher, document, "Child");
+  result(dispatcher, "object.parent", at(document, parentParams(child, root)));
+  const QString layer = createLayer(dispatcher, document, root, "Sway");
+  const QString name  = QString::fromUtf8("Bras gauche \xC3\xA9 \xE2\x9C\x93");
+  const auto renamed =
+      result(dispatcher, "object.rename",
+             at(document, {{"object_id", root}, {"name", name}}));
+  require(renamed.value("name") == name, "The rename is not reported");
+  rejected(dispatcher, document, "object.rename",
+           at(document, {{"object_id", root}, {"name", "Bad\nname"}}),
+           "invalid_params");
+  const QString table = document.idForObject(
+      stageOf(document).getStageObject(TStageObjectId::TableId));
+  rejected(dispatcher, document, "object.rename",
+           at(document, {{"object_id", table}, {"name", "Table"}}),
+           "unsupported_target");
+  const QJsonObject refuse{{"object_id", root},
+                           {"children_policy", "refuse"},
+                           {"report_frames", QJsonArray{0}}};
+  const auto refused =
+      request(dispatcher, "object.delete", at(document, refuse));
+  require(errorCode(refused) == "has_dependents" &&
+              errorDetails(refused)
+                      .value("dependents")
+                      .toArray()[0]
+                      .toObject()
+                      .value("object_id") == child,
+          "Deleting a parent did not list its child");
+  PoseLibrary* poses = document.scene->getPoseLibrary();
+  poses->setBase({PoseLibrary::Entry(TStageObjectId::PegbarId(0), "x", 0)});
+  QJsonObject reattach = refuse;
+  reattach.insert("children_policy", "reattach_to_parent");
+  rejected(dispatcher, document, "object.delete", at(document, reattach),
+           "has_dependents");
+  poses->setBase({});
+  const auto deleted =
+      result(dispatcher, "object.delete", at(document, reattach));
+  const auto moved = deleted.value("reattached").toArray()[0].toObject();
+  require(moved.value("object_id") == child &&
+              moved.value("parent_id") == table &&
+              moved.value("world_changes").toArray().size() == 1,
+          "The re-attached child is not reported");
+  rejected(dispatcher, document, "rig.inspect",
+           at(document, {{"root_object_id", root}}), "invalid_handle");
+  rejected(dispatcher, document, "offset_layer.update",
+           at(document, {{"layer_id", layer}, {"enabled", false}}),
+           "invalid_handle");
+  const QString package = savePackage(dispatcher, document, "rig-rename");
+  const auto opened     = result(dispatcher, "scene.open", {{"path", package}});
+  auto& reopened = context.document(opened.value("document_id").toString());
+  bool found     = false;
+  for (int index = 0; index < stageOf(reopened).getStageObjectCount(); ++index)
+    found = found ||
+            QString::fromStdString(
+                stageOf(reopened).getStageObject(index)->getName()) == "Child";
+  require(found && !stageOf(reopened).getStageObject(
+                       TStageObjectId::PegbarId(0), false),
+          "The deletion did not survive save and reopen");
+  context.removeDocument(reopened.id);
+  context.removeDocument(document.id);
+}
+
+void dependentsOfHooksAndLayers(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document     = createDocument(context, dispatcher);
+  const QString body = createLevel(dispatcher, document, "Body", 1);
+  const QString owner =
+      columnObject(createColumn(dispatcher, document, body, {1}));
+  result(dispatcher, "hook.set",
+         at(document, hookParams(body, 1, {position(1, point(0.2, 0))})));
+  const QString child = createPeg(dispatcher, document, "Child");
+  const QString arm =
+      columnObject(createColumn(dispatcher, document, body, {1}));
+  result(dispatcher, "object.parent",
+         at(document, parentParams(arm, owner, 1)));
+  const auto hook =
+      result(dispatcher, "rig.dependents",
+             at(document, {{"target", QJsonObject{{"kind", "hook"},
+                                                  {"level_id", body},
+                                                  {"hook_number", 1}}}}));
+  require(
+      hook.value("complete").toBool() &&
+          hook.value("dependents").toArray().size() == 1 &&
+          hook.value("dependents").toArray()[0].toObject().value("object_id") ==
+              arm,
+      "The hook user is not listed");
+  const auto object = result(
+      dispatcher, "rig.dependents",
+      at(document,
+         {{"target", QJsonObject{{"kind", "object"}, {"object_id", owner}}}}));
+  require(object.value("dependents").toArray().size() == 2,
+          "A column parent lists its child and its hook handle");
+  const QString layer = createLayer(dispatcher, document, child, "Lean");
+  const auto layered  = result(
+      dispatcher, "rig.dependents",
+      at(document,
+         {{"target", QJsonObject{{"kind", "layer"}, {"layer_id", layer}}}}));
+  require(layered.value("dependents").toArray().isEmpty(),
+          "A layer without controls has dependents");
+  rejected(dispatcher, document, "rig.dependents",
+           at(document, {{"target", QJsonObject{{"kind", "control"},
+                                                {"control_id", "control_x"}}}}),
+           "invalid_handle");
+  context.removeDocument(document.id);
+}
+
+QJsonObject groupOf(Dispatcher& dispatcher, Document& document, int number) {
+  for (const auto& group : result(dispatcher, "object.groups", at(document))
+                               .value("groups")
+                               .toArray())
+    if (group.toObject().value("group_number").toInt() == number)
+      return group.toObject();
+  return {};
+}
+
+void schematicGroups(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document  = createDocument(context, dispatcher);
+  const QString a = createPeg(dispatcher, document, "Left leg");
+  const QString b = createPeg(dispatcher, document, "Right leg");
+  const QString c = createPeg(dispatcher, document, "Torso");
+  const int legs =
+      result(dispatcher, "object.group",
+             at(document, {{"object_ids", QJsonArray{a, b}}, {"name", "Legs"}}))
+          .value("group")
+          .toObject()
+          .value("group_number")
+          .toInt();
+  rejected(dispatcher, document, "object.group",
+           at(document, {{"object_ids", QJsonArray{a, c}}, {"name", "Split"}}),
+           "invalid_params");
+  const int body =
+      result(
+          dispatcher, "object.group",
+          at(document, {{"object_ids", QJsonArray{a, b, c}}, {"name", "Body"}}))
+          .value("group")
+          .toObject()
+          .value("group_number")
+          .toInt();
+  require(
+      groupOf(dispatcher, document, legs).value("parent_group_number") == body,
+      "The nested group does not name its enclosing group");
+  rejected(dispatcher, document, "object.ungroup",
+           at(document, {{"group_number", legs}}), "invalid_params");
+  const QString name = QString::fromUtf8("Jambes \xC3\xA9");
+  result(dispatcher, "object.group.rename",
+         at(document, {{"group_number", legs}, {"name", name}}));
+  rejected(dispatcher, document, "object.group.rename",
+           at(document, {{"group_number", 999}, {"name", "None"}}),
+           "not_found");
+  const QString package = savePackage(dispatcher, document, "rig-groups");
+  const auto opened     = result(dispatcher, "scene.open", {{"path", package}});
+  auto& reopened   = context.document(opened.value("document_id").toString());
+  const auto inner = groupOf(dispatcher, reopened, legs);
+  require(inner.value("name") == name &&
+              inner.value("object_ids").toArray().size() == 2 &&
+              groupOf(dispatcher, reopened, body).value("name") == "Body",
+          "Groups did not survive save and reopen");
+  require(stageOf(reopened).getNewGroupId() > body,
+          "Reopened group numbering can reuse a saved group");
+  context.removeDocument(reopened.id);
+  result(dispatcher, "object.ungroup", at(document, {{"group_number", body}}));
+  require(groupOf(dispatcher, document, body).isEmpty() &&
+              !groupOf(dispatcher, document, legs).isEmpty(),
+          "Dissolving the outer group changed the inner one");
+  context.removeDocument(document.id);
+}
+
 }  // namespace
 
 void runAutomationRigTests(Context& context) {
@@ -753,8 +1074,13 @@ void runAutomationRigTests(Context& context) {
   evaluationBoundsAndPaging(context);
   renumberVerifiesHookMove(context);
   hookKeyBudgets(context);
-  std::cout << "automation-rig-test: hooks, handles, pivots, layers and "
-               "admission PASS\n";
+  duplicateIsIndependent(context);
+  subtreeDuplicateSharesLevels(context);
+  renameAndDeleteObjects(context);
+  dependentsOfHooksAndLayers(context);
+  schematicGroups(context);
+  std::cout << "automation-rig-test: hooks, handles, pivots, layers, object "
+               "lifecycle, groups and admission PASS\n";
 }
 
 }  // namespace GroundzeroAutomation

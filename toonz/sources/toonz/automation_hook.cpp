@@ -867,6 +867,12 @@ void verifyAutomationHookRenumber(TXshSimpleLevel& level,
                 "Native renumbering did not move the level's hook keys.");
 }
 
+QJsonArray automationHookUsers(Document& document,
+                               const AutomationExposures& exposures,
+                               TXshSimpleLevel& level, int hookNumber) {
+  return hookUsers(document, exposures, &level, hookNumber);
+}
+
 QJsonArray hookOperations() {
   QJsonArray catalog;
   addTool(catalog, "hook.inspect",

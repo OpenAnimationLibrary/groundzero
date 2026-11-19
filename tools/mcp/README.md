@@ -405,6 +405,24 @@ requires `placement_policy: "preserve_local"`: local keys are kept, so the objec
 move. It accepts an optional `parent_handle` and `report_frames`, and refuses a hook
 handle under a parent that is not a column.
 
+`object.duplicate` copies a pegbar (`scope: "object"`), or a pegbar or level column
+with everything below it (`scope: "subtree"` with `level_sharing: "shared"`), as the
+stage schematic's copy and paste does: curves and offset layers are independent, copied
+columns are appended to the sheet and show the same levels and cells, effects fed only by
+the copied columns are cloned, and the copy keeps the source's parent and handles. The
+result maps every source object to its copy. Objects that follow a motion path, cameras
+and non-level columns are refused. `object.rename` renames a pegbar or column; names
+need not be unique. `rig.dependents` lists what depends on an object (children, the hook
+parent handles they hold, motion paths evaluated in its space, pose entries), a hook (its
+users) or a layer. `object.delete` removes a pegbar after the same scan:
+`children_policy: "refuse"` refuses any child, `"reattach_to_parent"` moves the children
+to its parent with their local keys and reports their `world_changes`; pose entries
+always refuse. Columns are deleted with `column.delete`. `object.group`,
+`object.group.rename`, `object.ungroup` and `object.groups` manage the stage schematic's
+named groups by `group_number`: grouping changes no parent or placement, only whole
+existing groups can be grouped again, and only an outermost group can be dissolved.
+Groups and their names are saved in the scene.
+
 `offset_layer.create`, `offset_layer.update`, and `offset_layer.delete` manage additive
 layers on pegbars, columns, and cameras that do not follow a path: at most 16 per object
 and 1024 per scene, with unique names and weights within ±10. An enabled layer adds
@@ -1018,10 +1036,11 @@ the adapter and the live editor bridge add the rest.
   `fx.recipe.list`
 - `lipsync` toolset (3):
   `lipsync.apply`, `lipsync.import`, `lipsync.inspect`
-- `rigging` toolset (10):
-  `hook.delete`, `hook.inspect`, `hook.set`, `object.handles.set`, `object.pivot.set`,
-  `offset_layer.create`, `offset_layer.delete`, `offset_layer.update`, `rig.evaluate`,
-  `rig.inspect`
+- `rigging` toolset (18):
+  `hook.delete`, `hook.inspect`, `hook.set`, `object.delete`, `object.duplicate`,
+  `object.group`, `object.group.rename`, `object.groups`, `object.handles.set`,
+  `object.pivot.set`, `object.rename`, `object.ungroup`, `offset_layer.create`,
+  `offset_layer.delete`, `offset_layer.update`, `rig.dependents`, `rig.evaluate`, `rig.inspect`
 - `shared-library` toolset (7):
   `library.inspect`, `library.list`, `library.thumbnail`, `shared.roots`, `studio_palette.find`,
   `studio_palette.inspect`, `studio_palette.list`

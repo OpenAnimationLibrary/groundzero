@@ -615,6 +615,31 @@
    "toolset": "core",
    "writes": true
   },
+  "object.delete": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.duplicate": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.group": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.group.rename": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.groups": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false
+  },
   "object.handles.set": {
    "origin": "worker",
    "toolset": "rigging",
@@ -636,6 +661,16 @@
    "writes": true
   },
   "object.pivot.set": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.rename": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.ungroup": {
    "origin": "worker",
    "toolset": "rigging",
    "writes": true
@@ -764,6 +799,11 @@
    "origin": "worker",
    "toolset": "core",
    "writes": true
+  },
+  "rig.dependents": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false
   },
   "rig.evaluate": {
    "origin": "worker",
@@ -1880,6 +1920,36 @@
    "tools": [
     "object.handles.set",
     "object.pivot.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.object_lifecycle",
+   "domain": "Rigging",
+   "outcome": "Duplicate a peg or a peg hierarchy with shared levels, rename stage objects, and delete a peg after a dependency preflight that refuses or re-attaches its children.",
+   "classification": "exposed",
+   "tools": [
+    "object.duplicate",
+    "object.rename",
+    "object.delete",
+    "rig.dependents"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.schematic_groups",
+   "domain": "Rigging",
+   "outcome": "Group stage objects in named, nested stage schematic groups, rename and dissolve them, without changing placement.",
+   "classification": "exposed",
+   "tools": [
+    "object.group",
+    "object.group.rename",
+    "object.ungroup",
+    "object.groups"
    ],
    "disposition": {
     "kind": "implemented"
