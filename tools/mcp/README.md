@@ -1043,6 +1043,24 @@ with the scene's value. A job may reserve 2 GiB of render storage
 MP4, 8 for half and 16 for float EXR), a worker 4 GiB, and the workspace volume must
 keep 1 GiB free beyond the reservation.
 
+`review.compare.submit` starts an `image_review` job on the analysis lane that compares
+pairs of 8-bit PNG render frames: `pairs` (1-120, each side an `artifact` or a
+`job_frame` of a completed render job) or `range` (two jobs paired by frame number;
+`frame_mismatch` lists the frames either lacks). The comparison uses stored code values
+with no color management, in `premultiplied` (default) or `straight` mode, over `rgba`
+or `rgb`, in an optional `region`, against a `tolerance` profile (`exact`, `rounding`,
+`straight_alpha_roundtrip`, `native_fx_regression`) or explicit integers. Each pair
+row reports both sides (job, revision, frame, digests, size, DPI, camera, fit scale,
+crop, color settings), every condition that differs between them, per-channel
+integer sums with binary64 mean and RMSE, a 256-bin histogram, nearest-rank
+percentiles, changed pixels and their box, a grid and the largest 4-connected changed
+regions, a verdict, and a difference image (`changed`, `all` or `none`; at most 16 per
+job). Sizes that differ are `size_mismatch` and never resampled. `sheet: true` adds
+one review sheet (reference, candidate and difference per pair, at most 16 rows,
+reduced by one integer factor to fit 2048 pixels). Images are job artifacts read with
+`artifact.read`; the summary row names the evidence as visual. Review storage is
+64 MiB per job and 128 MiB per worker.
+
 `runtime.inspect` reports what this worker can actually run: its identity (the
 `instance_id` and build that job records carry) and platform (operating system and version, the machine's and the build's CPU
 architecture, whether the process runs translated, Qt versions), graphics readiness, the granted media tools, native and admitted
@@ -1235,7 +1253,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (121):
+- `core` toolset (122):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1257,8 +1275,8 @@ the adapter and the live editor bridge add the rest.
   `palette.style.move`, `palette.update_style`, `project.inspect`, `project.list`,
   `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
   `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
-  `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
-  `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
+  `render.submit`, `review.compare.submit`, `runtime.inspect`, `scene.check.submit`,
+  `scene.create`, `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
   `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
   `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
   `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,

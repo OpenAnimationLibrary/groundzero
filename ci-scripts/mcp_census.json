@@ -880,6 +880,11 @@
    "toolset": "core",
    "writes": true
   },
+  "review.compare.submit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "rig.evaluate": {
    "origin": "worker",
    "toolset": "rigging",
@@ -2763,11 +2768,12 @@
    "id": "render.contact_sheets_and_compare",
    "domain": "Rendering and review",
    "outcome": "Compare before and after renders and produce contact sheets.",
-   "classification": "not_exposed",
-   "tools": [],
+   "classification": "exposed",
+   "tools": [
+    "review.compare.submit"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W3"
+    "kind": "implemented"
    }
   },
   {

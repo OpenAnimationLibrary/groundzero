@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_audio.h"
+#include "automation_compare.h"
 #include "automation_files.h"
 #include "automation_fx.h"
 #include "automation_jobs.h"
@@ -1876,6 +1877,7 @@ static QJsonValue readImageArtifact(Context& context, const RenderJob& job,
 }
 
 static QJsonValue artifactRead(Context& context, const QString& id) {
+  if (const auto review = readReviewArtifact(context, id)) return *review;
   JobRegistry& registry = jobRegistry(context);
   for (const auto& entry : registry.jobs()) {
     const auto* job = dynamic_cast<const RenderJob*>(entry.get());
@@ -2069,8 +2071,10 @@ QJsonArray renderOperations() {
                    "1.",
                    sequence, {"document_id", "start_frame", "end_frame"}),
       operation("artifact.read",
-                "Read an owned PNG artifact as a bounded inline image.",
-                {{"artifact_id", stringSchema()}}, {"artifact_id"})};
+                "Read an owned PNG artifact (a render frame, review "
+                "difference image or review sheet) as a bounded inline image.",
+                {{"artifact_id", stringSchema()}}, {"artifact_id"}),
+      compareOperations().first().toObject()};
 }
 
 QJsonValue executeRender(Context& context, const QString& method,
@@ -2087,6 +2091,8 @@ QJsonValue executeRender(Context& context, const QString& method,
     return RenderDetail::submit(context, params, true);
   if (method == "render.submit")
     return RenderDetail::submit(context, params, false);
+  if (method == "review.compare.submit")
+    return executeCompare(context, method, params);
   if (method == "artifact.read")
     return RenderDetail::artifactRead(context,
                                       requiredString(params, "artifact_id"));
@@ -2103,6 +2109,56 @@ QString activeRenderJob(Context& context) {
 
 void sweepAbandonedRenders(Context& context) {
   OwnershipClaim::removeAbandoned(context.workspace() + "/renders", {"job_*"});
+  sweepAbandonedReviews(context);
+}
+
+RenderFrameRef renderFrameRef(const RenderDetail::RenderJob& job,
+                              const RenderDetail::Artifact& artifact) {
+  RenderFrameRef frame;
+  frame.artifactId = artifact.id;
+  frame.jobId      = job.common.id;
+  frame.documentId = job.common.documentId;
+  frame.revision   = job.common.revision;
+  frame.path       = artifact.path;
+  frame.sha256     = artifact.sha256;
+  frame.profile    = profileInfo(artifact.profile).name;
+  frame.frame      = artifact.frame;
+  frame.width      = artifact.width;
+  frame.height     = artifact.height;
+  frame.bytes      = artifact.bytes;
+  frame.effective  = job.effective;
+  return frame;
+}
+
+std::optional<RenderFrameRef> renderFrameByArtifact(Context& context,
+                                                    const QString& artifactId) {
+  using RenderDetail::JobStatus;
+  for (const auto& entry : jobRegistry(context).jobs()) {
+    const auto* job = dynamic_cast<const RenderDetail::RenderJob*>(entry.get());
+    if (!job || job->status != JobStatus::Completed) continue;
+    for (const RenderDetail::Artifact& artifact : job->artifacts)
+      if (artifact.id == artifactId) return renderFrameRef(*job, artifact);
+  }
+  return std::nullopt;
+}
+
+std::vector<RenderFrameRef> completedRenderFrames(Context& context,
+                                                  const QString& jobId) {
+  const auto entry = jobRegistry(context).require(jobId);
+  const auto* job  = dynamic_cast<const RenderDetail::RenderJob*>(entry.get());
+  if (!job)
+    throw Error("unsupported_artifact_kind",
+                "The job is not a render job of this worker.",
+                {{"job_id", jobId}});
+  if (job->status != RenderDetail::JobStatus::Completed)
+    throw Error(
+        "artifacts_unavailable",
+        "Artifacts are available only after successful finalization.",
+        {{"job_id", jobId}, {"status", RenderDetail::statusText(job->status)}});
+  std::vector<RenderFrameRef> frames;
+  for (const RenderDetail::Artifact& artifact : job->artifacts)
+    frames.push_back(renderFrameRef(*job, artifact));
+  return frames;
 }
 
 }  // namespace GroundzeroAutomation

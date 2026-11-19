@@ -157,6 +157,8 @@ class Session:
             self.document = result["document_id"]
         if step.get("select_document"):
             self.document = self.variables[step["select_document"]]
+        if "settle" in step:
+            _settle(self, step)
 
     def _write_file(self, step: dict[str, Any]) -> None:
         path = Path(self.variables["inputs"]) / step["file"]

@@ -345,6 +345,7 @@ set(SOURCES
     automation_drawing.cpp
     automation_render.cpp
     automation_render_profile.cpp
+    automation_compare.cpp
     automation_media.cpp
     automation_runtime.cpp
     automation_shutdown.cpp
@@ -1343,6 +1344,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_runtime_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_render_profile_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_compare_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_jobs_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_journal_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_drawing_analysis_test.cpp)

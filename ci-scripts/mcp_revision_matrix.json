@@ -1187,6 +1187,29 @@
      }
     }
    ]
+  },
+  "rendered": {
+   "extends": "exposed",
+   "steps": [
+    {
+     "tool": "render.submit",
+     "args": {
+      "start_frame": 0,
+      "end_frame": 1,
+      "width": 8,
+      "height": 8
+     },
+     "save": {
+      "ref_job": "job_id"
+     },
+     "settle": {
+      "tool": "job.status",
+      "args": {
+       "job_id": "$ref_job"
+      }
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -7439,6 +7462,59 @@
      }
     },
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "review.compare.submit": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "rendered",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "starts an image review job that compares frozen render frames; the job reads finished render files and never edits the document",
+   "bumps": "none; a review reads render artifacts and never edits the document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "range": {
+      "reference_job_id": "$ref_job",
+      "candidate_job_id": "$ref_job"
+     }
+    },
+    "save": {
+     "job": "job_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "range": {
+       "reference_job_id": "$ref_job",
+       "candidate_job_id": "$ref_job"
+      },
+      "mode": "premultiplied",
+      "tolerance": "exact"
+     },
+     "code": "profile_conflict"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "job_id"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
    }
   }
  },

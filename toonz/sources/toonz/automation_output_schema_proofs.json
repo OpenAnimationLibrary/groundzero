@@ -630,6 +630,10 @@
     "handler": "submit",
     "read": []
   },
+  "review.compare.submit": {
+    "handler": "submitReview",
+    "read": []
+  },
   "rig.evaluate": {
     "handler": "evaluateRig",
     "read": []

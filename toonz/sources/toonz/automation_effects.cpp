@@ -321,6 +321,12 @@ const QHash<QString, Declaration>& declarations() {
          "render_busy", "render_limit", "render_output_failed",
          "render_unavailable", "unaccepted_conversion",
          "unsupported_render_settings"}}},
+      {"review.compare.submit",
+       {ToolEffects{
+            "job_start", "reads", {"writes_private"}, "starts", {}, false},
+        {"analysis_busy", "artifacts_unavailable", "frame_mismatch",
+         "invalid_artifact", "io_error", "profile_conflict", "resource_limit",
+         "unknown_artifact", "unknown_job", "unsupported_artifact_kind"}}},
       {"rig.evaluate", {kInspect, {"invalid_handle"}}},
       {"rig.inspect", {kInspect, {"revision_conflict"}}},
       {"runtime.inspect",
