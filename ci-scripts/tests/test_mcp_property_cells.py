@@ -92,6 +92,13 @@ class RetimeTest(unittest.TestCase):
     def test_repeat_fills_to_the_row_and_inserts(self) -> None:
         self.assertEqual(retime([A, B, C], 0, 2, kind="repeat", until_frame=4), [A, B, A, B, A, C])
 
+    def test_reframe_dropping_blanks_leaves_an_interval_of_blanks_alone(self) -> None:
+        rows = [A, None, None, None, None, B]
+        operation = {"kind": "reframe", "step": 1, "blank_entries": "drop"}
+        self.assertEqual(retime(rows, 1, 4, **operation), rows)
+        operation["blank_entries"] = "keep"
+        self.assertEqual(retime(rows, 1, 4, **operation), [A, None, B])
+
     def test_reframe_extends_over_the_hold_the_interval_ends_in(self) -> None:
         rows = [A, A, B, B, B, C, C]
         self.assertEqual(

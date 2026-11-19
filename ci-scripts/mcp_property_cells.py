@@ -11,7 +11,8 @@ Retime kinds, with an interval `s` of rows:
 - swing: `s`, then the rows of `s` backwards without its last row repeated: a b c is a b c b a.
 - step n: every row n times. each n: every n-th row from the first (a b c d e, each 2: a c e).
 - reframe: the distinct neighbours of the interval, each shown for `step` rows; with
-  `blank_entries` drop the blank entries are left out. With `extend_over_hold` the interval
+  `blank_entries` drop the blank entries are left out, and an interval of only blanks is left
+  as it is. With `extend_over_hold` the interval
   first grows over the rest of the hold its last row belongs to.
 - increase_step, decrease_step: every drawing's hold one row longer, or one shorter (at least
   one); blanks are left as they are. reset_step: every hold, blanks too, one row.
@@ -190,6 +191,8 @@ def retime(rows: Rows, start: int, length: int, operation: dict[str, Any]) -> Ro
         length = held_length(rows, start, length)
     rows = padded(list(rows), start + length)
     segment = retimed(rows[start : start + length], {**operation, "start": start})
+    if not segment:
+        return trimmed(rows)
     return trimmed(rows[:start] + segment + rows[start + length :])
 
 
