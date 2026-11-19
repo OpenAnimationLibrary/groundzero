@@ -367,8 +367,8 @@ class TableChecks(unittest.TestCase):
                     "name": name,
                     "annotations": {"readOnlyHint": not entry["writes"]},
                 }
-                if self.matrix["tools"].get(name, {}).get("kind") in table.OUTSIDE_KINDS:
-                    tool["mutates_document"] = False
+                outside = self.matrix["tools"].get(name, {}).get("kind") in table.OUTSIDE_KINDS
+                tool["effects"] = {"document": "reads" if outside else "writes"}
                 tools.append(tool)
         return {"tools": tools}
 
@@ -377,7 +377,8 @@ class TableChecks(unittest.TestCase):
 
     def test_a_new_writing_tool_in_the_catalog_fails(self) -> None:
         catalog = self.catalog()
-        catalog["tools"].append({"name": "scene.invented", "annotations": {"readOnlyHint": False}})
+        invented = {"name": "scene.invented", "annotations": {"readOnlyHint": False}}
+        catalog["tools"].append({**invented, "effects": {"document": "writes"}})
         self.assert_reports(
             table.check_live(self.matrix, catalog), "scene.invented: has no table entry"
         )
@@ -395,8 +396,8 @@ class TableChecks(unittest.TestCase):
         catalog = self.catalog()
         for tool in catalog["tools"]:
             if tool["name"] == "column.update":
-                tool["mutates_document"] = False
-        self.assert_reports(table.check_live(self.matrix, catalog), "contradicts mutates_document")
+                tool["effects"]["document"] = "reads"
+        self.assert_reports(table.check_live(self.matrix, catalog), "contradicts effects.document")
 
 
 if __name__ == "__main__":

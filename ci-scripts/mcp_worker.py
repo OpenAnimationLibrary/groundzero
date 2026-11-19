@@ -276,6 +276,7 @@ class Worker:
             tree.extend(children.get(tree[index], []))
             index += 1
         return tree
+
     def _check_declared(self, tool: dict[str, Any], response: dict[str, Any]) -> None:
         method = tool["name"]
         if "error" in response:
