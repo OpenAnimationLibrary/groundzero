@@ -163,6 +163,16 @@ std::vector<TXshLevel*> columnLevels(TXshColumn* column);
 TXsheet* resolveSheetPath(Document& document, const QJsonArray& path);
 // The input schema of an instance path.
 QJsonObject sheetPathSchema();
+// Each exposed level's first sheet instance path, top sheet first; `reasons`
+// receives depth_limit, cycle or row_limit when the walk stopped early.
+QHash<TXshLevel*, QJsonArray> levelSheetPaths(Document& document,
+                                              QStringList& reasons);
+// Each sheet's first instance path, top sheet first; reasons as above.
+QHash<TXsheet*, QJsonArray> sheetPaths(Document& document,
+                                       QStringList& reasons);
+// Refuse a new analysis job while one runs in this worker or any of its scene
+// hosts, or when they retain 32 (analysis_busy, resource_limit).
+void requireAnalysisCapacity(Context& context);
 // Classify every level, column and effect of a loaded user scene.
 void classifyReadOnlyContent(Document& document);
 // Section 3.4 structure bounds: sheets, depth, effects and stage objects.

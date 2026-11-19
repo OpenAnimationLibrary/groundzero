@@ -5162,6 +5162,54 @@
     }
    }
   },
+  "scene.check.submit": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "vec_exposed",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "starts an analysis job that scans the document's drawings",
+   "bumps": "none; a scene check reads the document and never edits it",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "check": "unused_styles"
+    },
+    "save": {
+     "job": "job_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "check": "unused_styles",
+      "level_ids": [
+       "level_missing"
+      ]
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "job_id"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
+   }
+  },
   "job.cancel": {
    "group": "render",
    "kind": "file",

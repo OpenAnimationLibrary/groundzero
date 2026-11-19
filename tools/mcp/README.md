@@ -630,6 +630,27 @@ to the document ends the job `failed` with `revision_changed`; `job.cancel` ends
 `canceled` with the rows gathered so far. A second analysis while one runs is refused with
 `analysis_busy`. Read-only documents refuse `drawing.analysis.submit`.
 
+`scene.check.submit` starts one scene check as an analysis job (`kind` `scene_check`,
+`lane` `analysis`). `check: "unused_styles"` lists the palette styles that no drawing of
+the used vector and Toonz raster levels uses (optionally only for `level_ids`); the first
+two styles of the first page and style 0 are never listed, and vector regions are built
+on a copy of each drawing. `check: "inventory"` lists every row of `scene.dependencies`,
+each with the `sheet_path` of the first sheet that exposes its level, up to 65,536 rows.
+`check: "compatibility"` lists what a legacy OpenToonz reader drops, may refuse or may not
+support: one row per finding of the native compatibility report, with a `code` naming
+which of its 19 rules fired, a `certainty` (`confirmed_loss`, `refusal_risk` or
+`unknown_support`), `severity`, `message`, `sheet_path`, `level_id`, `column_index` and
+`frame`. It loads every vector drawing, so `scene.validate` does not report it.
+`job.result` pages the rows (up to 256 per page) with a `summary`, `complete` and
+`reasons`. The work runs on the worker's main thread in steps that stop once 20 ms have
+passed, after the drawing or level in progress; `job.cancel` ends a check at once and
+keeps its rows with `complete: false` and `reasons: ["canceled"]`, and a check that
+reaches `deadline_ms` (default 300,000) keeps them with `["deadline"]`. A write to the
+document fails a running check with `revision_changed`; a read-only document's check runs
+in its scene host and fails with `source_changed` when a pinned source file changed. One
+analysis job runs at a time per worker and its hosts (`analysis_busy`), and a worker
+retains 32 (`resource_limit`, `details.limit: retained_analysis_jobs`).
+
 `render.submit` accepts `format: "png"` (the default) or `format: "mp4"` when the
 configured media tools and native movie writer are available. MP4 requires even
 dimensions up to 2048 pixels, `step: 1`, and at most 120 frames within the render
@@ -827,7 +848,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (113):
+- `core` toolset (114):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -847,13 +868,14 @@ the adapter and the live editor bridge add the rest.
   `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.inspect`,
   `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
   `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
-  `render.submit`, `runtime.inspect`, `scene.create`, `scene.dependencies`, `scene.discard`,
-  `scene.inventory`, `scene.open`, `scene.open_read_only`, `scene.package_info`,
-  `scene.save_copy`, `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`,
-  `text.fonts`, `tool.describe`, `vector.edit`, `vector.fill`, `vector.group.create`,
-  `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
-  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
-  `vector.structure`, `vector.text.create`, `vector.transform`
+  `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
+  `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
+  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
+  `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
+  `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
+  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
+  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
+  `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

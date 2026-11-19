@@ -1,6 +1,7 @@
 #include "automation_dispatch.h"
 #include "automation_effects.h"
 #include "automation_production.h"
+#include "automation_scene_check.h"
 #include "automation_assistance.h"
 #include "automation_text.h"
 #include "automation_path.h"
@@ -383,6 +384,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(jobOperations(), executeJobs, "core");
   add(persistenceOperations(), executePersistence, "core");
   add(productionOperations(), executeProduction, "core");
+  add(sceneCheckOperations(), executeSceneCheck, "core");
   add(textOperations(), executeText, "core");
   add(pathOperations(), executePath, "core");
   add(audioOperations(), executeAudio, "audio");

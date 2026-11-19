@@ -911,7 +911,7 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp"
+    "toonz/sources/toonz/tests/automation_scene_check_test.cpp"
    ]
   },
   "job.list": {
@@ -935,8 +935,8 @@
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
     "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
+    "toonz/sources/toonz/tests/automation_scene_check_test.cpp",
     "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "ci-scripts/mcp_shot.py"
    ]
   },
@@ -950,7 +950,7 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp",
+    "toonz/sources/toonz/tests/automation_scene_check_test.cpp",
     "ci-scripts/mcp_shot.py"
    ]
   },
@@ -1288,6 +1288,7 @@
     "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
     "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
     "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_compatibility_codes_and_certainty",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
     "toonz/sources/toonz/tests/automation_rig_test.cpp",
     "tools/mcp/src/native.test.ts"
@@ -1332,10 +1333,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_scene_check_cancel_write_and_busy",
     "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
-    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_lost_worker",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_analysis_job_after_worker_loss",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_compatibility_codes_and_certainty",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_fx_test.cpp"
    ]
@@ -1618,6 +1619,19 @@
     "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused"
    ]
   },
+  "scene.check.submit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true,
+   "tests": [
+    "ci-scripts/mcp_acceptance.py::test_scene_check_cancel_write_and_busy",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_read_only_runs_in_the_host",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_retention_refuses_the_33rd_check",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_analysis_job_after_worker_loss",
+    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
+    "toonz/sources/toonz/tests/automation_scene_check_test.cpp"
+   ]
+  },
   "scene.create": {
    "origin": "worker",
    "toolset": "core",
@@ -1642,7 +1656,7 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_dependencies_list_every_file_read",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
-    "ci-scripts/mcp_acceptance.py::test_scene_usage_and_dependencies",
+    "ci-scripts/mcp_acceptance.py::test_scene_check_read_only_runs_in_the_host",
     "toonz/sources/toonz/tests/automation_production_test.cpp",
     "tools/mcp/src/native.test.ts"
    ]
@@ -2346,6 +2360,20 @@
    "classification": "exposed",
    "tools": [
     "scene.dependencies"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.check_jobs",
+   "domain": "Projects and scenes",
+   "outcome": "Run a bounded, cancellable unused-style scan or dependency inventory as an analysis job and page its rows.",
+   "classification": "exposed",
+   "tools": [
+    "scene.check.submit",
+    "job.status",
+    "job.result"
    ],
    "disposition": {
     "kind": "implemented"

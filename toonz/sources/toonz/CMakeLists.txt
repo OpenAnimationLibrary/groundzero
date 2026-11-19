@@ -216,6 +216,7 @@ set(HEADERS
     automation_ownership.h
     automation_files.h
     automation_production.h
+    automation_scene_check.h
     automation_assistance.h
     automation_neural.h
     automation_macro.h
@@ -330,6 +331,7 @@ set(SOURCES
     automation_shutdown.cpp
     automation_persistence.cpp
     automation_production.cpp
+    automation_scene_check.cpp
     automation_assistance.cpp
     automation_neural.cpp
     automation_macro.cpp
@@ -1328,6 +1330,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_fx_preflight_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_group_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_production_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_scene_check_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_motion_path_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_audio_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_rig_test.cpp)

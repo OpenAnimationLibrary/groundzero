@@ -24,6 +24,7 @@
 
 class ToonzScene;
 class TXsheet;
+class TXshLevel;
 class TXshSimpleLevel;
 
 //=============================================================================
@@ -57,6 +58,10 @@ enum Kind {
   KindCount
 };
 
+//! What a reader without Groundzero's extensions does with a compatibility
+//! finding: drops the data, may refuse the file, or behaves in an unknown way.
+enum Certainty { ConfirmedLoss = 0, RefusalRisk, UnknownSupport };
+
 struct Issue {
   Severity severity = Info;
   Kind kind         = MissingDrawing;
@@ -68,6 +73,10 @@ struct Issue {
   std::wstring subXsheet;  //!< the sub-xsheet's level name, empty for the top
   TXsheet *xsheet = nullptr;  //!< the xsheet of column and row, if any
   QString text;               //!< a sentence for the user
+  //! Compatibility only: the rule's stable code, such as
+  //! "compat.offset_layers", and what a legacy reader does.
+  std::string code;
+  Certainty certainty = UnknownSupport;
 };
 
 struct Options {
@@ -87,6 +96,20 @@ struct Options {
 DVAPI std::vector<Issue> check(ToonzScene *scene,
                                const Options &options = Options());
 DVAPI std::vector<Issue> compatibilityReport(ToonzScene *scene);
+//! The compatibility rules that load no drawing: every sheet, stage object,
+//! curve, column and effect, each level's metadata and the scene's own data.
+//! With levelDrawingCompatibility for each vector level it gives the findings
+//! of compatibilityReport, in another order.
+DVAPI std::vector<Issue> sceneCompatibilityReport(ToonzScene* scene);
+//! Whether one vector drawing carries an opacity envelope: 1 yes, 0 no, -1 it
+//! could not be loaded. Loads the drawing.
+DVAPI int opacityEnvelopeDrawing(TXshSimpleLevel* level, const TFrameId& fid);
+//! A vector level's drawing findings from its drawing counts.
+DVAPI std::vector<Issue> levelDrawingCompatibility(TXshLevel* level,
+                                                   int profiledDrawings,
+                                                   bool incomplete);
+//! "confirmed_loss", "refusal_risk" or "unknown_support"
+DVAPI QString certaintyName(Certainty certainty);
 
 //! Stable names, used by the scripts: "error", "warning", "info" and
 //! "missingDrawing", "missingFile", ...

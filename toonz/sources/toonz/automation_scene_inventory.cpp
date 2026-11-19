@@ -356,6 +356,29 @@ QJsonArray sceneInventoryOperations() {
       {"document_id", "expected_revision", "section"})};
 }
 
+QHash<TXshLevel*, QJsonArray> levelSheetPaths(Document& document,
+                                              QStringList& reasons) {
+  const Walk walk = walkDocument(document);
+  reasons         = walk.reasons;
+  QHash<TXshLevel*, QJsonArray> paths;
+  for (const Instance& instance : walk.instances)
+    for (int index = 0; index < instance.sheet->getColumnCount(); ++index)
+      for (TXshLevel* level : columnLevels(instance.sheet->getColumn(index)))
+        if (!paths.contains(level)) paths.insert(level, instance.path);
+  return paths;
+}
+
+QHash<TXsheet*, QJsonArray> sheetPaths(Document& document,
+                                       QStringList& reasons) {
+  const Walk walk = walkDocument(document);
+  reasons         = walk.reasons;
+  QHash<TXsheet*, QJsonArray> paths;
+  for (const Instance& instance : walk.instances)
+    if (!paths.contains(instance.sheet))
+      paths.insert(instance.sheet, instance.path);
+  return paths;
+}
+
 QJsonValue executeSceneInventory(Context& context, const QString& method,
                                  const QJsonObject& params) {
   if (method != "scene.inventory")

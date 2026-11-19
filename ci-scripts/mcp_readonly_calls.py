@@ -692,7 +692,9 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "job.list": _ro_jobs,
     "render.preflight": _ro_preflight,
 }
-ROUTED_WRITES = frozenset({"render.preview", "render.submit", "scene.discard"})
+ROUTED_WRITES = frozenset(
+    {"render.preview", "render.submit", "scene.discard", "scene.check.submit"}
+)
 
 
 READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
