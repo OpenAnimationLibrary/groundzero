@@ -123,7 +123,11 @@ test.each(["claude", "codex"] as const)("the %s add command matches its configur
 });
 
 const documentedFailures: [string[], string][] = [
-  [["--workspace /work/animation"], "Unknown option '--workspace /work/animation'"],
+  [
+    ["--workspace /work/animation"],
+    '"--workspace /work/animation" is one argument, but --workspace and its value must be ' +
+      "separate array elements",
+  ],
   [["--executable", "/bin/sh"], "Usage: groundzero-mcp --executable ABSOLUTE_FILE"],
   [
     ["--executable", "/bin/sh", "--workspace", "relative"],

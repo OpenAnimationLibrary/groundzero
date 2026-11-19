@@ -326,3 +326,26 @@ test("rejects unsafe, overlapping and ambiguous shared root grants", async () =>
     ).rejects.toThrow(message);
   }
 });
+
+test.each([
+  [["--workspace /work/animation"], "--workspace", "/work/animation"],
+  [
+    ["--executable", process.execPath, "--input-root  /work/reference "],
+    "--input-root",
+    "/work/reference",
+  ],
+  [["--toolsets audio,rigging"], "--toolsets", "audio,rigging"],
+])("names a flag and its value joined in one argument %j", async (args, flag, value) => {
+  const message =
+    `is one argument, but ${flag} and its value must be separate array elements: ` +
+    `${JSON.stringify(flag)}, ${JSON.stringify(value)}`;
+  await expect(parseOptions(args)).rejects.toThrow(message);
+});
+
+test("leaves other unknown options and a value with spaces to the usual errors", async () => {
+  await expect(parseOptions(["--bogus value"])).rejects.toThrow("Unknown option");
+  const path = await workspace();
+  await expect(
+    parseOptions(["--executable", process.execPath, "--workspace", `${path} extra`]),
+  ).rejects.toThrow("Invalid --workspace directory");
+});

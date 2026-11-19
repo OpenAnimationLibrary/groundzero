@@ -111,7 +111,7 @@ terminal to see it directly.
 
 | Message | Meaning |
 | --- | --- |
-| `Unknown option '--workspace /work/animation'` | A flag and its value share one list item. Split them. |
+| `"--workspace /work/animation" is one argument, but --workspace and its value must be separate array elements` | A flag and its value share one list item. Give them as two items: `"--workspace", "/work/animation"`. |
 | `Usage: groundzero-mcp --executable ABSOLUTE_FILE` | `--executable` or `--workspace` is missing. |
 | `Invalid --workspace directory: Directory must be absolute` | A directory is relative, missing, or a symlink such as `/tmp` on macOS; the message names the canonical path to use. |
 | `WORKER_UNAVAILABLE: Native worker exited` | `--executable` starts but is not the Groundzero binary. The adapter reports this when the worker is first needed, such as when the client lists tools, not at startup. |
@@ -165,6 +165,18 @@ adapter at startup. During a session:
   toolset in `details.toolset`. Nothing reaches the worker.
 - A session exposes at most 256 native tools. A request that would exceed this
   returns `TOOLSET_LIMIT` and leaves the enabled toolsets unchanged.
+
+Every successful tool result carries its JSON as a text block as well as structured
+content, so a client that shows the model only text still has the data. A result and
+its structured copy must together fit 9 MiB, or the call fails with `RESULT_TOO_LARGE`.
+`automation.capabilities` describes the tools a page at a time (`limit` up to 64,
+default 16, and `offset`); repeat with `next_offset` until it is null. The adapter reads
+every page itself.
+
+The adapter waits up to 30 seconds from launching the native worker for its private
+handshake, since a cold start on a loaded machine spends most of that loading the
+executable. A worker that does not answer in time fails the call with a message that
+says the handshake timed out and after how many milliseconds.
 
 The adapter requires native automation protocol version 3. An older or newer
 worker is refused with `INCOMPATIBLE_WORKER`.
@@ -948,8 +960,8 @@ unit tests read the marked snippets, start the server exactly as written with
 example paths replaced, list its tools and call a read tool, with no client
 installed. `pnpm test:native` also checks the full catalog against the limits both
 clients document: qualified tool names stay distinct and within 64 characters, and
-each input schema is an object. Claude Code flattens the one schema with a
-root-level `oneOf`, `drawing.create`; no other tool may add one.
+each input schema is a plain object at its root, with no `oneOf`, `anyOf`, `allOf`,
+`not` or `$ref` there. The adapter refuses a native catalog that breaks this rule.
 
 To try the installed clients themselves, run `node fixtures/real-clients.mjs
 --executable /opt/groundzero/bin/Groundzero` after `pnpm build`. It is a local
