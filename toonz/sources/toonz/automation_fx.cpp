@@ -1334,13 +1334,19 @@ void validateAutomationFxGraph(ToonzScene& scene) {
 QJsonArray fxRecipeOperations() {
   const QJsonArray categories{
       "background", "title",       "transition", "atmosphere", "cel_finishing",
-      "matte",      "stylization", "light",      "particles",  "procedural"};
+      "matte",      "stylization", "light",      "particles",  "procedural",
+      "shot",       "rig",         "delivery"};
   return {operation(
       "fx.recipe.list",
-      "List static FX recipes: atomic tool-call steps that run with the "
-      "existing tools. An argument whose whole value is ${input.<name>} or "
-      "${steps.<id>.<field>} takes that JSON value; supply expected_revision "
-      "and operation_id per call. Check frames assume the input defaults.",
+      "List static recipes (FX, shot, rig and delivery): atomic tool-call "
+      "steps that run with the existing tools, with brief, required "
+      "capabilities, ownership, deliverables labelled editable, approximated "
+      "or baked, and a review the client must complete before it reports "
+      "success. An argument whose whole value is ${input.<name>} or "
+      "${steps.<id>.<path>} (dotted fields and array indexes) takes that JSON "
+      "value; a step with poll repeats until its field is terminal; supply "
+      "expected_revision and operation_id per call where a tool asks for "
+      "them. Check frames assume the input defaults.",
       {{"recipe_id", stringSchema()},
        {"category", QJsonObject{{"type", "string"}, {"enum", categories}}}},
       {})};

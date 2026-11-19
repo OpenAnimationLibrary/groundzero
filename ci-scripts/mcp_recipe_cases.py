@@ -7,6 +7,13 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
 from mcp_fx_authoring_cases import _artwork_fixture, _close_worker, _graph, _pixels, _reopen
+from mcp_recipe_run import (
+    RecipeRun,
+    recipe_inputs,
+    require_capabilities,
+    require_deliverables,
+    run_steps,
+)
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -14,42 +21,8 @@ if TYPE_CHECKING:
 Fixture = Callable[["NativeAcceptance"], dict[str, Any]]
 
 
-def _substitute(value: Any, inputs: dict[str, Any], results: dict[str, Any]) -> Any:
-    if isinstance(value, dict):
-        return {key: _substitute(item, inputs, results) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_substitute(item, inputs, results) for item in value]
-    if not (isinstance(value, str) and value.startswith("${") and value.endswith("}")):
-        return value
-    scope, _, name = value[2:-1].partition(".")
-    if scope == "input":
-        return inputs[name]
-    step, _, field = name.partition(".")
-    return results[step][field]
-
-
-def _inputs(recipe: dict[str, Any], given: dict[str, Any]) -> dict[str, Any]:
-    inputs = {}
-    for entry in recipe["inputs"]:
-        name = entry["name"]
-        inputs[name] = given[name] if name in given else entry["schema"]["default"]
-    return inputs
-
-
-def _run_steps(
-    case: NativeAcceptance, recipe: dict[str, Any], inputs: dict[str, Any]
-) -> dict[str, Any]:
-    tools = case.capabilities()["tools"]
-    readonly = {tool["name"]: tool["annotations"]["readOnlyHint"] for tool in tools}
-    results: dict[str, Any] = {}
-    for step in recipe["steps"]:
-        arguments = _substitute(step["arguments"], inputs, results)
-        if readonly[step["tool"]]:
-            results[step["id"]] = case.success(step["tool"], arguments)
-        else:
-            document = arguments.pop("document_id")
-            results[step["id"]] = case.mutate(step["tool"], document, **arguments)
-    return results
+def _run_steps(case: NativeAcceptance, recipe: dict[str, Any], inputs: dict[str, Any]) -> RecipeRun:
+    return run_steps(case, recipe, inputs)
 
 
 def _check(
@@ -109,9 +82,13 @@ def run_recipe_literally(case: NativeAcceptance, recipe_id: str, fixture: Fixtur
     case.assertEqual(len(listed), 1)
     recipe = listed[0]
     case.assertTrue(recipe["available"], recipe["missing_types"])
-    inputs = _inputs(recipe, fixture(case))
+    case.assertEqual(recipe["review"], {"kind": "checks"})
+    require_capabilities(case, recipe)
+    inputs = recipe_inputs(recipe, fixture(case))
     document = inputs["document_id"]
-    results = _run_steps(case, recipe, inputs)
+    run = _run_steps(case, recipe, inputs)
+    results = run.results
+    require_deliverables(case, run)
     created = {result["fx_id"] for result in results.values() if "fx_id" in result}
     before: dict[int, Any] = {}
     for check in recipe["checks"]:

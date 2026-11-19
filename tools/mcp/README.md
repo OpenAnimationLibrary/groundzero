@@ -295,15 +295,24 @@ Render jobs report `fx_provenance`: the type, native version, replay class and s
 of every effect the output renders. `fx.graph` reports `REQUIRED_INPUT_MISSING` while
 backlit has no Light, light wrap no Background or local blur no Reference input.
 
-`fx.recipe.list`, in the `fx-finishing` toolset, returns static recipes: light wrap,
-backlit rim light, exposure grade, cross dissolve and iris wipe. The effects they
-use are ordinary catalog types reached through the `core` FX tools. Each lists its
-required effect types and whether they are available, its inputs with defaults, its
-steps as ordinary tool calls, named controls and checks. An argument whose whole
-value is `${input.<name>}` or `${steps.<id>.<field>}` takes that input's or earlier
-result's JSON value. A recipe never runs on the worker: run its steps yourself with
-the usual `expected_revision` and `operation_id`, so a recipe that stops halfway
-leaves identifiable committed operations.
+`fx.recipe.list`, in the `fx-finishing` toolset, returns static recipes in the categories
+of the FX recipes (light wrap, backlit rim light, exposure grade, cross dissolve, iris
+wipe) and `shot` (dolly shot assembly), `rig` (pendulum rig) and `delivery` (frame
+sequence delivery). A recipe lists its brief, its required effect types and whether they
+are available, its `required_capabilities` (the tools its steps call, their toolsets and
+the grants they need: compare them with `automation.capabilities`, since the list does not
+know your session), its inputs with defaults, preconditions, ownership (what it creates and
+edits), steps as ordinary tool calls, controls, seeds and frame units, deliverables each
+labelled `editable`, `approximated` or `baked`, checks, a `review` and `limits`, what it
+does not do. An argument whose whole value is `${input.<name>}` or `${steps.<id>.<path>}`
+(dotted field names and array indexes) takes that JSON value; a step with `poll` is
+repeated until its field is terminal. Supply `expected_revision` and `operation_id`
+wherever a tool asks for them. A recipe never runs on the worker: run its steps yourself,
+so a recipe that stops halfway leaves identifiable committed operations. A review of kind
+`preview` names the render and the steps that read it: do not report the recipe done until
+you have run them and looked at the image; the worker cannot see what you read. The
+delivery recipe stops at rendered frames held as job artifacts, because nothing publishes
+them to a project or shared folder yet.
 
 `cast.list`, `cast.usage`, `scene.dependencies`, and `scene.validate` read the
 current detached document. Supply its `document_id` and latest `expected_revision`
