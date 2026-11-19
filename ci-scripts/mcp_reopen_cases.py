@@ -60,6 +60,8 @@ def _sorted(value: Any) -> Any:
 def _shape(case: NativeAcceptance, document: str) -> Any:
     summary = _without_ids(case.success("scene.summary", {"document_id": document}))
     graph = _without_ids(case.success("fx.graph", {"document_id": document}))
+    # The delta window is the history of this document's FX writes, not its content.
+    graph.pop("delta_window")
     return [summary, _sorted(graph)]
 
 

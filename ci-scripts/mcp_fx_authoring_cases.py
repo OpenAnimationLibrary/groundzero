@@ -485,15 +485,11 @@ def fx_preset_capacity_keeps_exact_replay(case: NativeAcceptance) -> None:
     case.assertFalse((case.workspace / "one-too-many").exists())
     case.mutate("fx.rename", document, fx_id=effect, name="Revision after capacity")
     case.assertEqual(case.success("fx.preset.save", first_params), first)
+    # Receipts leave memory once the journal holds them, so no number of writes is refused.
     for _index in range(2048):
         params = case.write_params(document, {"fx_id": effect, "name": "Revision after capacity"})
-        response = case.worker.call("fx.rename", params)
-        if "error" in response:
-            case.assertEqual(response["error"]["code"], "resource_limit", response)
-            break
-        case.assertEqual(response["result"]["revision"], case.revisions[document])
-    else:
-        case.fail("Ordinary receipt limit was not enforced")
+        response = case.success("fx.rename", params)
+        case.assertEqual(response["revision"], case.revisions[document])
     case.assertEqual(case.success("fx.preset.save", first_params), first)
     _close_worker(case)
 
