@@ -1,4 +1,22 @@
 {
+  "comparisons": {
+    "assisted_save_reopen": {
+      "reason": "Saving and reopening a corpus scene through the tools needs the editable import of a user scene (W2 intake, items 11 and 15), which this base does not have: a user scene opens read-only and cannot be saved.",
+      "status": "not_built"
+    },
+    "bridge_disabled": {
+      "cases": [
+        "corpus_scenes_open_read_only_render_and_match_their_baselines",
+        "corpus_baselines_are_reproduced_by_this_builds_batch_renderer"
+      ],
+      "status": "compared",
+      "what": "every scene is rendered by two processes that never start the live bridge, the automation worker (read-only open) and the batch renderer, and both are compared with the baselines under each scene's policy; the worker's render of a scene with an effect not named STD_ is refused today (KV-11) and shown as refused"
+    },
+    "bridge_enabled": {
+      "reason": "The live bridge belongs to the editor and has no tool that opens or renders a scene file: its tools edit the scene already open. A corpus scene cannot be rendered in a bridge-enabled editor from a script; it needs a GUI session driven by mcp_live.py and a scene-open step that does not exist before W4.",
+      "status": "not_built"
+    }
+  },
   "frames": {
     "first": 0,
     "height": 32,
@@ -7,14 +25,14 @@
   },
   "generator_baselines": {
     "arguments": "-nthreads 1 -range 1 6 (window-system platform, one thread)",
-    "binary_sha256": "94fdb532a61f11e13955bcfbc76713a67ca445adf23a456640b29cfef110d9ed",
+    "binary_sha256": "e7b5e7bb10fb6168837e1d3783d144833946c1e181a2ba596ab47b1b01160430",
     "same_build_as_candidate": true,
     "tool": "tcomposer"
   },
   "generator_scenes": {
-    "executable_sha256": "7428332cec168e9e5300706304112ad7c38b9a33d5a590da8033f2ff697ffbb7",
+    "executable_sha256": "26c1c7fde174917563b4e85be858511a4061f76c3cddde03b87d9d23c17587da",
     "tool": "mcp_corpus_build.py scenes",
-    "when": "2026-11-19 00:53:51"
+    "when": "2026-11-19 13:04:05"
   },
   "history": [
     {
@@ -84,6 +102,74 @@
       "generator_sha256": "94fdb532a61f11e13955bcfbc76713a67ca445adf23a456640b29cfef110d9ed",
       "reason": "First baselines of the generated corpus, rendered by this build's tcomposer",
       "when": "2026-11-19 00:58:04"
+    },
+    {
+      "baseline_set_sha256": "a481fae444e759283fa026a949a1278ce6f5284285d85612959860cf056d1ce8",
+      "changes": [
+        {
+          "after": {
+            "frame.0001.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+            "frame.0002.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+            "frame.0003.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+            "frame.0004.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+            "frame.0005.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+            "frame.0006.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2"
+          },
+          "before": {},
+          "scene": "builtin_effects"
+        },
+        {
+          "after": {
+            "frame.0001.png": "3a6c2c8c68274d1d9346d7f5454673334ca7e61f927b7b00e9c8863d33db340f",
+            "frame.0002.png": "264880d22685f4b1067cd77075ffd98aeb424d18e4be2d230b25e8d41a22b14f",
+            "frame.0003.png": "c67c98c0c696b55c4f292a3bb08b64f5b994a476ad8ff863eb5229be20449bd8",
+            "frame.0004.png": "8b2fbaa2a0dfbdf70f018b58dc28183167c29b191ae66fb1d4a2f47320f62983",
+            "frame.0005.png": "99173e49fbb38d7ea60a12de2a9ce1d998bca298153981df7bcf188285859e2f",
+            "frame.0006.png": "5f9f95d47ed78913076f565e7077ce1e199bfe7e81190a22f997d4ef0dc99f86"
+          },
+          "before": {},
+          "scene": "keyed_effects"
+        },
+        {
+          "after": {
+            "frame.0001.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+            "frame.0002.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+            "frame.0003.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+            "frame.0004.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+            "frame.0005.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+            "frame.0006.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b"
+          },
+          "before": {},
+          "scene": "layered_effects"
+        },
+        {
+          "after": {
+            "frame.0001.png": "c7afb5c1d3cb769dcc69c10f0351e0dff8f3f33ff73512eb8c39fa7c7c961302",
+            "frame.0002.png": "9a0345a1fd41c337a696243ad95ba1be2dcc898b15425353e95496c5f5551fdc",
+            "frame.0003.png": "724d9ce6cf51b5a71eadc00627bda7228c22726c69dae108779537f00d68c263",
+            "frame.0004.png": "9fe7861c96f50919fa38ab19df47ef9a9ecde699ca394b3219dcf6863025aa77",
+            "frame.0005.png": "755ac05b54200b2d2232d48193eb562d2b1175e31219d23008ce624b3cbe305b",
+            "frame.0006.png": "c3b4567df1796c435e813252a75a354847861dba4edb0eb2f36be802e10f6b49"
+          },
+          "before": {},
+          "scene": "raster_effects"
+        },
+        {
+          "after": {
+            "frame.0001.png": "3445457d4aaf39923feef8c50946c12a4c3f96387aff059c81b6fa13f606126f",
+            "frame.0002.png": "a0d88e086bfe238a72e772ece90963cc38380a3da4a46554e7fcf56215fe8f06",
+            "frame.0003.png": "20511e8a78cfd31cd2b7322aaa49e7979e888f87f50dbedd4e2eaa7fb15b4ce9",
+            "frame.0004.png": "acdb688cf258a866efc9b56998d296a0c9ddf2c95d80e79cf762a7a82f02e07b",
+            "frame.0005.png": "fb37852196ae25395d032fea069db2bbeb8849dec75481d0bae18582583727e9",
+            "frame.0006.png": "c9c1a580b4722af9a17bc156918854220ad8fb48da9856a20588bab0dc98e0e6"
+          },
+          "before": {},
+          "scene": "vector_effects"
+        }
+      ],
+      "generator_sha256": "e7b5e7bb10fb6168837e1d3783d144833946c1e181a2ba596ab47b1b01160430",
+      "reason": "Baselines of the five effect scenes added so that vector and Toonz raster columns are visible under effects; rendered by this build's tcomposer",
+      "when": "2026-11-19 13:04:18"
     }
   ],
   "provenance": {
@@ -92,6 +178,86 @@
     "note": "Generated by ci-scripts/mcp_corpus_build.py. No artist-made scene and no earlier build exists to draw on; baselines come from the batch renderer of the same build as the candidate. A regression net, not evidence about an earlier release."
   },
   "scenes": {
+    "builtin_effects": {
+      "baseline": {
+        "files": {
+          "frame.0001.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+          "frame.0002.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+          "frame.0003.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+          "frame.0004.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+          "frame.0005.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2",
+          "frame.0006.png": "54358ee129ac1c5d41f0becfa4e1a4146106cb2ef222bbe4289ffe3f8dd37fd2"
+        },
+        "rendered_from": "92ed4f6513a0a905a345c5502c3c2c28fc8fd33cbc41123499551cbfc470c5dd"
+      },
+      "bypassed": [],
+      "description": "A card, an over and an invert (effects not named STD_) around a vector and a raster",
+      "effects": [
+        "colorCardFx",
+        "invertFx",
+        "overFx"
+      ],
+      "expected": {
+        "levels": 2
+      },
+      "files": {
+        "builtin_effects_otprj.xml": "b091c9291ad211557f2b9335ab71f6afdfaa3f05d82e7b73846e2c112256b760",
+        "drawings/level-0.tlv": "a3877cd1b4047b75e596c83affdddcf720e394a7746e62ff60c19143c05b6614",
+        "drawings/level-0.tpl": "10aa141963e2328aadd98aa532243eeff4faa7b4be855cffdd43dcd64fa5dd2b",
+        "drawings/level-1.pli": "7dc1667c3bf6a924bffca9a7bb999aaea75c18707503f43d04dea112b36488db",
+        "scenes/scenes.xml": "cc1ccdd83098819c0c7be26bf0d2f132b8808ba19f7a94ad042b0857c5fe540b",
+        "scenes/shot.tnz": "e60a9daca549393f0b1775ed7d51f48587bc3fca3cd16832d08994456d9028cd"
+      },
+      "policy": {
+        "alpha": 0,
+        "color": 0,
+        "pixels": 0.0,
+        "why": ""
+      },
+      "probes": [
+        {
+          "frame": 0,
+          "kind": "toonz_raster",
+          "rgba": [
+            60,
+            170,
+            90,
+            255
+          ],
+          "what": "the green block under an over",
+          "x": 8,
+          "y": 22
+        },
+        {
+          "frame": 0,
+          "kind": "effect",
+          "rgba": [
+            55,
+            215,
+            225,
+            255
+          ],
+          "what": "invertFx turns the red stroke (200, 40, 30) into its complement",
+          "x": 18,
+          "y": 16
+        },
+        {
+          "frame": 0,
+          "kind": "effect",
+          "rgba": [
+            24,
+            36,
+            70,
+            255
+          ],
+          "what": "the color card shows through the over",
+          "x": 2,
+          "y": 2
+        }
+      ],
+      "read_only_render": "blocked",
+      "scene_sha256": "92ed4f6513a0a905a345c5502c3c2c28fc8fd33cbc41123499551cbfc470c5dd"
+    },
     "holds_blanks": {
       "baseline": {
         "files": {
@@ -104,7 +270,9 @@
         },
         "rendered_from": "631a8a20022b2d02597ab16c9d0d2a172c547a0dbd3ba703597c36c30d8e7733"
       },
+      "bypassed": [],
       "description": "Vector drawings 1, 1a and 2 on twos, a blank row and a one-frame hold",
+      "effects": [],
       "expected": {
         "levels": 1
       },
@@ -120,7 +288,151 @@
         "pixels": 0.0,
         "why": ""
       },
+      "probes": [],
+      "read_only_render": "admitted",
       "scene_sha256": "631a8a20022b2d02597ab16c9d0d2a172c547a0dbd3ba703597c36c30d8e7733"
+    },
+    "keyed_effects": {
+      "baseline": {
+        "files": {
+          "frame.0001.png": "3a6c2c8c68274d1d9346d7f5454673334ca7e61f927b7b00e9c8863d33db340f",
+          "frame.0002.png": "264880d22685f4b1067cd77075ffd98aeb424d18e4be2d230b25e8d41a22b14f",
+          "frame.0003.png": "c67c98c0c696b55c4f292a3bb08b64f5b994a476ad8ff863eb5229be20449bd8",
+          "frame.0004.png": "8b2fbaa2a0dfbdf70f018b58dc28183167c29b191ae66fb1d4a2f47320f62983",
+          "frame.0005.png": "99173e49fbb38d7ea60a12de2a9ce1d998bca298153981df7bcf188285859e2f",
+          "frame.0006.png": "5f9f95d47ed78913076f565e7077ce1e199bfe7e81190a22f997d4ef0dc99f86"
+        },
+        "rendered_from": "53d316a1453d1d254f783ac5cdd0125eae9f36eed590f4f41e008eb419529960"
+      },
+      "bypassed": [],
+      "description": "A vector stroke whose brightness and contrast are keyed across the frames",
+      "effects": [
+        "STD_brightContFx"
+      ],
+      "expected": {
+        "levels": 1
+      },
+      "files": {
+        "drawings/level-0.pli": "1c4236df67f34069968535d99f92d89d172e3170c6910fec5b881671651ff407",
+        "keyed_effects_otprj.xml": "b091c9291ad211557f2b9335ab71f6afdfaa3f05d82e7b73846e2c112256b760",
+        "scenes/scenes.xml": "cc1ccdd83098819c0c7be26bf0d2f132b8808ba19f7a94ad042b0857c5fe540b",
+        "scenes/shot.tnz": "3712c7e5d9cfa803170f0f3a35381b8aeb975d9dcfad1c41f79a17d4e9b1f2d5"
+      },
+      "policy": {
+        "alpha": 0,
+        "color": 0,
+        "pixels": 0.0,
+        "why": ""
+      },
+      "probes": [
+        {
+          "frame": 0,
+          "kind": "vector",
+          "rgba": [
+            82,
+            82,
+            137,
+            255
+          ],
+          "what": "the stroke at its first brightness key",
+          "x": 16,
+          "y": 16
+        },
+        {
+          "frames": [
+            0,
+            5
+          ],
+          "kind": "effect",
+          "min_difference": 80,
+          "what": "brightness and contrast keyed across the frames lighten the stroke",
+          "x": 16,
+          "y": 16
+        }
+      ],
+      "read_only_render": "admitted",
+      "scene_sha256": "53d316a1453d1d254f783ac5cdd0125eae9f36eed590f4f41e008eb419529960"
+    },
+    "layered_effects": {
+      "baseline": {
+        "files": {
+          "frame.0001.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+          "frame.0002.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+          "frame.0003.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+          "frame.0004.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+          "frame.0005.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b",
+          "frame.0006.png": "ea12804deaa5ed7a618f978dff391f98d9894969460b9d048b5e00b7ec9cb44b"
+        },
+        "rendered_from": "b556f1ae63c8356997d01b8694b19d82056fef1307d8279a1d4b451b1c08aa65"
+      },
+      "bypassed": [
+        "STD_blurFx"
+      ],
+      "description": "A vector column with its blur bypassed beside a Toonz raster column that is posterized",
+      "effects": [
+        "STD_blurFx",
+        "STD_posterizeFx"
+      ],
+      "expected": {
+        "levels": 2
+      },
+      "files": {
+        "drawings/level-0.tlv": "15af766d4fc5547b6394263086366360556cf6627be786c416cf0aca0f488fa2",
+        "drawings/level-0.tpl": "10aa141963e2328aadd98aa532243eeff4faa7b4be855cffdd43dcd64fa5dd2b",
+        "drawings/level-1.pli": "e3a46320bb14fcdf508586b1fe234f669afb5a02a264b4f9c540dc307bc0df8b",
+        "layered_effects_otprj.xml": "b091c9291ad211557f2b9335ab71f6afdfaa3f05d82e7b73846e2c112256b760",
+        "scenes/scenes.xml": "cc1ccdd83098819c0c7be26bf0d2f132b8808ba19f7a94ad042b0857c5fe540b",
+        "scenes/shot.tnz": "56ab70d8e7e9f2a5e170f0c0d0bdff08ae2ecf6eba99ea67174d4646add642e2"
+      },
+      "policy": {
+        "alpha": 0,
+        "color": 0,
+        "pixels": 0.0,
+        "why": ""
+      },
+      "probes": [
+        {
+          "frame": 0,
+          "kind": "toonz_raster",
+          "rgba": [
+            0,
+            254,
+            127,
+            255
+          ],
+          "what": "the green block (60, 170, 90) posterized to three levels",
+          "x": 6,
+          "y": 22
+        },
+        {
+          "frame": 0,
+          "kind": "vector",
+          "rgba": [
+            240,
+            200,
+            40,
+            255
+          ],
+          "what": "the yellow wave keeps its exact style color: its blur is bypassed",
+          "x": 16,
+          "y": 14
+        },
+        {
+          "frame": 0,
+          "kind": "background",
+          "rgba": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "what": "nothing is drawn in the corner",
+          "x": 28,
+          "y": 28
+        }
+      ],
+      "read_only_render": "admitted",
+      "scene_sha256": "b556f1ae63c8356997d01b8694b19d82056fef1307d8279a1d4b451b1c08aa65"
     },
     "mixed_levels": {
       "baseline": {
@@ -134,7 +446,11 @@
         },
         "rendered_from": "b2f1a96ca5006d30b8e05fc8f38d3f3bba624d674d248c3ae43b302e4edd8d9f"
       },
+      "bypassed": [],
       "description": "Vector, Toonz raster and PNG levels, a blur on the PNG column",
+      "effects": [
+        "STD_blurFx"
+      ],
       "expected": {
         "levels": 3
       },
@@ -153,6 +469,8 @@
         "pixels": 0.0,
         "why": ""
       },
+      "probes": [],
+      "read_only_render": "admitted",
       "scene_sha256": "b2f1a96ca5006d30b8e05fc8f38d3f3bba624d674d248c3ae43b302e4edd8d9f"
     },
     "png_pan": {
@@ -167,7 +485,9 @@
         },
         "rendered_from": "7e1bb4e545e9427835eca150273368365c6f9945b3b45af6be557c34071dd3e0"
       },
+      "bypassed": [],
       "description": "A PNG level on a peg that pans and turns",
+      "effects": [],
       "expected": {
         "levels": 1
       },
@@ -183,7 +503,125 @@
         "pixels": 0.0,
         "why": ""
       },
+      "probes": [
+        {
+          "frame": 0,
+          "kind": "png",
+          "rgba": [
+            255,
+            0,
+            0,
+            255
+          ],
+          "what": "top left of the PNG art is red",
+          "x": 2,
+          "y": 2
+        },
+        {
+          "frame": 0,
+          "kind": "png",
+          "rgba": [
+            255,
+            255,
+            0,
+            255
+          ],
+          "what": "bottom right of the PNG art is yellow",
+          "x": 30,
+          "y": 30
+        }
+      ],
+      "read_only_render": "admitted",
       "scene_sha256": "7e1bb4e545e9427835eca150273368365c6f9945b3b45af6be557c34071dd3e0"
+    },
+    "raster_effects": {
+      "baseline": {
+        "files": {
+          "frame.0001.png": "c7afb5c1d3cb769dcc69c10f0351e0dff8f3f33ff73512eb8c39fa7c7c961302",
+          "frame.0002.png": "9a0345a1fd41c337a696243ad95ba1be2dcc898b15425353e95496c5f5551fdc",
+          "frame.0003.png": "724d9ce6cf51b5a71eadc00627bda7228c22726c69dae108779537f00d68c263",
+          "frame.0004.png": "9fe7861c96f50919fa38ab19df47ef9a9ecde699ca394b3219dcf6863025aa77",
+          "frame.0005.png": "755ac05b54200b2d2232d48193eb562d2b1175e31219d23008ce624b3cbe305b",
+          "frame.0006.png": "c3b4567df1796c435e813252a75a354847861dba4edb0eb2f36be802e10f6b49"
+        },
+        "rendered_from": "5eb59c13de6a5313492730cf9a1522b6707ef09b23ab3d88c6bc910aeb3afb87"
+      },
+      "bypassed": [],
+      "description": "A painted Toonz raster block turned in hue across the frames and raised in gamma",
+      "effects": [
+        "STD_gammaFx",
+        "STD_hsvScaleFx"
+      ],
+      "expected": {
+        "levels": 1
+      },
+      "files": {
+        "drawings/level-0.tlv": "70df7b75c4f13d1edc10467922ba489b125817238ed66805b0b1198501410dcc",
+        "drawings/level-0.tpl": "7fc1dc8301b99b921723b0e22a3a9987b5dfbc9dafb247c3ef4c38233778c40d",
+        "raster_effects_otprj.xml": "b091c9291ad211557f2b9335ab71f6afdfaa3f05d82e7b73846e2c112256b760",
+        "scenes/scenes.xml": "cc1ccdd83098819c0c7be26bf0d2f132b8808ba19f7a94ad042b0857c5fe540b",
+        "scenes/shot.tnz": "c34daf298bafd81779addf41e07bfe8ffac15c916e449d90beace2241b40412a"
+      },
+      "policy": {
+        "alpha": 0,
+        "color": 0,
+        "pixels": 0.0,
+        "why": ""
+      },
+      "probes": [
+        {
+          "frame": 0,
+          "kind": "toonz_raster",
+          "rgba": [
+            219,
+            102,
+            79,
+            255
+          ],
+          "what": "the painted block, style (200, 60, 40) through gamma 1.6",
+          "x": 14,
+          "y": 16
+        },
+        {
+          "frame": 0,
+          "kind": "toonz_raster",
+          "rgba": [
+            50,
+            67,
+            159,
+            255
+          ],
+          "what": "the ink border of the block",
+          "x": 6,
+          "y": 16
+        },
+        {
+          "frame": 0,
+          "kind": "background",
+          "rgba": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "what": "nothing is drawn outside the block",
+          "x": 2,
+          "y": 2
+        },
+        {
+          "frames": [
+            0,
+            5
+          ],
+          "kind": "effect",
+          "min_difference": 100,
+          "what": "the hue keyed by 120 degrees turns the block between frames 0 and 5",
+          "x": 14,
+          "y": 16
+        }
+      ],
+      "read_only_render": "admitted",
+      "scene_sha256": "5eb59c13de6a5313492730cf9a1522b6707ef09b23ab3d88c6bc910aeb3afb87"
     },
     "repeated_names": {
       "baseline": {
@@ -197,7 +635,11 @@
         },
         "rendered_from": "1ccaeece914d75392ebd2e95fe2ac5b692c9dce73dc245b2429aa5b0b7978a36"
       },
+      "bypassed": [],
       "description": "Three levels that share a name, the first exposed in a column",
+      "effects": [
+        "STD_blurFx"
+      ],
       "expected": {
         "levels": 6
       },
@@ -216,6 +658,8 @@
         "pixels": 0.0,
         "why": ""
       },
+      "probes": [],
+      "read_only_render": "admitted",
       "scene_sha256": "1ccaeece914d75392ebd2e95fe2ac5b692c9dce73dc245b2429aa5b0b7978a36"
     },
     "sub_xsheet": {
@@ -230,7 +674,11 @@
         },
         "rendered_from": "b5beed848995bb2fb79a12cd3cae233ebc559aee802be4b329e7237dab4d6a3b"
       },
+      "bypassed": [],
       "description": "Two columns that show one sub-xsheet (its child level counts as a level)",
+      "effects": [
+        "STD_blurFx"
+      ],
       "expected": {
         "levels": 4
       },
@@ -249,7 +697,98 @@
         "pixels": 0.0,
         "why": ""
       },
+      "probes": [],
+      "read_only_render": "admitted",
       "scene_sha256": "b5beed848995bb2fb79a12cd3cae233ebc559aee802be4b329e7237dab4d6a3b"
+    },
+    "vector_effects": {
+      "baseline": {
+        "files": {
+          "frame.0001.png": "3445457d4aaf39923feef8c50946c12a4c3f96387aff059c81b6fa13f606126f",
+          "frame.0002.png": "a0d88e086bfe238a72e772ece90963cc38380a3da4a46554e7fcf56215fe8f06",
+          "frame.0003.png": "20511e8a78cfd31cd2b7322aaa49e7979e888f87f50dbedd4e2eaa7fb15b4ce9",
+          "frame.0004.png": "acdb688cf258a866efc9b56998d296a0c9ddf2c95d80e79cf762a7a82f02e07b",
+          "frame.0005.png": "fb37852196ae25395d032fea069db2bbeb8849dec75481d0bae18582583727e9",
+          "frame.0006.png": "c9c1a580b4722af9a17bc156918854220ad8fb48da9856a20588bab0dc98e0e6"
+        },
+        "rendered_from": "a07f5762a6b834c57803a9ea1cfeb0b65f59b56502f3706a9042c55c5c9942c9"
+      },
+      "bypassed": [],
+      "description": "Two vector strokes: one blurred more each frame, one darkened by a value scale",
+      "effects": [
+        "STD_blurFx",
+        "STD_hsvScaleFx"
+      ],
+      "expected": {
+        "levels": 2
+      },
+      "files": {
+        "drawings/level-0.pli": "7de7a6174a709ff320415ce84981945738e25b5ca7a4d5021468867c35e3d0b7",
+        "drawings/level-1.pli": "33f31faa70c58c3d0895d3726fa93a56b8b11cc2d4c7cc52c87db897ac148f49",
+        "scenes/scenes.xml": "cc1ccdd83098819c0c7be26bf0d2f132b8808ba19f7a94ad042b0857c5fe540b",
+        "scenes/shot.tnz": "3caa347ed1330530f4373f90afef04c24e3f0ea6a94a2b575bfa18e2452e71b0",
+        "vector_effects_otprj.xml": "b091c9291ad211557f2b9335ab71f6afdfaa3f05d82e7b73846e2c112256b760"
+      },
+      "policy": {
+        "alpha": 0,
+        "color": 0,
+        "pixels": 0.0,
+        "why": ""
+      },
+      "probes": [
+        {
+          "frame": 0,
+          "kind": "vector",
+          "rgba": [
+            0,
+            0,
+            0,
+            255
+          ],
+          "what": "the black stroke of the left column",
+          "x": 8,
+          "y": 8
+        },
+        {
+          "frame": 0,
+          "kind": "effect",
+          "rgba": [
+            100,
+            20,
+            15,
+            255
+          ],
+          "what": "a value scale of 50 halves the red stroke (200, 40, 30)",
+          "x": 22,
+          "y": 8
+        },
+        {
+          "frame": 0,
+          "kind": "background",
+          "rgba": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "what": "nothing is drawn between the strokes",
+          "x": 16,
+          "y": 8
+        },
+        {
+          "frames": [
+            0,
+            5
+          ],
+          "kind": "effect",
+          "min_difference": 60,
+          "what": "the blur keyed from 0 to 3 softens the stroke between frames 0 and 5",
+          "x": 8,
+          "y": 8
+        }
+      ],
+      "read_only_render": "admitted",
+      "scene_sha256": "a07f5762a6b834c57803a9ea1cfeb0b65f59b56502f3706a9042c55c5c9942c9"
     }
   },
   "schema_version": 1

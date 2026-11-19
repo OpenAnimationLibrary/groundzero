@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
 from mcp_corpus_compare import CORPUS, check, compare_scene, load_manifest
+from mcp_known_violations import settle
 from mcp_native_oracle import OracleError, find_tcomposer, render_with_tcomposer
 from mcp_scene_access_cases import _op, discard, open_scene, project_id, wait
 from mcp_studio_palette_cases import call, tree_digest
@@ -38,7 +39,9 @@ def _read(case: NativeAcceptance, tool: str, document: str) -> list[dict[str, An
     return call(case, case.worker, tool, read)["items"]
 
 
-def _inspect(case: NativeAcceptance, name: str, opened: dict[str, Any]) -> None:
+def _inspect(
+    case: NativeAcceptance, name: str, opened: dict[str, Any], *, renderable: bool = True
+) -> None:
     """Check what the scene reads as: what its construction says it holds."""
     expected = load_manifest()["scenes"][name]["expected"]
     document = opened["document_id"]
@@ -50,8 +53,18 @@ def _inspect(case: NativeAcceptance, name: str, opened: dict[str, Any]) -> None:
     case.assertIn("loaded", states, name)
     case.assertEqual(opened["counts"]["levels"], expected["levels"], name)
     case.assertGreaterEqual(opened["counts"]["frames"], 6, name)
-    case.assertTrue(opened["render"]["renderable"], opened["render"])
+    case.assertIs(opened["render"]["renderable"], renderable, opened["render"])
     case.assertEqual(opened["load"]["levels_failed"], 0, name)
+
+
+def _check_effects(case: NativeAcceptance, name: str, document: str) -> None:
+    """The effects the scene file declares are in the loaded graph, enabled but for the bypassed."""
+    scene = load_manifest()["scenes"][name]
+    graph = call(case, case.worker, "fx.graph", {"document_id": document})
+    nodes = {node["type"]: node for node in graph["effects"] if node["type"] in scene["effects"]}
+    case.assertEqual(sorted(nodes), sorted(scene["effects"]), name)
+    for kind, node in nodes.items():
+        case.assertEqual(node["enabled"], kind not in scene["bypassed"], f"{name} {kind}")
 
 
 def _render_frames(case: NativeAcceptance, document: str, folder: Path) -> list[Path]:
@@ -80,6 +93,23 @@ def _render_frames(case: NativeAcceptance, document: str, folder: Path) -> list[
     return written
 
 
+def _blocked_render(case: NativeAcceptance, name: str, opened: dict[str, Any]) -> None:
+    """A scene the read-only render profile refuses today: the refusal is typed and recorded."""
+    case.assertFalse(opened["render"]["renderable"], opened["render"])
+    request = {
+        "document_id": opened["document_id"],
+        "expected_revision": "0",
+        "frame": 0,
+        "width": 32,
+        "height": 32,
+        "operation_id": _op(case),
+    }
+    response = case.worker.call("render.preview", request)
+    observed = response["error"]["code"] if "error" in response else "rendered"
+    settle(case, "KV-11", observed, "rendered")
+    case.assertEqual(response["error"]["details"]["check"], "render_admission")
+
+
 def _open_and_render(case: NativeAcceptance, name: str) -> tuple[dict[str, Any], list[Path]]:
     scene = _install(case, name)
     show = project_id(case, case.worker, name)
@@ -93,10 +123,20 @@ def corpus_scenes_open_read_only_render_and_match_their_baselines(case: NativeAc
     case.assertEqual(check(), [], "the corpus does not match its manifest")
     manifest = load_manifest()
     before = tree_digest(case.inputs)
-    for name in manifest["scenes"]:
+    for name, scene in manifest["scenes"].items():
         with case.subTest(scene=name):
+            if scene["read_only_render"] == "blocked":
+                opened = open_scene(
+                    case, case.worker, _install(case, name), project_id(case, case.worker, name)
+                )
+                _inspect(case, name, opened, renderable=False)
+                _check_effects(case, name, opened["document_id"])
+                _blocked_render(case, name, opened)
+                discard(case, case.worker, opened["document_id"])
+                continue
             opened, frames = _open_and_render(case, name)
             _inspect(case, name, opened)
+            _check_effects(case, name, opened["document_id"])
             status = call(
                 case,
                 case.worker,
@@ -159,6 +199,28 @@ def a_corpus_scene_changed_on_disk_fails_its_comparison(case: NativeAcceptance) 
     frames = _render_frames(case, opened["document_id"], case.directory / "changed")
     problems = compare_scene(load_manifest(), name, frames)
     case.assertTrue(problems, "a repainted level passed the comparison")
+    case.assertTrue(any("differs by" in problem for problem in problems), problems)
+    case.assertEqual(check(), [], "the corpus itself must be untouched")
+    discard(case, case.worker, opened["document_id"])
+
+
+@acceptance_case
+def a_corpus_effect_changed_on_disk_fails_its_comparison(case: NativeAcceptance) -> None:
+    """Raise the gamma of the raster scene's effect in its file: the render no longer matches.
+
+    The change leaves the drawings and the structure alone, so only a comparison of pixels
+    under the effect can notice it.
+    """
+    name = "raster_effects"
+    scene = _install(case, name)
+    original = scene.read_text(encoding="utf-8")
+    changed = original.replace("1.6000000000000001", "2.2000000000000002")
+    case.assertNotEqual(changed, original, "the gamma value is not in the scene file")
+    scene.write_text(changed, encoding="utf-8")
+    opened = open_scene(case, case.worker, scene, project_id(case, case.worker, name))
+    frames = _render_frames(case, opened["document_id"], case.directory / "changed-effect")
+    problems = compare_scene(load_manifest(), name, frames)
+    case.assertTrue(problems, "a changed effect passed the comparison")
     case.assertTrue(any("differs by" in problem for problem in problems), problems)
     case.assertEqual(check(), [], "the corpus itself must be untouched")
     discard(case, case.worker, opened["document_id"])

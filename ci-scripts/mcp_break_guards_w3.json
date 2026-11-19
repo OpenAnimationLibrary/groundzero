@@ -232,5 +232,96 @@
         "pattern": "test_mcp_fx_matrix.py"
       }
     ]
+  },
+  {
+    "id": "corpus-probe-value",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "    if tuple(probe[\"rgba\"]) != here[0]:",
+    "replace": "    if False:",
+    "why": "A pixel the construction says must hold a value must hold it in the baseline.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-probe-animation",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "        if gap < probe[\"min_difference\"]:",
+    "replace": "        if False:",
+    "why": "An effect that must change a pixel between two frames must.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-coverage-kinds",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "        if kind not in kinds",
+    "replace": "        if False",
+    "why": "The baselines must show a vector, a Toonz raster and a PNG column and an effect.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-coverage-effect-types",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "    if len(types) < MINIMUM_EFFECT_TYPES:",
+    "replace": "    if False:",
+    "why": "The corpus must carry several effect types.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-coverage-animated",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "    if not animated:",
+    "replace": "    if False:",
+    "why": "Some probe must show an effect changing a pixel between frames.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-effects-declared",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "    if declared != scene_effects(root, name):",
+    "replace": "    if False:",
+    "why": "A scene's declared effects must be the ones its file holds.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-comparison-case-exists",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "                if f\"def {case}(\" not in cases",
+    "replace": "                if False",
+    "why": "A comparison said to be made must name a case that exists.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
   }
 ]

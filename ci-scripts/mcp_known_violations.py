@@ -101,6 +101,29 @@ KNOWN_VIOLATIONS: dict[str, Violation] = {
         answers=frozenset({"path_denied"}),
         row="QLT-04 #2 (path serialization)",
     ),
+    "KV-11": Violation(
+        name=(
+            "A read-only scene whose effects are built in but not named STD_ is refused a render "
+            "as if the effects were external code"
+        ),
+        tool="render.preview (and render.submit), on a scene.open_read_only document",
+        call=(
+            "scene.open_read_only on a scene with colorCardFx, overFx and invertFx, then "
+            "render.preview of frame 0"
+        ),
+        expected=(
+            "the preview renders: colorCardFx, overFx, invertFx, multFx, screenFx, inFx, outFx "
+            "and blendFx are among the 31 admitted types, which the profile renders in a "
+            "detached draft"
+        ),
+        observed=(
+            'error code "render_blocked", blocker reason external_code, rule anywhere, "Type '
+            'invertFx". effectClass in automation_scene_content.cpp returns external_code for '
+            "every type that does not begin with STD_, which includes these built-in types"
+        ),
+        answers=frozenset({"render_blocked"}),
+        row="ARC-14 #1, FXR-22 #2, SCN-18 #5 (old scenes with effects)",
+    ),
 }
 
 
