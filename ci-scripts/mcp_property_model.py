@@ -570,6 +570,17 @@ NOT_MODELLED: dict[str, str] = {
         "the model's sampler holds the last key's value; the cyclic fold with drift is not "
         "written yet"
     ),
+    "cells.set": (
+        "not written yet; the model's cell map can carry runs, blanks and occupied_cells"
+    ),
+    "cells.clear": ("not written yet; the model's cell map can carry it"),
+    "cells.remove": (
+        "not written yet; it needs the shift of later cells in several columns at once"
+    ),
+    "cells.insert": ("not written yet; it needs the shift of later cells and the last-row refusal"),
+    "cells.copy": ("not written yet; it needs the copy and move modes and their overlap rules"),
+    "cells.retime": ("none of the twelve retime kinds is written independently yet"),
+    "cells.replace": ("not written yet; it needs level-to-level and drawing-pair replacement"),
 }
 
 

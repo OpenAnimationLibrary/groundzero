@@ -1684,6 +1684,17 @@
    }
   },
   {
+   "id": "timeline.column_copy_move_remove",
+   "domain": "Timeline and columns",
+   "outcome": "Duplicate and reorder columns of any kind, and move or remove sound columns, with their cells, state and stage placement.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W2"
+   }
+  },
+  {
    "id": "timeline.retime",
    "domain": "Timeline and columns",
    "outcome": "Retime a range with explicit rules for curves, effects, sound and storyboard panels.",
