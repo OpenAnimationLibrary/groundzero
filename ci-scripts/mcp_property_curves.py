@@ -270,11 +270,11 @@ def _quarter(rng: random.Random, limit: int) -> float:
 
 
 def _handles(rng: random.Random, first: Key, last: Key) -> None:
-    """Give a rich segment handles that fit it and do not cross."""
+    """Give a rich segment handles that fit it, do not cross and are not zero-length at the end."""
     span = last.frame - first.frame
     if first.interpolation == "speed_in_out":
-        near = rng.randint(0, span)
-        far = rng.randint(near, span)
+        near = rng.randint(0, span - 1)
+        far = rng.randint(near, span - 1)
         first.outgoing = ("speed", near, _quarter(rng, 40))
         last.incoming = ("speed", far - span, _quarter(rng, 40))
     else:

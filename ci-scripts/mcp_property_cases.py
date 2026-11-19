@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
 from mcp_known_violations import settle
+from mcp_property_curves import Key, key_record, sample
 from mcp_property_model import (
     CELL_HORIZON,
     CHANNEL_UNITS,
@@ -776,3 +777,38 @@ def trailing_empty_columns_are_not_saved_and_inner_ones_are(case: NativeAcceptan
     saved = case.success("scene.summary", {"document_id": reopened})["columns"]
     case.assertEqual([column["name"] for column in saved], names[:2])
     case.assertEqual((saved[0]["locked"], saved[0]["opacity"]), (True, 128 / 255))
+
+
+@acceptance_case
+def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptance) -> None:
+    """Sample speed segments with handles of every length against the Bezier, by hand."""
+    document = case.create()
+    peg = case.mutate("object.create", document, name="Peg", kind="pegbar")["object_id"]
+    frames = [6, 7, 8, 9, 10, 11, 11.5, 11.9, 12]
+    for outgoing, incoming, expected_match in (
+        (4, -1, True),
+        (0, -3, True),
+        (6, -6, True),
+        (4, 0, False),
+    ):
+        target = {"object_id": peg, "channel": "x", "unit": "inch"}
+        keys = [
+            Key(6, -70.5, "speed_in_out", 1, ("none",), ("speed", outgoing, 32.75)),
+            Key(12, -5.75, "linear", 1, ("speed", incoming, 34.5), None, False),
+        ]
+        case.mutate("animation.set_keys", document, **target, keys=[key_record(k) for k in keys])
+        got = case.success(
+            "animation.sample", {"document_id": document, **target, "frames": frames}
+        )
+        exact = [sample(keys, frame) for frame in frames]
+        close = all(abs(a["value"] - b) < 1e-5 for a, b in zip(got["values"], exact, strict=True))
+        if expected_match:
+            case.assertTrue(close, (outgoing, incoming))
+        else:
+            settle(
+                case,
+                "KV-9",
+                "matches the Bezier" if close else "does not match the Bezier",
+                "matches the Bezier",
+            )
+        case.mutate("animation.delete_keys", document, **target, frames=[6, 12])
