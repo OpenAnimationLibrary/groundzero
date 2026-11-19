@@ -30,6 +30,14 @@
 namespace GroundzeroAutomation {
 namespace Live {
 namespace SecurityDetail {
+
+#ifdef AUTOMATION_SECURITY_TEST_USER
+namespace {
+long testUser = -1;
+}
+void pretendUser(long user) { testUser = user; }
+#endif
+
 namespace {
 
 class Fd final {
@@ -53,6 +61,13 @@ class Fd final {
  private:
   int m_value;
 };
+
+uid_t currentUser() {
+#ifdef AUTOMATION_SECURITY_TEST_USER
+  if (testUser >= 0) return uid_t(testUser);
+#endif
+  return ::geteuid();
+}
 
 [[noreturn]] void denied(const QString& message) {
   throw Error("live_security", message);
@@ -103,7 +118,7 @@ void requireLocalFilesystem(int descriptor) {
 }
 
 void requirePrivateDirectory(const struct stat& info) {
-  if (info.st_uid != ::geteuid() || (info.st_mode & 07777) != 0700)
+  if (info.st_uid != currentUser() || (info.st_mode & 07777) != 0700)
     denied(
         "The live-session directory must be owned by this user with mode "
         "0700.");
@@ -129,7 +144,7 @@ void requireNoExtendedAcl(int descriptor) {
 void requireDirectory(const struct stat& info, bool privateDirectory) {
   if (!S_ISDIR(info.st_mode))
     denied("A live-session ancestor is not a directory.");
-  if (info.st_uid != 0 && info.st_uid != ::geteuid())
+  if (info.st_uid != 0 && info.st_uid != currentUser())
     denied("A live-session ancestor belongs to another user.");
   const bool writableByOthers = (info.st_mode & 0022) != 0;
   if (writableByOthers && !(info.st_mode & S_ISVTX))
@@ -168,7 +183,7 @@ QString normalizedPath(const QString& path) {
 }
 
 void requireFile(const struct stat& info) {
-  if (!S_ISREG(info.st_mode) || info.st_uid != ::geteuid() ||
+  if (!S_ISREG(info.st_mode) || info.st_uid != currentUser() ||
       (info.st_mode & 07777) != 0600 || info.st_nlink != 1)
     denied(
         "The opened live grant must be a private regular file with mode 0600 "
@@ -317,7 +332,7 @@ class PosixFiles final : public PrivateFiles {
     if (::fstatat(parent(), encoded.constData(), &info, AT_SYMLINK_NOFOLLOW) !=
         0)
       denied("Cannot inspect the live socket without following links.");
-    if (!S_ISSOCK(info.st_mode) || info.st_uid != ::geteuid() ||
+    if (!S_ISSOCK(info.st_mode) || info.st_uid != currentUser() ||
         info.st_nlink != 1)
       denied("The live endpoint is not a socket owned by the current user.");
     requireDirectory(status(parent()), true);
@@ -395,7 +410,7 @@ namespace {
 void requirePeerUid(int descriptor) {
   uid_t uid = 0;
   gid_t gid = 0;
-  if (::getpeereid(descriptor, &uid, &gid) != 0 || uid != ::geteuid())
+  if (::getpeereid(descriptor, &uid, &gid) != 0 || uid != currentUser())
     denied("The local peer does not have the current user's credentials.");
 }
 #elif defined(Q_OS_LINUX)
@@ -404,7 +419,7 @@ void requirePeerUid(int descriptor) {
   socklen_t length = sizeof(credentials);
   if (::getsockopt(descriptor, SOL_SOCKET, SO_PEERCRED, &credentials,
                    &length) != 0 ||
-      length != sizeof(credentials) || credentials.uid != ::geteuid())
+      length != sizeof(credentials) || credentials.uid != currentUser())
     denied("The local peer does not have the current user's credentials.");
 }
 #else

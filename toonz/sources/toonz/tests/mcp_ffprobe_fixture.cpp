@@ -181,19 +181,40 @@ void publishEncoderMarker(const std::filesystem::path& movie,
   std::filesystem::rename(temporary, path);
 }
 
+unsigned long processId() {
+#ifdef _WIN32
+  return GetCurrentProcessId();
+#else
+  return static_cast<unsigned long>(getpid());
+#endif
+}
+
+// An encoder that never reads its input, so the writer's pipe backs up.
+bool readsNoInput() {
+#ifdef _WIN32
+  char mode[16]{};
+  const DWORD length = GetEnvironmentVariableA("GROUNDZERO_TEST_ENCODER_MODE",
+                                               mode, sizeof(mode));
+  return length > 0 && length < sizeof(mode) && std::string(mode) == "no-read";
+#else
+  const char* mode = std::getenv("GROUNDZERO_TEST_ENCODER_MODE");
+  return mode && std::string(mode) == "no-read";
+#endif
+}
+
 int stallEncoder(const Invocation& call) {
+  if (readsNoInput()) {
+    publishEncoderMarker(call.movie, 0, processId());
+    std::this_thread::sleep_for(std::chrono::seconds(75));
+    return 0;
+  }
   validateEncoder(call);
   const std::streamsize bytes = drainEncoderInput();
   std::ofstream movie(call.movie, std::ios::binary | std::ios::trunc);
   movie << "Incomplete fixed encoder fixture output\n";
   movie.close();
   if (!movie) throw std::runtime_error("Cannot write partial encoder output");
-#ifdef _WIN32
-  const auto pid = GetCurrentProcessId();
-#else
-  const auto pid = getpid();
-#endif
-  publishEncoderMarker(call.movie, bytes, static_cast<unsigned long>(pid));
+  publishEncoderMarker(call.movie, bytes, processId());
   std::this_thread::sleep_for(std::chrono::seconds(75));
   return 0;
 }

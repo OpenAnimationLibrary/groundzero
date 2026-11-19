@@ -764,6 +764,54 @@ void receiptBindsAuthority(Context& context) {
             << std::endl;
 }
 
+Dispatcher* busyDispatcher = nullptr;
+
+QJsonValue nestedCalls(Context&, const QString&, const QJsonObject&) {
+  return QJsonObject{{"read", call(*busyDispatcher, "fixture.busy.read", {})},
+                     {"write", call(*busyDispatcher, "fixture.busy.write",
+                                    {{"operation_id", "nested-write"}})}};
+}
+
+QJsonValue idleAnswer(Context&, const QString&, const QJsonObject&) {
+  return QJsonObject{{"idle", true}};
+}
+
+void busyWorkerRefusesNestedRequests(Context& context) {
+  Dispatcher dispatcher(context);
+  DispatcherProbe::add(dispatcher,
+                       {declaredTool(operation("fixture.busy.outer",
+                                               "Private busy outer", {}, {}),
+                                     fixtureRead)},
+                       nestedCalls, "core");
+  DispatcherProbe::add(
+      dispatcher,
+      {declaredTool(operation("fixture.busy.read", "Private busy read", {}, {}),
+                    fixtureRead),
+       declaredTool(
+           operation("fixture.busy.write", "Private busy write", {}, {}, true),
+           fixtureWrite)},
+      idleAnswer, "core");
+  busyDispatcher          = &dispatcher;
+  const QJsonObject outer = result(dispatcher, "fixture.busy.outer", {});
+  for (const char* key : {"read", "write"}) {
+    const QJsonObject nested = outer.value(key).toObject();
+    require(!nested.contains("result") &&
+                nested.value("error").toObject().value("code") == "worker_busy",
+            "A request that arrived while an operation ran was not refused "
+            "as worker_busy");
+  }
+  require(!DispatcherProbe::receipts(dispatcher).contains("nested-write"),
+          "A request refused as worker_busy recorded a receipt");
+  const QJsonObject after   = result(dispatcher, "fixture.busy.read", {});
+  const QJsonObject written = result(dispatcher, "fixture.busy.write",
+                                     {{"operation_id", "nested-write"}});
+  require(after.value("idle").toBool() && written.value("idle").toBool() &&
+              DispatcherProbe::receipts(dispatcher).contains("nested-write"),
+          "The dispatcher stayed busy or lost the refused request's identity");
+  busyDispatcher = nullptr;
+  std::cout << "automation-dispatch-test: busy worker PASS" << std::endl;
+}
+
 bool refusedLaunch(const std::function<void()>& parse) {
   try {
     parse();
@@ -834,6 +882,7 @@ void effectsCannotBeRedeclared(Context& context) {
 void runAutomationDispatcherTests(Context& context) {
   grantOrder(context);
   receiptBindsAuthority(context);
+  busyWorkerRefusesNestedRequests(context);
   authorityDigestIsCanonical(context);
   effectsCannotBeRedeclared(context);
   documentLimit(context);

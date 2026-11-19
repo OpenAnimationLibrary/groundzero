@@ -1377,8 +1377,14 @@ static std::shared_ptr<RenderJob> newJob(Context& context, Document& document,
   job->request            = plan.request;
   job->effective          = effectiveOutput(plan);
   job->workspace          = context.workspace();
-  job->directory          = context.resolvePath(
-      context.workspace() + "/renders/" + job->common.id, true);
+  try {
+    job->directory = context.resolvePath(
+        context.workspace() + "/renders/" + job->common.id, true);
+  } catch (const Error&) {
+    // The workspace is gone or replaced, for example by a removed volume.
+    throw Error("render_output_failed",
+                "The worker's private render output folder is unavailable.");
+  }
   return job;
 }
 
