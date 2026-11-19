@@ -44,6 +44,21 @@ const tools = [
     inputSchema: { ...object, properties: {} },
   },
 ].map((tool) => ({ ...tool, annotations: readOnly, toolset: "core" }));
+const optionalTools = [
+  { name: "probe.sound", toolset: "audio" },
+  { name: "probe.joint", toolset: "rigging" },
+].map((tool) => ({
+  ...tool,
+  description: "Return nothing.",
+  inputSchema: { ...object, properties: {} },
+  annotations: readOnly,
+}));
+const catalog = [...tools, ...optionalTools];
+const toolsets = [
+  { name: "core", description: "Probe tools", tools: tools.map((t) => t.name) },
+  { name: "audio", description: "Sound probe", tools: ["probe.sound"] },
+  { name: "rigging", description: "Rig probe", tools: ["probe.joint"] },
+];
 
 function respond(id, result) {
   process.stdout.write(JSON.stringify({ id, result }) + "\n");
@@ -53,8 +68,8 @@ const handlers = {
   "automation.capabilities": (id) =>
     respond(id, {
       protocol_version: 3,
-      tools,
-      toolsets: [{ name: "core", description: "Probe tools", tools: tools.map((t) => t.name) }],
+      tools: catalog,
+      toolsets,
     }),
   "probe.echo": (id, params) => respond(id, { value: params.value }),
   "probe.slow": (id, params) =>
