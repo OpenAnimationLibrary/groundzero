@@ -66,6 +66,8 @@ FORWARDED = {
 }
 # Tools the worker answers for a read-only document itself, from its job registry.
 ANSWERED_BY_WORKER = {"job.list"}
+# A read that refuses a read-only document by naming the step that makes it editable.
+NAMES_THE_NEXT_STEP = {"scene.save_preflight": "scene.import_plan"}
 CHILD_ID = 2000
 TIFF_ID = 2100
 
@@ -755,6 +757,11 @@ def read_only_documents_refuse_every_other_tool(case: NativeAcceptance) -> None:
         if "document_id" not in tool["inputSchema"]["properties"]:
             continue
         if name in FORWARDED or name in ANSWERED_BY_WORKER:
+            continue
+        if name in NAMES_THE_NEXT_STEP:
+            details = refuse(case, worker, name, _tool_params(tool, document), "unsupported_target")
+            expected = ("read_only_document", NAMES_THE_NEXT_STEP[name])
+            case.assertEqual((details["reason"], details["next"]), expected)
             continue
         details = refuse(
             case, worker, tool["name"], _tool_params(tool, document), "read_only_document"

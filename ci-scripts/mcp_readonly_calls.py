@@ -62,7 +62,7 @@ class Call:
 
 def _string(schema: dict[str, Any]) -> str:
     pattern = schema.get("pattern", ".*")
-    for candidate in ("x", "0", ""):
+    for candidate in ("x", "0", "", "package:" + "0" * 64):
         if len(candidate) >= schema.get("minLength", 0) and re.fullmatch(pattern, candidate):
             return candidate
     raise ValueError(f"No sample string for {schema}")
