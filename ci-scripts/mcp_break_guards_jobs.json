@@ -1,0 +1,68 @@
+[
+  {
+    "id": "job-discard-refuses-running",
+    "file": "toonz/sources/toonz/automation_jobs.cpp",
+    "native": true,
+    "find": "  if (!job->terminal())\n    throw Error(\"in_use\",",
+    "replace": "  if (false)\n    throw Error(\"in_use\",",
+    "why": "job.discard never touches a running job; it is refused with in_use and job.cancel as the next call.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "job_discard_refuses_a_running_job",
+          "native_domain_regressions"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "job-discard-frees-the-slot",
+    "file": "toonz/sources/toonz/automation_jobs.cpp",
+    "native": true,
+    "find": "                                return job->id() == id;",
+    "replace": "                                return false;",
+    "why": "A discarded job leaves the registry, so its lane admits a new job.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "job_retention_limit_names_jobs_to_release",
+          "native_domain_regressions"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "job-discard-hidden-after-restart",
+    "file": "toonz/sources/toonz/automation_jobs.cpp",
+    "native": true,
+    "find": "    if (!id.startsWith(own) && !discardedRecord(stored))",
+    "replace": "    if (!id.startsWith(own))",
+    "why": "A discarded job is not listed again by a later worker of the workspace.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "job_discard_survives_restart"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "job-discard-removes-render-files",
+    "file": "toonz/sources/toonz/automation_render.cpp",
+    "native": true,
+    "find": "    return removeJobDirectory(directory);",
+    "replace": "    return 0;",
+    "why": "A discarded render's private directory, artifacts and claim are removed and their bytes reported.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "job_discard_releases_a_completed_render"
+        ]
+      }
+    ]
+  }
+]
