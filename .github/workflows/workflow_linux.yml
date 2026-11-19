@@ -67,14 +67,27 @@ jobs:
     - name: Check the MCP capability census and revision coverage
       run: |
         set -euo pipefail
-        python3 ci-scripts/mcp_census.py
-        python3 ci-scripts/mcp_revision_matrix.py
-        python3 ci-scripts/mcp_schema_keys.py
-        python3 ci-scripts/mcp_schema_required.py
+        status=0
+        # Run every check, and report each failing one as an annotation with
+        # the start of its output, so the failure reads without the full log
+        for check in mcp_census mcp_revision_matrix mcp_schema_keys mcp_schema_required; do
+          output="$RUNNER_TEMP/$check.txt"
+          if python3 "ci-scripts/$check.py" > "$output" 2>&1; then
+            cat "$output"
+            continue
+          fi
+          status=1
+          cat "$output"
+          message=$(awk 'NR <= 15 { gsub(/%/, "%25"); gsub(/\r/, ""); printf "%s%%0A", $0 }' "$output")
+          echo "::error title=${check}.py failed::${message}"
+        done
         python3 ci-scripts/run_harness_tests.py --pattern 'test_mcp_[cr]*.py' \
-          --report mcp-census-contracts.txt
+          --report mcp-census-contracts.txt || status=1
+        exit "$status"
 
     - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # The script checks below run even when an earlier check failed
+      if: ${{ !cancelled() }}
       with:
         version: '0.13.8'
         enable-cache: false
