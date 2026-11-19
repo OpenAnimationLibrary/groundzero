@@ -176,20 +176,24 @@
      ]
     },
     "modify": {
-     "disposition": "planned",
-     "outcome": "level.rename_replace_remove"
+     "tools": [
+      "level.settings.set",
+      "level.rename"
+     ]
     },
     "duplicate": {
-     "disposition": "planned",
-     "outcome": "level.rename_replace_remove"
+     "tools": [
+      "level.duplicate"
+     ]
     },
     "reorder": {
      "disposition": "planned",
      "outcome": "cast.organize_and_relink"
     },
     "remove": {
-     "disposition": "planned",
-     "outcome": "level.rename_replace_remove"
+     "tools": [
+      "level.remove"
+     ]
     },
     "persist": {
      "tools": [
@@ -294,8 +298,9 @@
      "outcome": "cast.organize_and_relink"
     },
     "remove": {
-     "disposition": "planned",
-     "outcome": "level.rename_replace_remove"
+     "tools": [
+      "level.remove"
+     ]
     },
     "persist": {
      "tools": [

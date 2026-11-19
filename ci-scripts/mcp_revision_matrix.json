@@ -1258,6 +1258,40 @@
     "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
    }
   },
+  "level.duplicate": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "adds an independent copy of a level to the cast",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "name": "Q2"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "name": "Q"
+     },
+     "code": "name_conflict"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "name_conflict",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
   "level.import": {
    "group": "scene",
    "kind": "document",
@@ -1292,6 +1326,157 @@
     "policy": "rejects",
     "code": "name_conflict",
     "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "level.remove": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "clears or replaces a level's exposures and removes it from the cast",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    },
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 8
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "exposure_policy": "clear"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "exposure_policy": "refuse"
+     },
+     "code": "in_use"
+    },
+    {
+     "args": {
+      "level_id": "$level",
+      "exposure_policy": "replace"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat names a removed level and is rejected, and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "level.rename": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "renames a level, keeping its handle and cast id",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "unknown",
+      "name": "Other"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$level",
+     "name": "Renamed"
+    },
+    "documented": "tools/mcp/README.md: renaming a level to its own name changes nothing and keeps the revision."
+   }
+  },
+  "level.settings.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "changes a level's interpretation settings",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "settings": {
+      "premultiply": true
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "settings": {
+       "color_space_gamma": 2.2
+      }
+     },
+     "code": "unsupported_target"
+    },
+    {
+     "args": {
+      "level_id": "$level",
+      "settings": {
+       "premultiply": true,
+       "white_transparent": true
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$level",
+     "settings": {
+      "premultiply": true
+     }
+    },
+    "documented": "tools/mcp/README.md: setting the values a level has changes nothing and keeps the revision."
    }
   },
   "column.create": {

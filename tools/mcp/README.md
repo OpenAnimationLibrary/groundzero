@@ -500,6 +500,57 @@ difference is `partially_applied`. Results list each column's `cells_changed`,
 `unsupported_target` until nested sheets become editable. `column.expose` uses the same
 service.
 
+`level.inspect` reports a vector, Toonz raster or RGBA level's interpretation `settings`:
+`dpi_policy`, the image size, the native `dirty` flag, `hook_keys`, and for each of `dpi`,
+`premultiply`, `white_transparent`, `antialias_softness`, `subsampling` and
+`color_space_gamma` its `value`, whether it is `applicable` to the format, whether it is
+`writable` now, and the `reason` when not (`not_applicable_to_format`,
+`linear_raster_only`, `unsaved_level`, `read_only_level`, `locked_exposure`,
+`read_only_document`). The rules are those of the editor's Level Settings: DPI, antialias
+and subsampling for raster and Toonz raster, premultiply and white transparency for RGBA
+only, colour-space gamma for linear (EXR) raster only, which no worker level is;
+subsampling and gamma only on a level with no unsaved changes. With `include_usage: true`
+it also lists the level's exposures in every sheet, nested sub-xsheets included: `cells`,
+`columns`, `sheets` and up to 256 rows (`sheet_level_id` null for the top sheet, the
+column, its lock and its first and last frame). The scan stops at 1,000,000 cells or 128
+sheets and then says `complete: false`; no write relies on an incomplete scan.
+
+The level lifecycle tools are in the `sheet` toolset. `level.settings.set` changes
+settings all or nothing. A setting outside the format or the dirty rule is refused with
+`unsupported_target` and `details {setting, format, reason}`, a read-only level with
+`locked`, and any change while a column of any sheet that exposes the level is locked with
+`locked`, listing those columns. Premultiply and white transparency are never both on:
+turning one on while the other is on needs `coupling: "clear_other"` (`invalid_params`,
+`coupling_required` otherwise; asking for both is `both_on`), and the result names it in
+`coupled_cleared`. A DPI is always a custom DPI; it changes the level's size on stage
+(`stage_size_in_before` and `_after`), never its pixels or the camera (`pixels_resampled`
+and `camera_changed` are false); the result also gives the settings before and after,
+`changed`, the `exposures` count and exposing `columns`. Setting the values a level has
+changes nothing and keeps the revision. `level.rename` keeps the level's handle, cast id
+and exposures, needs a name no other level has (`name_conflict`; matching is exact), and is
+admitted under a locked exposure since no picture changes; renaming a level to its own name
+keeps the revision. `level.duplicate` makes an
+independent level: every drawing copied, the palette cloned, every setting, the hooks,
+tags and cover copied, a new cast id, no collection, exposed nowhere (retarget exposures
+with `cells.replace`); unlike the editor's Clone Level it loses no setting.
+`level.remove` takes a required `exposure_policy`: `refuse` removes only a level nothing
+exposes and otherwise answers `in_use` with the usage in its details; `clear` blanks every exposure
+in every sheet without moving later cells; `replace` shows the same drawings of
+`replacement_level_id` there, keeping timing, and refuses a replacement that lacks an
+exposed drawing (`missing_drawing`) or has another format unless `allow_type_change` is
+true (`unsupported_target`, reason `type_change`). Locked exposures refuse with `locked`,
+and an object attached to a hook of an exposing column refuses `clear`, or a replacement
+without that hook, with `has_dependents`. Removal takes the level out of the cast only:
+no file is deleted (`files_deleted` is 0), collection memberships stay dormant as in the
+editor, and its handle stops resolving. `drawing.remove` takes the same kind of plan:
+`exposure_policy` `{kind: "refuse"}` (the default), `{kind: "clear"}`, or
+`{kind: "remap", drawing_id}` naming another drawing of the same level; the result lists
+the exposures it rewrote and their columns. In short: `cells.clear` keeps
+frame numbers and `cells.remove` shifts them; `drawing.renumber` renames drawings and moves
+their exposures, while showing other drawings at some frames is `cells.replace`;
+`level.remove` removes a cast entry, never a file; `level.duplicate` and `drawing.clone`
+copy, while repeated exposures share one level.
+
 `scene.save_copy` writes a new package directory containing `scene.tnz`, its
 artwork, and a hash manifest. It checks every saved drawing through the native
 reader and compares palette styles, pages, and keys before publishing. Existing
@@ -1120,9 +1171,9 @@ the adapter and the live editor bridge add the rest.
 - `shared-library` toolset (7):
   `library.inspect`, `library.list`, `library.thumbnail`, `shared.roots`, `studio_palette.find`,
   `studio_palette.inspect`, `studio_palette.list`
-- `sheet` toolset (7):
+- `sheet` toolset (11):
   `cells.clear`, `cells.copy`, `cells.insert`, `cells.remove`, `cells.replace`, `cells.retime`,
-  `cells.set`
+  `cells.set`, `level.duplicate`, `level.remove`, `level.rename`, `level.settings.set`
 - `storyboard` toolset (4):
   `storyboard.panel.create`, `storyboard.panel.delete`, `storyboard.panel.update`,
   `storyboard.panels`

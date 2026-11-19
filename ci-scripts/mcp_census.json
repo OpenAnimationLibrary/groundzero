@@ -560,6 +560,11 @@
    "toolset": "core",
    "writes": true
   },
+  "level.duplicate": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
   "level.import": {
    "origin": "worker",
    "toolset": "core",
@@ -569,6 +574,21 @@
    "origin": "worker",
    "toolset": "core",
    "writes": false
+  },
+  "level.remove": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "level.rename": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "level.settings.set": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
   },
   "library.inspect": {
    "origin": "worker",
@@ -1479,7 +1499,7 @@
   {
    "id": "level.inspect",
    "domain": "Levels, cast and drawings",
-   "outcome": "Read a level's format and exact drawing identifiers.",
+   "outcome": "Read a level's format, exact drawing identifiers, interpretation settings and exposures in every sheet.",
    "classification": "exposed",
    "tools": [
     "level.inspect"
@@ -1573,14 +1593,51 @@
    }
   },
   {
+   "id": "level.interpretation_settings",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Change a level's interpretation settings (DPI, premultiply, white transparency, antialias, subsampling, gamma) with the native applicability, dirty-level and coupling rules.",
+   "classification": "exposed",
+   "tools": [
+    "level.settings.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.duplicate",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Duplicate a level into an independent level with every drawing, setting and hook, exposed nowhere.",
+   "classification": "exposed",
+   "tools": [
+    "level.duplicate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
    "id": "level.rename_replace_remove",
    "domain": "Levels, cast and drawings",
-   "outcome": "Rename, replace, remove from the cast or change canvas and resolution of a level.",
+   "outcome": "Rename a level, and remove it from the cast after an explicit plan for its exposures in every sheet: refuse, clear them, or replace them by another level.",
+   "classification": "exposed",
+   "tools": [
+    "level.rename",
+    "level.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.canvas_resize",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Change a level's canvas size or resolution, a pixel transformation distinct from its interpretation settings.",
    "classification": "not_exposed",
    "tools": [],
    "disposition": {
     "kind": "planned",
-    "milestone": "W2"
+    "milestone": "W5"
    }
   },
   {
