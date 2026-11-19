@@ -49,11 +49,12 @@ async function session(
   toolsets?: string[],
   catalog = capabilities(groups),
   reply: (method: string) => unknown = (method) => ({ ok: method }),
+  domains: string[] = ["all"],
 ) {
   const request = vi.fn(async (method: string) =>
     method === "automation.capabilities" ? catalog : reply(method),
   );
-  const server = createServer({ request, close: () => {} }, toolsets);
+  const server = createServer({ request, close: () => {} }, toolsets, undefined, false, domains);
   const client = new Client({ name: "toolset-test", version: "1.0.0" });
   const changes = vi.fn();
   client.setNotificationHandler("notifications/tools/list_changed", async () => changes());
@@ -93,9 +94,21 @@ test("lists toolsets with counts and enabled state", async () => {
   const result = await client.callTool({ name: "toolsets.list", arguments: {} });
   expect(result.structuredContent).toEqual({
     toolsets: [
-      { name: "core", description: "The core tools", tool_count: 2, enabled: true },
-      { name: "audio", description: "The audio tools", tool_count: 2, enabled: false },
-      { name: "rigging", description: "The rigging tools", tool_count: 1, enabled: false },
+      { name: "core", description: "The core tools", tool_count: 2, enabled: true, granted: true },
+      {
+        name: "audio",
+        description: "The audio tools",
+        tool_count: 2,
+        enabled: false,
+        granted: true,
+      },
+      {
+        name: "rigging",
+        description: "The rigging tools",
+        tool_count: 1,
+        enabled: false,
+        granted: true,
+      },
     ],
     exposed_tool_count: 2,
   });
@@ -156,6 +169,45 @@ test("refuses to expose more than the tool limit and keeps the session unchanged
     error: { code: "TOOLSET_LIMIT", details: { exposed_tool_count: MAX_EXPOSED_TOOLS + 1 } },
   });
   expect((await names(client)).length).toBe(200 + TOOLSET_TOOLS.length);
+});
+
+test("toolsets.enable refuses an ungranted toolset", async () => {
+  const { client, changes } = await session(undefined, capabilities(groups), undefined, ["audio"]);
+  const before = await names(client);
+  const refused = await client.callTool({
+    name: "toolsets.enable",
+    arguments: { names: ["audio", "rigging"] },
+  });
+  expect(refused.isError).toBe(true);
+  expect(refused.structuredContent).toMatchObject({
+    error: { code: "GRANT_REQUIRED", details: { toolsets: ["rigging"] } },
+  });
+  expect(await names(client)).toEqual(before);
+  expect(changes).not.toHaveBeenCalled();
+  const listed = await client.callTool({ name: "toolsets.list", arguments: {} });
+  expect(listed.structuredContent).toMatchObject({
+    toolsets: [
+      { name: "core", granted: true },
+      { name: "audio", granted: true },
+      { name: "rigging", granted: false },
+    ],
+  });
+  const enabled = await client.callTool({
+    name: "toolsets.enable",
+    arguments: { names: ["audio"] },
+  });
+  expect(enabled.structuredContent).toMatchObject({ changed: true });
+});
+
+test("all enables only the granted toolsets", async () => {
+  const { client } = await session(["all"], capabilities(groups), undefined, ["audio"]);
+  expect(await names(client)).toEqual([
+    "scene.summary",
+    "scene.create",
+    "audio.inspect",
+    "audio.mixdown",
+    ...toolsetNames,
+  ]);
 });
 
 test("selects toolsets at startup, including all", async () => {

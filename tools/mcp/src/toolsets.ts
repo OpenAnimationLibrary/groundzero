@@ -37,12 +37,13 @@ const listing = {
     items: {
       type: "object",
       additionalProperties: false,
-      required: ["name", "description", "tool_count", "enabled"],
+      required: ["name", "description", "tool_count", "enabled", "granted"],
       properties: {
         name: { type: "string", minLength: 1, maxLength: 32 },
         description: { type: "string", minLength: 1, maxLength: 1024 },
         tool_count: { type: "integer", minimum: 0, maximum: 1024 },
         enabled: { type: "boolean" },
+        granted: { type: "boolean" },
       },
     },
   },
@@ -110,16 +111,18 @@ export const TOOLSET_TOOLS: Tool[] = [
   toolsetTool({
     name: "toolsets.list",
     description:
-      "List the native toolsets, what each covers, how many tools it has and whether it is enabled.",
+      "List the native toolsets, what each covers, how many tools it has, whether this " +
+      "session's launch grants it and whether it is enabled.",
     changes: false,
     errors: [],
   }),
   toolsetTool({
     name: "toolsets.enable",
     description:
-      "Expose the tools of the named toolsets in this session. The tool list then changes.",
+      "Expose the tools of the named toolsets in this session. The tool list then changes. " +
+      "Only toolsets the launch grants (--domains) can be enabled.",
     changes: true,
-    errors: ["UNKNOWN_TOOLSET", "TOOLSET_LIMIT"],
+    errors: ["UNKNOWN_TOOLSET", "TOOLSET_LIMIT", "GRANT_REQUIRED"],
   }),
   toolsetTool({
     name: "toolsets.disable",
@@ -204,15 +207,25 @@ export class ToolsetState {
   private readonly enabled = new Set<string>([REQUIRED_TOOLSET]);
   private readonly owners = new Map<string, string>();
 
+  /**
+   * Args:
+   *   toolsets: The native toolsets.
+   *   tools: The validated native tools.
+   *   requested: Toolsets enabled at start; "all" enables every granted toolset.
+   *   domains: The toolsets the launch grants, or ["all"].
+   */
   constructor(
     private readonly toolsets: ToolsetDescriptor[],
     private readonly tools: Tool[],
     requested: string[],
+    private readonly domains: string[] = ["all"],
   ) {
     for (const toolset of toolsets) {
       for (const tool of toolset.tools) this.owners.set(tool, toolset.name);
     }
-    const names = requested.includes("all") ? toolsets.map((toolset) => toolset.name) : requested;
+    const names = requested.includes("all")
+      ? toolsets.map((toolset) => toolset.name).filter((name) => this.isGranted(name))
+      : requested;
     this.enable(names);
   }
 
@@ -280,6 +293,7 @@ export class ToolsetState {
         description: toolset.description,
         tool_count: toolset.tools.length,
         enabled: this.enabled.has(toolset.name),
+        granted: this.isGranted(toolset.name),
       })),
       exposed_tool_count: this.exposedCount(this.enabled),
     };
@@ -288,6 +302,15 @@ export class ToolsetState {
   /** Enable toolsets; returns whether the exposed tools changed. */
   enable(names: string[]): boolean {
     this.requireKnown(names);
+    const ungranted = names.filter((name) => !this.isGranted(name));
+    if (ungranted.length > 0) {
+      throw new WorkerError(
+        "GRANT_REQUIRED",
+        `This session's launch does not grant ${ungranted.join(", ")}; restart the adapter ` +
+          "with them in --domains",
+        { toolsets: ungranted },
+      );
+    }
     const next = new Set([...this.enabled, ...names]);
     const exposed = this.exposedCount(next);
     if (exposed > MAX_EXPOSED_TOOLS) {
@@ -307,6 +330,12 @@ export class ToolsetState {
       throw new WorkerError("TOOLSET_REQUIRED", "The core toolset cannot be disabled");
     }
     return this.replace(new Set([...this.enabled].filter((name) => !names.includes(name))));
+  }
+
+  private isGranted(toolset: string): boolean {
+    return (
+      toolset === REQUIRED_TOOLSET || this.domains.includes("all") || this.domains.includes(toolset)
+    );
   }
 
   private isEnabled(tool: string): boolean {

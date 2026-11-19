@@ -15,9 +15,17 @@ export interface WorkerOptions {
   inputRoots: string[];
   mediaToolsDirectory?: string;
   sharedRoots?: SharedRoot[];
+  /** Grant classes, always with inspect. */
+  grants: string[];
+  /** Granted toolsets, or ["all"]. */
+  domains: string[];
 }
 
 const SHARED_ROLES = new Set(["studio_palettes", "project_palettes", "library"]);
+const GRANT_CLASSES = new Set(["inspect", "draft", "file", "job"]);
+const TOOLSET_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+/** Today's full authority: what a session may do unless --grants narrows it. */
+export const DEFAULT_GRANTS = "inspect,draft,file,job";
 
 export interface DetachedOptions extends WorkerOptions {
   toolsets: string[];
@@ -72,13 +80,16 @@ function launchArguments(args: string[]) {
       "shared-write": { type: "string", multiple: true },
       "live-session": { type: "string" },
       toolsets: { type: "string" },
+      grants: { type: "string" },
+      domains: { type: "string" },
       "strict-results": { type: "boolean" },
     },
     strict: true,
     allowPositionals: false,
     tokens: true,
   });
-  for (const name of ["executable", "workspace", "media-tools", "live-session", "toolsets"]) {
+  const single = ["executable", "workspace", "media-tools", "live-session", "toolsets"];
+  for (const name of [...single, "grants", "domains"]) {
     if (tokens.filter((token) => token.kind === "option" && token.name === name).length > 1) {
       throw new Error(`Specify --${name} at most once`);
     }
@@ -104,13 +115,15 @@ const DETACHED_ONLY = [
   "shared-root",
   "shared-write",
   "toolsets",
+  "grants",
+  "domains",
 ] as const;
 
 function liveOptions(executable: string, values: LaunchArguments): LiveOptions {
   if (DETACHED_ONLY.some((name) => values[name] !== undefined)) {
     throw new Error(
       "--live-session cannot be combined with workspace, input-root, media-tools, " +
-        "shared-root, shared-write, or toolsets",
+        "shared-root, shared-write, toolsets, grants, or domains",
     );
   }
   const liveSession = values["live-session"];
@@ -125,12 +138,53 @@ function toolsetNames(value: string | undefined): string[] {
   const names = value.split(",");
   if (
     names.length > 64 ||
-    names.some((name) => !/^[a-z][a-z0-9-]{0,31}$/.test(name)) ||
+    names.some((name) => !TOOLSET_NAME.test(name)) ||
     new Set(names).size !== names.length
   ) {
     throw new Error("--toolsets must be a comma-separated list of distinct toolset names, or all");
   }
   return names;
+}
+
+function distinct(flag: string, value: string): string[] {
+  const names = value.split(",");
+  if (names.includes("") || new Set(names).size !== names.length) {
+    throw new Error(`${flag} must be a comma-separated list of distinct names`);
+  }
+  return names;
+}
+
+function grantNames(value: string = DEFAULT_GRANTS): string[] {
+  const grants = distinct("--grants", value);
+  const unknown = grants.filter((grant) => !GRANT_CLASSES.has(grant));
+  if (unknown.length > 0) {
+    throw new Error(`--grants names unknown grant classes: ${unknown.join(", ")}`);
+  }
+  if (!grants.includes("inspect")) throw new Error("--grants must contain inspect");
+  return grants.sort();
+}
+
+function domainNames(value = "all"): string[] {
+  const domains = distinct("--domains", value);
+  if (domains.includes("all") && domains.length > 1) {
+    throw new Error("--domains takes all alone or a list of toolset names");
+  }
+  if (domains.length > 64 || domains.some((name) => !TOOLSET_NAME.test(name))) {
+    throw new Error("--domains must name toolsets, or all");
+  }
+  return domains.sort();
+}
+
+/** Require the toolsets shown at start to be granted domains; "all" shows every granted one. */
+function grantedToolsets(toolsets: string[], domains: string[]): string[] {
+  if (domains.includes("all")) return toolsets;
+  const outside = toolsets.filter(
+    (name) => name !== "all" && name !== "core" && !domains.includes(name),
+  );
+  if (outside.length > 0) {
+    throw new Error(`--toolsets names toolsets outside --domains: ${outside.join(", ")}`);
+  }
+  return toolsets;
 }
 
 function overlapping(first: string, second: string): boolean {
@@ -193,11 +247,15 @@ async function detachedOptions(
   const inputRoots = await Promise.all(
     (values["input-root"] ?? []).map((root) => granted("--input-root", directory(root))),
   );
+  const grants = grantNames(values.grants);
+  const domains = domainNames(values.domains);
   const options: DetachedOptions = {
     executable,
     workspace,
     inputRoots: [...new Set(inputRoots)],
-    toolsets: toolsetNames(values.toolsets),
+    grants,
+    domains,
+    toolsets: grantedToolsets(toolsetNames(values.toolsets), domains),
     strictResults: values["strict-results"] === true,
   };
   if (values["media-tools"] !== undefined) {

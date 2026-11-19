@@ -242,7 +242,13 @@ posix("contains descendants even when no media tools were granted", async () => 
   const launcher = (await import(
     new URL("../dist/worker.js", import.meta.url).href
   )) as typeof import("#mcp/worker");
-  const connection = launcher.launchWorker({ executable, workspace, inputRoots: [] });
+  const connection = launcher.launchWorker({
+    executable,
+    workspace,
+    inputRoots: [],
+    grants: ["inspect"],
+    domains: ["core"],
+  });
   let identity: { port: number; pid: number } | undefined;
   try {
     const value = await connection.request("ready");
