@@ -195,6 +195,8 @@ const QHash<QString, Declaration>& declarations() {
        {kEdit, {"has_dependents", "locked", "missing_key", "not_found"}}},
       {"hook.inspect", {kInspect, {"unsupported_level"}}},
       {"hook.set", {kEdit, {"locked", "missing_drawing"}}},
+      {"journal.status",
+       {ToolEffects{"read", "none", {"reads_private"}, "none", {}, false}, {}}},
       {"job.cancel",
        {ToolEffects{"job_control", "none", {}, "controls", {}, true}, {}}},
       {"job.list", {kJobRead, {}}},
@@ -263,13 +265,20 @@ const QHash<QString, Declaration>& declarations() {
        {ToolEffects{"read", "none", {"reads_roots"}, "none", {}, false},
         {"invalid_path", "invalid_project", "io_error", "not_found",
          "path_denied", "resource_limit", "revision_conflict"}}},
+      {"operation.list",
+       {ToolEffects{"read", "none", {"reads_private"}, "none", {}, false},
+        {"journal_unavailable"}}},
+      {"operation.status",
+       {ToolEffects{"read", "none", {"reads_private"}, "none", {}, false},
+        {"journal_unavailable"}}},
       {"raster.export_png",
        {kExport,
         {"already_exists", "asset_unavailable", "io_error",
          "publication_unsupported"}}},
       {"raster.import_png",
        {kEditFromFile,
-        {"already_exists", "asset_unavailable", "unsupported_precision"}}},
+        {"already_exists", "asset_unavailable", "io_error",
+         "unsupported_precision"}}},
       {"raster.patch", {kEdit, {}}},
       {"raster.read_pixels", {kInspect, {"not_found", "unsupported_type"}}},
       {"render.capabilities", {kInspectWorker, {}}},
@@ -479,7 +488,9 @@ QStringList commonErrors(const ToolEffects& effects,
       inputs.contains("output_path"))
     result << "path_denied" << "invalid_path";
   if (!isWrite(effects)) return result;
-  result << "operation_conflict" << "partially_applied" << "resource_limit";
+  result << "operation_conflict" << "partially_applied" << "resource_limit"
+         << "operation_in_progress" << "operation_interrupted"
+         << "receipt_expired" << "journal_unavailable" << "journal_busy";
   if (inputs.contains("expected_revision")) result.append("revision_conflict");
   return result;
 }
@@ -490,25 +501,81 @@ QStringList commonErrors(const ToolEffects& effects,
                   " in toolDeclarations (automation_effects.cpp).");
 }
 
+// A write requires operation_id. A read may name one only to look it up
+// (operation.status), and is marked read-only where it was described.
 void requireConsistent(const QString& name, const ToolEffects& effects,
-                       const QJsonObject& inputSchema) {
-  const bool receipts = inputSchema.value("required")
+                       const QJsonObject& descriptor) {
+  const bool receipts = descriptor.value("inputSchema")
+                            .toObject()
+                            .value("required")
                             .toArray()
                             .contains(QJsonValue("operation_id"));
-  if (isRead(effects) == receipts)
-    undeclared(name, receipts
-                         ? "requires operation_id, so it needs a writing class"
-                         : "takes no operation_id, so it needs class read");
+  const bool readOnly = descriptor.value("annotations")
+                            .toObject()
+                            .value("readOnlyHint")
+                            .toBool(!receipts);
+  if (isRead(effects) != readOnly || (!readOnly && !receipts))
+    undeclared(name,
+               readOnly ? "is described read-only, so it needs class read"
+                        : "requires operation_id, so it needs a writing class");
+}
+
+// A write replayed from the workspace journal by a later worker carries a
+// receipt beside its recorded result, so every write's success shape admits
+// one.
+QJsonObject receiptSchema() {
+  const QJsonObject instance{
+      {"type", "string"}, {"minLength", 36}, {"maxLength", 36}};
+  return {{"type", "object"},
+          {"additionalProperties", false},
+          {"required", QJsonArray{"source", "recorded_by_worker",
+                                  "recorded_at_ms", "handles_expired"}},
+          {"properties",
+           QJsonObject{
+               {"source", QJsonObject{{"type", "string"},
+                                      {"enum", QJsonArray{"journal"}}}},
+               {"recorded_by_worker", instance},
+               {"recorded_at_ms", QJsonObject{{"type", "integer"},
+                                              {"minimum", 0},
+                                              {"maximum", 9007199254740991.0}}},
+               {"handles_expired", QJsonObject{{"type", "boolean"}}}}}};
+}
+
+QJsonObject withReceipt(QJsonObject success) {
+  if (success.contains("oneOf")) {
+    QJsonArray alternatives;
+    for (const QJsonValue& alternative : success.value("oneOf").toArray())
+      alternatives.append(withReceipt(alternative.toObject()));
+    success.insert("oneOf", alternatives);
+    return success;
+  }
+  if (!success.value("properties").isObject()) return success;
+  QJsonObject properties = success.value("properties").toObject();
+  properties.insert("receipt", receiptSchema());
+  success.insert("properties", properties);
+  return success;
+}
+
+QJsonObject receiptOutputSchema(QJsonObject descriptor) {
+  QJsonObject schema = descriptor.value("outputSchema").toObject();
+  QJsonArray shapes  = schema.value("oneOf").toArray();
+  if (shapes.isEmpty()) return descriptor;
+  shapes.replace(0, withReceipt(shapes.at(0).toObject()));
+  schema.insert("oneOf", shapes);
+  descriptor.insert("outputSchema", schema);
+  return descriptor;
 }
 
 }  // namespace
 
 QJsonObject declaredTool(QJsonObject descriptor, const ToolEffects& effects,
                          const QStringList& errors) {
+  if (isWrite(effects) && descriptor.contains("outputSchema"))
+    descriptor = receiptOutputSchema(descriptor);
   const QString name = descriptor.value("name").toString();
   const QJsonObject inputs =
       descriptor.value("inputSchema").toObject().value("properties").toObject();
-  requireConsistent(name, effects, descriptor.value("inputSchema").toObject());
+  requireConsistent(name, effects, descriptor);
   QStringList codes = commonErrors(effects, inputs);
   for (const QString& code : errors)
     if (!codes.contains(code)) codes.append(code);
@@ -719,6 +786,15 @@ QJsonObject capabilitiesResultSchema() {
        {"platform", runtimeFieldSchema("platform")},
        {"worker", runtimeFieldSchema("worker")},
        {"read_only_scenes", readOnlyScenesSchema()},
+       {"journal",
+        strictObject(
+            {{"available", QJsonObject{{"type", "boolean"}}},
+             {"state", enumSchema({"ok", "damaged", "unavailable"})},
+             {"format_version",
+              QJsonObject{
+                  {"type", "integer"}, {"minimum", 1}, {"maximum", 65535}}},
+             {"path", QJsonObject{{"type", "string"},
+                                  {"const", ".groundzero/journal"}}}})},
        {"authority", authoritySchema()}});
 }
 

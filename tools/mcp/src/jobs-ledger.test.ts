@@ -42,7 +42,7 @@ test("reports unknown after worker loss and keeps terminal outcomes", () => {
   expect(ledger.status("job_running", exit)).toMatchObject({
     status: "unknown",
     terminal: true,
-    worker_loss: exit,
+    worker_loss: { ...exit, reconcile_with: "operation.status" },
     last_observed_ms: 42,
     termination: { mode: null, forced_processes: [] },
   });

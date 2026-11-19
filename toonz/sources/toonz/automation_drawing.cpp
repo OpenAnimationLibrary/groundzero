@@ -212,10 +212,22 @@ QJsonObject imageSummary(TXshSimpleLevel* level, const TFrameId& frame) {
   return result;
 }
 
+// A native call that returns nothing can still refuse: the drawing is checked
+// to be in the level afterwards, and a refusal that changed nothing is not
+// reported as a partial change.
 void publish(Context& context, TXshSimpleLevel* level, const TFrameId& frame,
              const TImageP& image) {
+  const bool changed = context.mutationStarted();
   context.markMutationStarted();
-  level->setFrame(frame, image);
+  if (!writeFaultFires(context, "native:set-frame"))
+    level->setFrame(frame, image);
+  if (!level->isFid(frame) || !level->getFrame(frame, false)) {
+    if (!changed) context.resetMutationStarted();
+    throw Error("native_error",
+                "The native level did not take the drawing; nothing changed.",
+                {{"reason", "silent_refusal"},
+                 {"drawing", QString::fromStdString(frame.expand())}});
+  }
   level->touchFrame(frame);
 }
 
@@ -1299,7 +1311,8 @@ QString pngPath(Context& context, const QJsonObject& params, bool write) {
 
 constexpr qint64 MaxPngInputBytes = 256 * 1024 * 1024;
 
-QByteArray stagePng(const QString& source, QTemporaryFile& staged) {
+QByteArray stagePng(const Context& context, const QString& source,
+                    QTemporaryFile& staged) {
   QFile file;
   const auto opened = openApprovedFile(file, source);
   if (opened != OpenResult::Opened)
@@ -1314,7 +1327,8 @@ QByteArray stagePng(const QString& source, QTemporaryFile& staged) {
   QByteArray header;
   while (!file.atEnd()) {
     const QByteArray block = file.read(1024 * 1024);
-    if (block.isEmpty() || staged.write(block) != block.size())
+    if (block.isEmpty() || staged.write(block) != block.size() ||
+        writeFaultFires(context, "import:png-copy"))
       throw Error("io_error",
                   "Cannot stage PNG input: " + staged.errorString());
     if (header.size() < 33) header.append(block.left(33 - header.size()));
@@ -1351,7 +1365,7 @@ QJsonObject importPng(Context& context, Document& document,
     throw Error("resource_limit", "Level already has 4096 drawings");
   const QString path = pngPath(context, params, false);
   QTemporaryFile staged(context.runtimeDirectory + "/import-XXXXXX.png");
-  validatePngHeader(stagePng(path, staged));
+  validatePngHeader(stagePng(context, path, staged));
   TImageReaderP reader(TFilePath(staged.fileName().toStdWString()));
   const auto* info = reader->getImageInfo();
   if (!info || info->m_bitsPerSample > 8)

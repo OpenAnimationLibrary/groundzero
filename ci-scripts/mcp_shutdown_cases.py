@@ -229,7 +229,7 @@ def _preflight(case: NativeAcceptance, worker: Worker) -> dict[str, Any]:
     created = worker.call(
         "scene.create",
         {
-            "operation_id": "probe-scene",
+            "operation_id": f"probe-scene-{worker.process.pid}",
             "name": "Probe",
             "width_px": 32,
             "height_px": 32,

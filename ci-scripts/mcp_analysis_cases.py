@@ -411,9 +411,10 @@ def drawing_analysis_lost_worker(case: NativeAcceptance) -> None:
         case.executable, case.workspace, case.inputs, case.directory / "fresh.stderr.log"
     )
     case.addCleanup(fresh.close)
-    answer = fresh.call("job.status", {"job_id": job["job_id"]})
-    case.assertEqual(answer["error"]["code"], "unknown_job", answer)
-    case.assertEqual(answer["error"]["details"]["reason"], "other_worker")
+    lost = fresh.call("job.status", {"job_id": job["job_id"]})["result"]
+    case.assertEqual((lost["status"], lost["observed_by"]), ("unknown", "journal"))
+    case.assertEqual(lost["worker_loss"]["cause"], "worker_exit_unobserved")
+    case.assertTrue(lost["terminal"])
 
 
 @acceptance_case

@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_files.h"
+#include "automation_journal.h"
 #include "automation_path.h"
 
 #include "toonz/fxdag.h"
@@ -14,6 +15,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QUuid>
 
 #include <cmath>
@@ -233,11 +235,34 @@ Context::Context(QString workspacePath, QStringList inputRoots,
 
 Context::~Context() = default;
 
+// Why an id names no document here: issued by another worker of the
+// workspace (alive or not), or never issued.
+QJsonObject Context::missingDocument(const QString& id) const {
+  static const QRegularExpression issued(
+      "^document_([0-9a-f]{8})_[0-9a-f-]{36}$");
+  const QRegularExpressionMatch match = issued.match(id);
+  const QString prefix = match.hasMatch() ? match.captured(1) : QString();
+  if (prefix.isEmpty() || workerInstance.startsWith(prefix))
+    return {{"document_id", id}, {"reason", "not_issued"}};
+  QJsonObject details{{"document_id", id},
+                      {"reason", "other_worker"},
+                      {"worker_instance_id", prefix},
+                      {"worker_alive", QJsonValue()}};
+  const QString writer =
+      journal ? journal->writerWithPrefix(prefix) : QString();
+  if (!writer.isEmpty()) {
+    details.insert("worker_instance_id", writer);
+    details.insert("worker_alive", journal->writerAlive(writer));
+  }
+  return details;
+}
+
 Document& Context::document(const QString& id) {
   auto found = m_documents.find(id);
   if (found == m_documents.end())
     throw Error("document_not_found",
-                "The document handle is unknown or has expired.");
+                "The document handle is unknown or has expired.",
+                missingDocument(id));
   return *found->second;
 }
 
@@ -252,7 +277,12 @@ Document& Context::addDocument(std::unique_ptr<ToonzScene> scene) {
     throw Error("invalid_document", "Cannot register an empty scene.");
   requireDocumentCapacity();
   scene->setProject(m_project);
-  auto document    = std::make_unique<Document>(std::move(scene));
+  auto document = std::make_unique<Document>(std::move(scene));
+  // Ids name the worker that issued them, so an earlier worker's id is told
+  // apart from one that was never issued.
+  if (!workerInstance.isEmpty())
+    document->id = "document_" + workerInstance.left(8) + "_" +
+                   QUuid::createUuid().toString(QUuid::WithoutBraces);
   const QString id = document->id;
   auto inserted    = m_documents.emplace(id, std::move(document));
   return *inserted.first->second;
@@ -333,6 +363,14 @@ QString Context::resolvePath(const QString& path, bool write) const {
   const QString normalized = normalizedWorkerPath(path);
   const QString absolute =
       QDir::cleanPath(QDir(m_workspace).absoluteFilePath(normalized));
+  // The workspace journal is written only by the worker itself.
+  const QString reserved = QDir(m_workspace).filePath(".groundzero");
+  if (absolute.compare(reserved, Qt::CaseInsensitive) == 0 ||
+      absolute.startsWith(reserved + '/', Qt::CaseInsensitive))
+    throw Error("path_denied",
+                "Paths under .groundzero in the workspace are reserved for "
+                "the workspace journal.",
+                {{"reason", "reserved"}});
   QStringList roots{m_workspace};
   if (!write) roots.append(m_inputRoots);
   if (!allowedPath(absolute, absolute, roots))

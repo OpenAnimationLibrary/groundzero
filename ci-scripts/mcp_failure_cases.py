@@ -295,9 +295,14 @@ def render_worker_killed_mid_preview_then_new_worker(case: NativeAcceptance) -> 
     case.addCleanup(case.worker.close)
     case.assertEqual(case.success("automation.list_documents", {})["documents"], [])
     case.assertFalse(left.exists())
-    stale = case.failure("job.status", {"job_id": job})
-    case.assertEqual((stale["code"], stale["details"]["reason"]), ("unknown_job", "other_worker"))
-    case.assertEqual(case.failure("job.result", {"job_id": job})["code"], "unknown_job")
+    lost = case.success("job.status", {"job_id": job})
+    case.assertEqual((lost["status"], lost["observed_by"]), ("unknown", "journal"))
+    case.assertEqual(lost["worker_loss"]["cause"], "worker_exit_unobserved")
+    case.assertIs(lost["worker_loss"]["outputs_present"], False)
+    result = case.failure("job.result", {"job_id": job})
+    case.assertEqual(
+        (result["code"], result["details"]["reason"]), ("result_unavailable", "previous_worker")
+    )
     case.assertEqual(list(case.workspace.rglob("frame*.png")), [])
     fresh = _scene(case)
     png = case.preview(fresh)
@@ -710,7 +715,8 @@ def crash_during_save_verification_leaves_nothing(case: NativeAcceptance) -> Non
     case.assertEqual(successor.call("automation.list_documents", {})["result"]["documents"], [])
     case.assertEqual(list(workspace.rglob("macro-verify-*")), [])
     case.assertEqual(_staging(case), [])
-    case.assertEqual([path for path in workspace.iterdir() if path.name.startswith(".")], [])
+    hidden = [path.name for path in workspace.iterdir() if path.name.startswith(".")]
+    case.assertEqual(hidden, [".groundzero"], "only the workspace journal stays hidden")
 
 
 @acceptance_case

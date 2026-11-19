@@ -218,8 +218,54 @@ schemas describe their exact arguments and bounds. Frames start at zero. Native
 drawing numbers range from 1 to 65535 for vector levels and from 1 to 999999 for
 RGBA8 and Toonz raster levels; lowercase ASCII suffixes are preserved. Writes
 require an `operation_id`; changes to an existing document also require its latest
-`expected_revision`. Keep the original operation ID when checking a retry within
-the same worker. Receipts and document handles expire when that worker exits.
+`expected_revision`. Operation IDs must be unique within a workspace (use UUIDs):
+every write's admission and outcome are recorded in the workspace journal, so an
+exact retry returns the recorded result even in a later worker, and never runs
+twice. Document handles expire when their worker exits; a document ID names the
+worker that issued it (`document_<8 hex>_<uuid>`), and an earlier worker's ID is
+refused with `document_not_found`, `details.reason` `other_worker` (with
+`worker_instance_id` and `worker_alive`) or `not_issued`.
+
+### The workspace journal and durable receipts
+
+The worker keeps one journal per workspace in `<workspace>/.groundzero/journal`,
+shared by every worker on that workspace: append-only JSON-lines segments of at
+most 16 MiB, each line prefixed with the SHA-256 of its JSON, results over 32 KiB in
+`blobs/`, and damaged or torn data moved to `quarantine/`. Appends hold an
+operating-system file lock for one write; every record but a release is flushed to
+the disk before the step that depends on it, and a write's reply is sent only after
+its outcome is flushed. No tool reads or writes under `.groundzero`: such paths are
+refused with `path_denied`, `details.reason` `reserved`.
+
+- An exact retry of a write the journal holds returns the recorded result with
+  `receipt {source: "journal", recorded_by_worker, recorded_at_ms,
+  handles_expired}` (`handles_expired` is true when another worker recorded it, so
+  its document, job and object IDs are no longer usable), or the recorded error
+  with the same `receipt` in its details. A retry under different arguments or launch grants is
+  `operation_conflict` (`details.reason` `grant_changed` for the grants).
+- An operation another live worker admitted and has not finished is
+  `operation_in_progress`. One whose worker died before recording its outcome is
+  never run again: a retry is `operation_interrupted` with a `verdict`:
+  `lost_with_worker` (its change lived in that worker's memory), `not_published` or
+  `published`/`published_changed` (a file publication, checked against the digest
+  its intent recorded before the final rename), or `job_unknown`.
+- `operation.status {operation_id}` reports what the journal holds for one ID and
+  what a retry would do; `operation.list` lists operations newest first (default:
+  unresolved, meaning in progress or interrupted), paged with `before_seq`;
+  `journal.status` reports the format, size, retention, writers and whether they
+  are alive, the last start-up recovery and any damage. All three only read.
+- At start a worker reads the journal under its lock: a torn last line is cut off
+  into `quarantine/`, a segment with a damaged line is copied there and rewritten
+  without it (`state: "damaged"`; a lookup that finds nothing is then
+  `unknown_damaged`), operations and jobs of dead workers are reconciled, and old
+  settled operations beyond the newest 16,384 are compacted to stubs, whose retry
+  is `receipt_expired`.
+- When the journal cannot be written (`unsupported_volume` for a network file
+  system, `newer_format`, `lock_unavailable`, `io_error`, `flush_failed`) every
+  write is refused with `journal_unavailable` and reads still answer;
+  `automation.capabilities` reports `journal {available, state, format_version,
+  path}`. A write that cannot get the lock within 5 s is `journal_busy` and admits
+  nothing.
 
 The tool list stays small: each tool carries its name, description, input schema
 and annotations. The annotations follow from the tool's effects: `readOnlyHint`
@@ -822,8 +868,13 @@ worker retains at most 32 jobs per lane (`render_limit` for renders). A job id
 names the worker that issued it; an id a worker does not hold is refused with
 `unknown_job` and `details.reason` `other_worker`, `expired` (its read-only
 document was discarded) or `not_issued`. An exact retry of a job-starting call
-returns the same job; a new worker knows no earlier job or document, so a retry
-there returns `document_not_found` and starts nothing.
+returns the same job, in a later worker too (from the journal, with a `receipt`),
+and starts nothing. A job of an earlier worker that the journal records is answered
+by `job.status` and `job.list` with `observed_by: "journal"`: its last recorded
+state, or `unknown` with `worker_loss {cause: "worker_exit_unobserved",
+outputs_present}` when its worker died first; `job.result` for it is
+`artifacts_unavailable` or `result_unavailable` with `details.reason`
+`previous_worker`.
 
 `vector.inspect` returns each stroke's art `role` (`line_art`, `colour_art`, `underlay`
 or `overlay`, derived with the editor's rule: a stroke whose control points all have
@@ -946,17 +997,20 @@ finished one first. After the worker is lost, `job.status` and `job.list` answer
 from that record: jobs last seen running read `unknown`, terminal, with
 `worker_loss` `{cause, adapter_killed_worker, exit_code, signal}` (cause
 `worker_exit`, `request_timeout`, `client_disconnect` or `protocol_failure`) and,
-when the adapter killed the worker, a forced `worker` termination; `job.list` rows
-say `observed_by: "adapter_ledger"`. Finished jobs keep their status. Every other
-tool returns `WORKER_UNAVAILABLE`.
+when the adapter killed the worker, a forced `worker` termination, and
+`worker_loss.reconcile_with: "operation.status"`; `job.list` rows say
+`observed_by: "adapter_ledger"`. Finished jobs keep their status. Every other
+tool returns `WORKER_UNAVAILABLE`, whose details list the writes that were sent and
+not answered as `pending_operations [{tool, operation_id}]`.
 
 The worker allows at most 16 pending calls, 256 KiB per request, and 8 MiB per
 response. MCP responses are limited to 9 MiB including envelope headroom. Metadata above
 64 KiB uses a brief text summary and remains complete in `structuredContent`;
 image content retains its original bytes. A response timeout after 120 seconds,
 malformed output, or worker exit closes the worker and fails pending calls.
-A lost response can have an unknown outcome:
-inspect saved workspace state before starting another worker and replaying edits.
+A lost response can have an unknown outcome: do not replay writes in that session;
+start a new session on the same workspace and call `operation.status` for each
+pending `operation_id`.
 Diagnostics go to stderr; stdout is reserved for MCP. No network listener is used.
 
 Each MCP connection gets one native worker, started when the client first lists or
@@ -1077,7 +1131,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (118):
+- `core` toolset (121):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1089,16 +1143,17 @@ the adapter and the live editor bridge add the rest.
   `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`,
   `fx.macro.create`, `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`,
   `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`,
-  `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`, `job.status`, `level.create`,
-  `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
+  `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`, `job.status`, `journal.status`,
+  `level.create`, `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
   `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
   `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
-  `object.path.detach`, `palette.clone_style`, `palette.create_style`, `palette.inspect`,
-  `palette.page.create`, `palette.page.move`, `palette.page.remove`, `palette.page.rename`,
-  `palette.pages`, `palette.rename_style`, `palette.style.move`, `palette.update_style`,
-  `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`,
-  `raster.patch`, `raster.read_pixels`, `render.capabilities`, `render.preflight`,
-  `render.preview`, `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
+  `object.path.detach`, `operation.list`, `operation.status`, `palette.clone_style`,
+  `palette.create_style`, `palette.inspect`, `palette.page.create`, `palette.page.move`,
+  `palette.page.remove`, `palette.page.rename`, `palette.pages`, `palette.rename_style`,
+  `palette.style.move`, `palette.update_style`, `project.inspect`, `project.list`,
+  `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
+  `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
+  `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
   `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
   `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
   `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,

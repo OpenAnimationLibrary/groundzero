@@ -11935,7 +11935,8 @@
             "observed_by": {
               "enum": [
                 "worker",
-                "adapter_ledger"
+                "adapter_ledger",
+                "journal"
               ],
               "type": "string"
             },
@@ -13806,6 +13807,13 @@
             "required": [],
             "type": "object"
           },
+          "observed_by": {
+            "enum": [
+              "worker",
+              "journal"
+            ],
+            "type": "string"
+          },
           "operation_id": {
             "maxLength": 128,
             "minLength": 1,
@@ -14394,6 +14402,13 @@
             "required": [],
             "type": "object"
           },
+          "observed_by": {
+            "enum": [
+              "worker",
+              "journal"
+            ],
+            "type": "string"
+          },
           "operation_id": {
             "maxLength": 128,
             "minLength": 1,
@@ -14607,6 +14622,392 @@
         ],
         "type": "object"
       }
+    ],
+    "type": "object"
+  },
+  "journal.status": {
+    "additionalProperties": false,
+    "properties": {
+      "available": {
+        "type": "boolean"
+      },
+      "blob_bytes": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "damage": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "first_seq": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "last_seq": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "segment": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "segment",
+            "first_seq",
+            "last_seq"
+          ],
+          "type": "object"
+        },
+        "maxItems": 16,
+        "minItems": 0,
+        "type": "array"
+      },
+      "format_version": {
+        "maximum": 65535,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "horizon": {
+        "additionalProperties": false,
+        "properties": {
+          "recorded_at_ms": {
+            "oneOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seq": {
+            "oneOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "seq",
+          "recorded_at_ms"
+        ],
+        "type": "object"
+      },
+      "last_recovery": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "at_seq": {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "by_worker": {
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+              },
+              "quarantined_segments": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "bytes": {
+                      "maximum": 16777216,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "first_seq": {
+                      "oneOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "last_seq": {
+                      "oneOf": [
+                        {
+                          "maximum": 9007199254740991,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "name": {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "first_seq",
+                    "last_seq",
+                    "bytes"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 16,
+                "minItems": 0,
+                "type": "array"
+              },
+              "reconciled_jobs": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reconciled_operations": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "registered_packages": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "truncated_tail_bytes": {
+                "maximum": 65536,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "by_worker",
+              "at_seq",
+              "truncated_tail_bytes",
+              "quarantined_segments",
+              "reconciled_operations",
+              "reconciled_jobs",
+              "registered_packages"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "limits": {
+        "additionalProperties": false,
+        "properties": {
+          "blob_bytes": {
+            "maximum": 8388608,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "full_receipts": {
+            "maximum": 16384,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "jobs": {
+            "maximum": 4096,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "journal_bytes": {
+            "maximum": 1073741824,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "lock_wait_ms": {
+            "maximum": 5000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "outcome_lock_wait_ms": {
+            "maximum": 30000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "package_manifest_bytes": {
+            "maximum": 536870912,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "packages": {
+            "maximum": 4096,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "receipt_stubs": {
+            "maximum": 262144,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "record_line_bytes": {
+            "maximum": 65536,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "segment_bytes": {
+            "maximum": 16777216,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "segment_bytes",
+          "record_line_bytes",
+          "blob_bytes",
+          "journal_bytes",
+          "full_receipts",
+          "receipt_stubs",
+          "packages",
+          "package_manifest_bytes",
+          "jobs",
+          "lock_wait_ms",
+          "outcome_lock_wait_ms"
+        ],
+        "type": "object"
+      },
+      "path": {
+        "const": ".groundzero/journal"
+      },
+      "retained": {
+        "additionalProperties": false,
+        "properties": {
+          "full_receipts": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "jobs": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "packages": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receipt_stubs": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "full_receipts",
+          "receipt_stubs",
+          "packages",
+          "jobs"
+        ],
+        "type": "object"
+      },
+      "segment_bytes": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "segments": {
+        "maximum": 4096,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "state": {
+        "enum": [
+          "ok",
+          "damaged",
+          "unavailable"
+        ],
+        "type": "string"
+      },
+      "unavailable_reason": {
+        "oneOf": [
+          {
+            "enum": [
+              "newer_format",
+              "unsupported_volume",
+              "lock_unavailable",
+              "io_error",
+              "flush_failed"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "writers": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alive": {
+              "type": "boolean"
+            },
+            "current": {
+              "type": "boolean"
+            },
+            "started_at_ms": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "worker_instance_id": {
+              "maxLength": 36,
+              "minLength": 36,
+              "type": "string"
+            }
+          },
+          "required": [
+            "worker_instance_id",
+            "current",
+            "alive",
+            "started_at_ms"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "writers_total": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "available",
+      "state",
+      "unavailable_reason",
+      "format_version",
+      "path",
+      "segments",
+      "segment_bytes",
+      "blob_bytes",
+      "limits",
+      "retained",
+      "horizon",
+      "writers",
+      "writers_total",
+      "last_recovery",
+      "damage"
     ],
     "type": "object"
   },
@@ -17807,6 +18208,505 @@
       "layer",
       "operation_id",
       "revision"
+    ],
+    "type": "object"
+  },
+  "operation.list": {
+    "additionalProperties": false,
+    "properties": {
+      "complete": {
+        "type": "boolean"
+      },
+      "horizon_seq": {
+        "oneOf": [
+          {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "journal_state": {
+        "enum": [
+          "ok",
+          "damaged",
+          "unavailable"
+        ],
+        "type": "string"
+      },
+      "next_before_seq": {
+        "oneOf": [
+          {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "operations": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "admitted_seq": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "authority_matches": {
+              "type": "boolean"
+            },
+            "document_id": {
+              "oneOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "method": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "operation_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "recorded_at_ms": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "recorded_by": {
+              "additionalProperties": false,
+              "properties": {
+                "alive": {
+                  "type": "boolean"
+                },
+                "current": {
+                  "type": "boolean"
+                },
+                "worker_instance_id": {
+                  "maxLength": 36,
+                  "minLength": 36,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "worker_instance_id",
+                "current",
+                "alive"
+              ],
+              "type": "object"
+            },
+            "state": {
+              "enum": [
+                "completed",
+                "failed",
+                "in_progress",
+                "interrupted",
+                "expired"
+              ],
+              "type": "string"
+            },
+            "verdict_kind": {
+              "oneOf": [
+                {
+                  "enum": [
+                    "lost_with_worker",
+                    "not_published",
+                    "published",
+                    "published_changed",
+                    "job_unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "operation_id",
+            "method",
+            "state",
+            "recorded_by",
+            "admitted_seq",
+            "recorded_at_ms",
+            "document_id",
+            "verdict_kind",
+            "authority_matches"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "scanned": {
+        "maximum": 262144,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "operations",
+      "next_before_seq",
+      "scanned",
+      "complete",
+      "horizon_seq",
+      "journal_state"
+    ],
+    "type": "object"
+  },
+  "operation.status": {
+    "additionalProperties": false,
+    "properties": {
+      "admitted_seq": {
+        "oneOf": [
+          {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "arguments_sha256": {
+        "oneOf": [
+          {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "authority_matches": {
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "document_id": {
+        "oneOf": [
+          {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "journal": {
+        "additionalProperties": false,
+        "properties": {
+          "horizon_seq": {
+            "oneOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "ok",
+              "damaged",
+              "unavailable"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "horizon_seq"
+        ],
+        "type": "object"
+      },
+      "method": {
+        "oneOf": [
+          {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "operation_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "outcome": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "oneOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "job_id": {
+                "oneOf": [
+                  {
+                    "maxLength": 80,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "receipt_bytes": {
+                "maximum": 8388608,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "revision": {
+                "oneOf": [
+                  {
+                    "maxLength": 80,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "revision",
+              "job_id",
+              "receipt_bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "recorded_at_ms": {
+        "oneOf": [
+          {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "recorded_by": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "alive": {
+                "type": "boolean"
+              },
+              "current": {
+                "type": "boolean"
+              },
+              "worker_instance_id": {
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+              }
+            },
+            "required": [
+              "worker_instance_id",
+              "current",
+              "alive"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "retry": {
+        "enum": [
+          "returns_recorded_result",
+          "returns_recorded_error",
+          "refused_in_progress",
+          "refused_interrupted",
+          "refused_expired",
+          "executes"
+        ],
+        "type": "string"
+      },
+      "state": {
+        "enum": [
+          "completed",
+          "failed",
+          "in_progress",
+          "interrupted",
+          "expired",
+          "not_found",
+          "unknown_damaged"
+        ],
+        "type": "string"
+      },
+      "verdict": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "evidence": {
+                "additionalProperties": false,
+                "properties": {
+                  "expected_sha256": {
+                    "oneOf": [
+                      {
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[0-9a-f]{64}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "found": {
+                    "enum": [
+                      "absent",
+                      "matches",
+                      "differs",
+                      "not_applicable"
+                    ],
+                    "type": "string"
+                  },
+                  "job_id": {
+                    "oneOf": [
+                      {
+                        "maxLength": 80,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "outputs_present": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "target": {
+                    "oneOf": [
+                      {
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "target",
+                  "expected_sha256",
+                  "found",
+                  "job_id",
+                  "outputs_present"
+                ],
+                "type": "object"
+              },
+              "kind": {
+                "enum": [
+                  "lost_with_worker",
+                  "not_published",
+                  "published",
+                  "published_changed",
+                  "job_unknown"
+                ],
+                "type": "string"
+              },
+              "reconciled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "reconciled",
+              "evidence"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "operation_id",
+      "state",
+      "method",
+      "authority_matches",
+      "arguments_sha256",
+      "recorded_by",
+      "admitted_seq",
+      "recorded_at_ms",
+      "document_id",
+      "outcome",
+      "verdict",
+      "retry",
+      "journal"
     ],
     "type": "object"
   },

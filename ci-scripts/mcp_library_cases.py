@@ -273,7 +273,12 @@ def shared_parser_failures_leave_worker_serving(case: NativeAcceptance) -> None:
             case,
             worker,
             "scene.create",
-            {"operation_id": "survivor", "name": "Survivor", "width_px": 32, "height_px": 32},
+            {
+                "operation_id": f"survivor-{fault}",
+                "name": "Survivor",
+                "width_px": 32,
+                "height_px": 32,
+            },
         )
         params = {"kind": "template", "name": "Valid"}
         _contained(case, worker, "library.inspect", params, ("invalid_library_item", cause))

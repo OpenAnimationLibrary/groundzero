@@ -77,6 +77,25 @@ test.each(["malformed", "utf8", "oversized", "unknown", "ambiguous", "exit"])(
   },
 );
 
+test("pending operations are listed on worker loss", async () => {
+  const connection = connect("stall", 200);
+  const lost = {
+    code: "WORKER_UNAVAILABLE",
+    details: {
+      outcome_unknown: true,
+      pending_operations: [{ tool: "scene.save_copy", operation_id: "save-1" }],
+    },
+  };
+  const write = connection.request("scene.save_copy", { operation_id: "save-1" });
+  const read = connection.request("scene.summary", { document_id: "document_a" });
+  await expect(write).rejects.toMatchObject(lost);
+  await expect(read).rejects.toMatchObject(lost);
+  const later = connection.request("scene.create", { operation_id: "later" });
+  await expect(later).rejects.toMatchObject(lost);
+  const failure: unknown = await later.catch((error: unknown) => error);
+  expect(JSON.stringify(failure)).toContain("operation.status");
+});
+
 test("times out a hung worker and rejects subsequent requests", async () => {
   const connection = connect("stall", 200);
   await expect(connection.request("write")).rejects.toMatchObject({ code: "WORKER_UNAVAILABLE" });

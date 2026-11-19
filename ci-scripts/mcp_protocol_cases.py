@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 ELAPSED = re.compile(r"\"elapsed_ms\": [0-9]+")
 # Job and artifact ids start with their worker instance's first eight digits.
-WORKER_PREFIX = re.compile(r"\b(job|artifact)_[0-9a-f]{8}_")
+WORKER_PREFIX = re.compile(r"\b(job|artifact|document)_[0-9a-f]{8}_")
 CLOCK_FIELDS = {"submitted_ms", "started_ms", "ended_ms", "requested_ms"}
 # A render snapshot package's manifest names the worker's own paths.
 MANIFEST = re.compile(r"\"snapshot_manifest_sha256\": \"[0-9a-f]{64}\"")

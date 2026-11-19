@@ -8,7 +8,9 @@
 #include "automation_path.h"
 #include "automation_audio.h"
 #include "automation_hook.h"
+#include "automation_files.h"
 #include "automation_jobs.h"
+#include "automation_journal.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
 #include "automation_shared.h"
@@ -218,6 +220,17 @@ void validate(const QJsonValue& value, const QJsonObject& schema,
   if (value.isDouble()) validateNumber(value.toDouble(), schema, path);
 }
 
+// The effect class of a writing tool: publication when it writes outside the
+// worker's private folders, job when it starts a job, memory otherwise.
+QString effectClass(const QJsonObject& descriptor) {
+  const QJsonObject effects = descriptor.value("effects").toObject();
+  const QJsonArray files    = effects.value("files").toArray();
+  if (files.contains("writes_caller_path") ||
+      files.contains("writes_shared_roots"))
+    return "publication";
+  return effects.value("job") == "starts" ? "job" : "memory";
+}
+
 QJsonObject asObject(const QJsonValue& value) {
   return value.isObject() ? value.toObject() : QJsonObject{{"data", value}};
 }
@@ -422,6 +435,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(runtimeOperations(), executeRuntime, "core");
   add(jobOperations(), executeJobs, "core");
   add(persistenceOperations(), executePersistence, "core");
+  add(journalOperations(), executeJournal, "core");
   add(productionOperations(), executeProduction, "core");
   add(sceneCheckOperations(), executeSceneCheck, "core");
   add(textOperations(), executeText, "core");
@@ -534,7 +548,10 @@ QJsonValue Dispatcher::execute(const QString& method,
                             .toObject()
                             .value("readOnlyHint")
                             .toBool();
-  if (!readOnly) return executeWrite(entry, method, params);
+  if (!readOnly) {
+    recordJobOutcomes();
+    return executeWrite(entry, method, params);
+  }
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
            0);
   const QJsonValue result = invoke(entry, method, params);
@@ -552,16 +569,18 @@ QJsonValue Dispatcher::invoke(const Entry& entry, const QString& method,
   return callHandler(entry.handler, m_context, method, params);
 }
 
+// The receipt key: the arguments digest covers {method, params}; the
+// fingerprint also covers the launch authority. The worker instance is
+// recorded beside them, never hashed, so a later worker can match a retry.
 Dispatcher::Receipt Dispatcher::receiptKey(const QString& method,
                                            const QJsonObject& params) const {
   const auto digest = [&](const QJsonObject& key) {
     return QCryptographicHash::hash(
-        QJsonDocument(key).toJson(QJsonDocument::Compact),
-        QCryptographicHash::Sha256);
+               QJsonDocument(key).toJson(QJsonDocument::Compact),
+               QCryptographicHash::Sha256)
+        .toHex();
   };
-  const QJsonObject request{{"method", method},
-                            {"params", params},
-                            {"worker_instance_id", m_instance}};
+  const QJsonObject request{{"method", method}, {"params", params}};
   QJsonObject bound = request;
   bound.insert("authority_digest", m_authorityDigest);
   return {digest(bound), digest(request), {}};
@@ -606,6 +625,7 @@ QJsonObject Dispatcher::capabilities(const QJsonObject& params) const {
       {"platform", runtimePlatform()},
       {"isolation", "private_process"},
       {"read_only_scenes", readOnlyCapabilities(m_context)},
+      {"journal", journalCapability(m_context)},
       {"authority", authorityReport(m_context)}};
 }
 
@@ -639,32 +659,180 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   auto cached = m_receipts.constFind(operationId);
   if (cached != m_receipts.constEnd())
     return replayReceipt(cached.value(), key);
+  QScopedValueRollback<QString> current(m_context.writeOperation, operationId);
+  Journal* journal = workspaceJournal(m_context);
+  if (journal) {
+    journal->refresh();
+    if (const JournalOperation* recorded = journal->find(operationId))
+      return replayJournal(*journal, *recorded, key);
+    if (!journal->available())
+      throw Error("journal_unavailable",
+                  "The workspace journal cannot be written, so no write is "
+                  "admitted; inspect journal.status.",
+                  {{"reason", journal->unavailableReason()}});
+  }
   const QString jobId = params.value("job_id").toString();
   const bool control = method == "job.cancel" && !m_controlJobs.contains(jobId);
   const QString controlJob = control ? jobId : QString();
   checkReceiptCapacity(control);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
            0);
+  const quint64 revision   = checkRevision(params);
+  const QString writeClass = effectClass(entry.descriptor);
+  if (journal && !admit(*journal, method, params, key, writeClass))
+    return replayJournal(*journal, *journal->find(operationId), key);
   m_context.resetMutationStarted();
+  QScopedValueRollback<QString> writing(m_context.writeClass, writeClass);
   try {
-    QJsonObject result = applyWrite(entry, method, params);
+    QJsonObject result = applyWrite(entry, method, params, revision);
     checkResultSize(result, control);
 #ifdef BUILD_UI_PORT_TESTS
     checkResult(entry.descriptor, result);
 #endif
     key.response = {{"result", result}};
+    recordOutcome(journal, operationId, key.response);
     rememberReceipt(operationId, key, controlJob);
+    if (writeClass == "job") recordJobStart(journal, operationId, result);
+    writeFaultFires(m_context, "journal:outcome");
     return result;
   } catch (const Error& error) {
     if (m_context.mutationStarted() || m_context.failureRecorded()) {
       const Error recorded =
           boundedControlError(error, operationId, controlJob);
       key.response = {{"error", errorObject(recorded)}};
+      recordOutcome(journal, operationId, key.response);
       rememberReceipt(operationId, key, controlJob);
       throw recorded;
     }
+    if (journal) journal->release(operationId);
     throw;
   }
+}
+
+void Dispatcher::recordJobStart(Journal* journal, const QString& operationId,
+                                const QJsonObject& result) {
+  if (!journal || !result.value("job_id").isString()) return;
+  QJsonObject record = result;
+  record.remove("receipt");
+  journal->recordJob({{"job_id", result.value("job_id")},
+                      {"operation_id", operationId},
+                      {"record", record}});
+}
+
+void Dispatcher::recordJobOutcomes() {
+  Journal* journal = workspaceJournal(m_context);
+  if (!journal || !journal->available() || !m_context.jobs) return;
+  for (const auto& job : m_context.jobs->jobs()) {
+    const QString id = job->id();
+    if (!job->terminal() || m_journaledJobs.contains(id)) continue;
+    m_journaledJobs.insert(id);
+    const QJsonObject* admitted = journal->job(id);
+    if (!admitted) continue;
+    writeFaultFires(m_context, "journal:job-terminal");
+    journal->recordJob({{"job_id", id},
+                        {"operation_id", admitted->value("operation_id")},
+                        {"record", job->record()}});
+  }
+}
+
+bool Dispatcher::admit(Journal& journal, const QString& method,
+                       const QJsonObject& params, const Receipt& key,
+                       const QString& writeClass) {
+  writeFaultFires(m_context, "journal:before-admit");
+  const QJsonValue document = params.value("document_id");
+  const QJsonValue expected = params.value("expected_revision");
+  const bool admitted       = journal.admit(
+      {{"operation_id", params.value("operation_id")},
+       {"arguments_sha256", QString::fromLatin1(key.request)},
+       {"authority_digest", m_authorityDigest},
+       {"method", method},
+       {"document_id", document.isString() ? document : QJsonValue()},
+       {"expected_revision", expected.isString() ? expected : QJsonValue()},
+       {"effect_class", writeClass}});
+  if (admitted) writeFaultFires(m_context, "journal:admit");
+  return admitted;
+}
+
+// The reply waits for the outcome on disk. When it cannot be recorded the
+// change still stands and is returned; the journal is then unavailable to
+// this worker, and a later worker reconciles the operation as interrupted.
+void Dispatcher::recordOutcome(Journal* journal, const QString& operationId,
+                               const QJsonObject& response) {
+  writeFaultFires(m_context, "journal:handler");
+  if (!journal) return;
+  const QJsonObject result = response.value("result").toObject();
+  const QJsonObject error  = response.value("error").toObject();
+  const QJsonValue revision =
+      result.contains("revision")
+          ? result.value("revision")
+          : error.value("details").toObject().value("revision");
+  const QJsonValue job = result.value("job_id");
+  journal->outcome(
+      operationId, response,
+      {{"code", error.isEmpty() ? QJsonValue() : error.value("code")},
+       {"revision", revision.isString() ? revision : QJsonValue()},
+       {"job_id", job.isString() ? job : QJsonValue()}});
+}
+
+// An exact retry of an operation the journal holds but this worker's memory
+// does not: the recorded result or error, never a second execution.
+QJsonObject Dispatcher::replayJournal(Journal& journal,
+                                      const JournalOperation& operation,
+                                      const Receipt& key) {
+  if (operation.argumentsSha256 != QString::fromLatin1(key.request))
+    throw Error("operation_conflict",
+                "operation_id was already used for a different request.");
+  if (operation.authorityDigest != m_authorityDigest)
+    throw Error("operation_conflict",
+                "operation_id was used under a different launch authority; "
+                "use a new operation_id.",
+                {{"reason", "grant_changed"}});
+  const QJsonObject recordedBy{
+      {"worker_instance_id", operation.writer},
+      {"current", operation.writer == m_instance},
+      {"alive", journal.writerAlive(operation.writer)}};
+  if (!operation.stubState.isEmpty())
+    throw Error("receipt_expired",
+                "Only a summary of this operation is kept; inspect the "
+                "document or files it named and use a new operation_id.",
+                {{"state", operation.stubState},
+                 {"method", operation.method},
+                 {"document_id", operation.documentId.isEmpty()
+                                     ? QJsonValue()
+                                     : QJsonValue(operation.documentId)}});
+  if (!operation.outcome.isEmpty()) return recordedResponse(journal, operation);
+  if (recordedBy.value("alive").toBool())
+    throw Error("operation_in_progress",
+                "Another worker admitted this operation and has not recorded "
+                "its outcome; ask operation.status later.",
+                {{"recorded_by", recordedBy}});
+  const JournalOperation copy  = operation;
+  const JournalVerdict verdict = journal.reconcile(copy);
+  throw Error("operation_interrupted",
+              "The worker that ran this operation ended before recording its "
+              "outcome; it is never run again. Inspect what the verdict names "
+              "and use a new operation_id.",
+              {{"verdict", verdict}, {"recorded_by", recordedBy}});
+}
+
+QJsonObject Dispatcher::recordedResponse(Journal& journal,
+                                         const JournalOperation& operation) {
+  const QJsonObject response = journal.response(operation);
+  const QJsonObject receipt{
+      {"source", "journal"},
+      {"recorded_by_worker", operation.writer},
+      {"recorded_at_ms", operation.outcome.value("t")},
+      {"handles_expired", operation.writer != m_instance}};
+  if (response.contains("error")) {
+    const QJsonObject error = response.value("error").toObject();
+    QJsonObject details     = error.value("details").toObject();
+    details.insert("receipt", receipt);
+    throw Error(error.value("code").toString(),
+                error.value("message").toString(), details);
+  }
+  QJsonObject result = response.value("result").toObject();
+  result.insert("receipt", receipt);
+  return result;
 }
 
 void Dispatcher::checkReceiptCapacity(bool control) const {
@@ -719,9 +887,9 @@ quint64 Dispatcher::checkRevision(const QJsonObject& params) const {
 }
 
 QJsonObject Dispatcher::applyWrite(const Entry& entry, const QString& method,
-                                   const QJsonObject& params) {
-  const QString documentId = params.value("document_id").toString();
-  const quint64 revision   = checkRevision(params);
+                                   const QJsonObject& params,
+                                   quint64 revision) {
+  const QString documentId   = params.value("document_id").toString();
   const bool mutatesDocument = advancesRevision(entry.descriptor);
   try {
     QJsonObject result     = asObject(invoke(entry, method, params));

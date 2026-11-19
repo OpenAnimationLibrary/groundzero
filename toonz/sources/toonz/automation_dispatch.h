@@ -13,10 +13,17 @@ namespace GroundzeroAutomation {
 // nothing else, so a native operation that breaks this cannot be registered.
 void requirePlainInputSchema(const QJsonObject& descriptor);
 
+class Journal;
+struct JournalOperation;
+
 class Dispatcher final {
 public:
   explicit Dispatcher(Context& context);
   QJsonObject dispatch(const QJsonObject& request);
+  // Appends the terminal record of every job of this worker that ended since
+  // its last record. Runs on the application thread: before each request, on
+  // a one-second timer, and at teardown.
+  void recordJobOutcomes();
 
 private:
 #ifdef BUILD_UI_PORT_TESTS
@@ -28,8 +35,8 @@ private:
     QJsonObject descriptor;
     Handler handler;
   };
-  // fingerprint covers the request, the launch authority and the worker
-  // instance; request covers the request and the instance alone.
+  // fingerprint is the SHA-256 (hex) of the request and the launch
+  // authority; request is that of {method, params} alone.
   struct Receipt {
     QByteArray fingerprint;
     QByteArray request;
@@ -52,7 +59,17 @@ private:
   QJsonObject executeWrite(const Entry& entry, const QString& method,
                            const QJsonObject& params);
   QJsonObject applyWrite(const Entry& entry, const QString& method,
-                         const QJsonObject& params);
+                         const QJsonObject& params, quint64 revision);
+  bool admit(Journal& journal, const QString& method, const QJsonObject& params,
+             const Receipt& key, const QString& writeClass);
+  void recordOutcome(Journal* journal, const QString& operationId,
+                     const QJsonObject& response);
+  void recordJobStart(Journal* journal, const QString& operationId,
+                      const QJsonObject& result);
+  QJsonObject replayJournal(Journal& journal, const JournalOperation& operation,
+                            const Receipt& key);
+  QJsonObject recordedResponse(Journal& journal,
+                               const JournalOperation& operation);
   void finishRevision(QJsonObject& result, const QString& documentId,
                       quint64 revision);
   Context& m_context;
@@ -61,6 +78,8 @@ private:
   QHash<QString, Entry> m_entries;
   QHash<QString, Receipt> m_receipts;
   QSet<QString> m_controlJobs;
+  // Jobs whose terminal record is in the journal.
+  QSet<QString> m_journaledJobs;
   qint64 m_receiptBytes = 0;
   QJsonArray m_catalog;
   QMap<QString, QStringList> m_toolsets;

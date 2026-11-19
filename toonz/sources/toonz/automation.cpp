@@ -2,6 +2,7 @@
 #include "automation_build_identity.h"
 #include "automation_drawing_analysis.h"
 #include "automation_jobs.h"
+#include "automation_journal.h"
 #include "automation_dispatch.h"
 #include "automation_activity.h"
 #include "automation_files.h"
@@ -45,6 +46,7 @@
 #include <QSemaphore>
 #include <QSettings>
 #include <QThread>
+#include <QTimer>
 #include <QUuid>
 
 #include <algorithm>
@@ -113,8 +115,11 @@ struct Options {
   QString childFault;
   QString renderFault;
   QString writeFault;
+  QString writeFaultMode = "fail";
   QStringList pathSwap;
   QStringList publishFaults;
+  bool smallJournal = false;
+  QString faultOperation;
 #endif
 };
 
@@ -326,6 +331,20 @@ void validateWorkerInstance(const Options& options) {
                 "--worker-epoch milliseconds; a worker takes neither.");
 }
 
+#ifdef BUILD_UI_PORT_TESTS
+// --test-write-fault POINT[:MODE]: MODE fail (the default) makes the step throw
+// its typed error, crash ends the process at that point.
+void setWriteFault(Options& options, const QString& value) {
+  options.writeFault = value;
+  for (const QString& mode :
+       {QString("fail"), QString("crash"), QString("hold")})
+    if (value.endsWith(':' + mode)) {
+      options.writeFault.chop(mode.size() + 1);
+      options.writeFaultMode = mode;
+    }
+}
+#endif
+
 Options parseOptions(const QStringList& arguments) {
   Options options;
   for (int index = 2; index < arguments.size(); ++index) {
@@ -348,7 +367,17 @@ Options parseOptions(const QStringList& arguments) {
       continue;
     }
     if (key == "--test-write-fault" && index + 1 < arguments.size()) {
-      options.writeFault = arguments[++index];
+      setWriteFault(options, arguments[++index]);
+      continue;
+    }
+    if (key == "--test-fault-operation" && index + 1 < arguments.size()) {
+      options.faultOperation = arguments[++index];
+      continue;
+    }
+    if (key == "--test-journal-limits" && index + 1 < arguments.size() &&
+        arguments[index + 1] == "small") {
+      options.smallJournal = true;
+      ++index;
       continue;
     }
     if (key == "--test-publish-fault" && index + 1 < arguments.size()) {
@@ -665,6 +694,7 @@ int domainTestResult(Context& context) {
     runAutomationSceneHostTests(context);
     runAutomationRuntimeTests(context);
     runAutomationJobsTests(context);
+    runAutomationJournalTests(context);
     runAutomationSceneCheckTests(context);
     runAutomationSheetRecordTests(context);
     runAutomationCellsTests(context);
@@ -707,6 +737,24 @@ int executeDomainTests(QApplication& application, Context& context) {
   return result;
 }
 #endif
+
+// Opens the workspace journal of a worker, after the sweep of dead workers'
+// runtime folders and before the first request.
+void openJournal(Context& context, const Options& options,
+                 const QString& runtime) {
+  Journal::Start start;
+  start.workspace       = context.workspace();
+  start.instance        = jobRegistry(context).instance();
+  start.runtimeName     = QFileInfo(runtime).fileName();
+  start.authorityDigest = authorityReport(context).value("digest").toString();
+  start.faults          = &context;
+#ifdef BUILD_UI_PORT_TESTS
+  if (options.smallJournal) start.limits = JournalLimits::small();
+#else
+  Q_UNUSED(options);
+#endif
+  context.journal = Journal::open(start);
+}
 
 // What a worker must finish before its process ends, in order, within the
 // shutdown deadline armed when its input ended:
@@ -758,6 +806,8 @@ int executeWorker(QApplication& application, QFile& output,
                            : options.childFault;
   context.renderFault = options.renderFault;
   context.writeFault  = options.writeFault;
+  context.writeFaultMode = options.writeFaultMode;
+  context.faultOperation = options.faultOperation;
   context.pathSwap    = options.pathSwap;
   armPublishFaults(options.publishFaults);
   setMacroVerifyCrash(options.writeFault == "macro_verify_crash");
@@ -781,8 +831,14 @@ int executeWorker(QApplication& application, QFile& output,
   sweepAbandonedRenders(context);
   JobRegistry& jobs = jobRegistry(context);
   prefetchBuildIdentity();
-  Dispatcher dispatcher(context);
   const bool host = !context.sceneHostDocument.isEmpty();
+  if (!host) openJournal(context, options, runtime);
+  Dispatcher dispatcher(context);
+  // Jobs that end between requests get their terminal record within a second.
+  QTimer jobRecords;
+  QObject::connect(&jobRecords, &QTimer::timeout, &application,
+                   [&dispatcher]() { dispatcher.recordJobOutcomes(); });
+  if (!host) jobRecords.start(1000);
   QMutex outputLock;
   // A poll answer is as fresh as the last request this process answered or
   // the last time its application thread went idle, whichever is later.
@@ -827,7 +883,9 @@ int executeWorker(QApplication& application, QFile& output,
   reader.eventLoopReturned();
   serving        = false;
   const int code = result != 0 ? result : reader.exitCode();
-  tearDownWorker(context, [&pollLock, &answering, &publishing]() {
+  jobRecords.stop();
+  tearDownWorker(context, [&pollLock, &answering, &publishing, &dispatcher]() {
+    dispatcher.recordJobOutcomes();
     QMutexLocker polls(&pollLock);
     answering = false;
     QObject::disconnect(publishing);

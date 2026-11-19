@@ -10,6 +10,7 @@ class QFile;
 
 namespace GroundzeroAutomation {
 class Context;
+class Error;
 }
 
 namespace GroundzeroAutomation {
@@ -50,14 +51,46 @@ enum class PublishResult { Published, Exists, Unsupported, Failed };
 //
 // Throws:
 //   Error: path_denied when a component of the path was redirected.
-PublishResult publishApproved(const QString& staged, const QString& path);
+//
+// With `flushed` given, the pinned destination folder is flushed to the disk
+// after a publication and *flushed says whether that succeeded.
+PublishResult publishApproved(const QString& staged, const QString& path,
+                              bool* flushed = nullptr);
 
 // Record the publication as started and publish, or throw: failureCode when
 // the destination exists or the move fails, publication_unsupported (with the
 // mutation mark taken back, since nothing was written) when the file system
-// has no atomic way to create the name.
+// has no atomic way to create the name. In a write whose effect class is
+// publication the staged tree is flushed to disk before the move and the
+// destination's folder after it, so a published name survives a power loss.
+// Every error names its stage (publish or flush) and whether the output was
+// published.
 void publishStaged(Context& context, const QString& staged, const QString& path,
                    const QString& failureCode, const QString& failureMessage);
+
+// An error of a staged write: details.stage names the step that failed,
+// details.file the staged file (relative to the staged folder) or null, and
+// details.published whether anything appeared at the destination.
+Error stagedWriteError(const QString& code, const QString& message,
+                       const QString& stage, const QString& file,
+                       bool published);
+
+// Flush every file and folder under a staged path, or the one staged file, to
+// the disk itself (F_FULLFSYNC on macOS, fdatasync on Linux, FlushFileBuffers
+// on Windows); false when a flush failed.
+bool flushTree(const QString& path);
+// Flush a folder's entries, such as a name just published in it; false when
+// the flush failed. Windows has no folder flush and returns true.
+bool flushDirectory(const QString& directory);
+
+// Exit code of a process ended by a test write fault in crash mode.
+constexpr int WriteFaultCrashExitCode = 86;
+// At an armed test write fault point: in crash mode the process ends at once
+// with WriteFaultCrashExitCode and no destructor runs, as under SIGKILL; in
+// fail mode the call returns true and the caller throws its typed error; in
+// hold mode the thread sleeps ten seconds first.
+// Always false outside test builds.
+bool writeFaultFires(const Context& context, const char* point);
 
 // One entry of a pinned directory, described without following links. A
 // symbolic link, a junction or any other reparse point is a link: it is
