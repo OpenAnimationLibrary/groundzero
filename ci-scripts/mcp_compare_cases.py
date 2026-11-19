@@ -1,7 +1,7 @@
 """Acceptance cases for the image review step: review.compare.submit (contract w3-compare).
 
 Every metric, grid cell, component, difference image and pixel digest the worker returns is
-recomputed from the PNG bytes by `mcp_review_oracle.py` (standard library) and must be equal.
+recomputed from the PNG bytes by `mcp_compare_oracle.py` (standard library) and must be equal.
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ import hashlib
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
+from mcp_compare_oracle import Request, compare, difference_pixels, pixel_sha256
 from mcp_png import Pixel, decode_png
-from mcp_review_oracle import Request, compare, difference_pixels, pixel_sha256
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
