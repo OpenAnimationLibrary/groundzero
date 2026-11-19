@@ -194,14 +194,17 @@ void TMsgCore::connectTo(const QString &address)  // client side
   m_clientSocket->connectToHost(
       address == "" ? QHostAddress::LocalHost : QHostAddress(address),
       TMSG_PORT);
-  // m_clientSocket->connectToServer (connectionName, QIODevice::ReadWrite |
-  // QIODevice::Text);
-  bool ret = m_clientSocket->waitForConnected(1000);
-  if (!ret) {
-    // std::cout << "cannot connect to "<< address.toStdString() << std::endl;
-    // std::cout << "error "<< m_clientSocket->errorString().toStdString() <<
-    // std::endl;
-    int err = m_clientSocket->error();
+  // A refused connection can be reported as established: macOS answers the
+  // second connect() on the failed socket with EISCONN. The socket then keeps
+  // its notifiers, the pending connection error arrives from the event loop,
+  // and Qt's Cocoa dispatcher reads a socket record that handling the error
+  // has just freed. Only a socket with a peer is connected; any other one is
+  // dropped here, before the event loop sees it.
+  bool connected = m_clientSocket->waitForConnected(1000) &&
+                   !m_clientSocket->peerAddress().isNull();
+  if (!connected) {
+    delete m_clientSocket;
+    m_clientSocket = 0;
   }
 }
 
