@@ -99,7 +99,7 @@ def _refuse_toolset_changes(case: NativeAcceptance) -> None:
     if not case.through_sdk:
         return
     for tool in ("toolsets.enable", "toolsets.disable"):
-        _refused(case, tool, {"names": ["no_such_toolset"]}, "UNKNOWN_TOOLSET")
+        _refused(case, tool, {"names": ["no-such-toolset"]}, "UNKNOWN_TOOLSET")
     _schema_refused(case, "toolsets.list", {"unrecognized_negative_argument": 1})
 
 
