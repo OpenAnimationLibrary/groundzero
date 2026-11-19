@@ -13,6 +13,7 @@
 // TnzBase includes
 #include "tenv.h"
 #include "tunit.h"
+#include "texternfx.h"
 
 // TnzCore includes
 #include "tsystem.h"
@@ -549,6 +550,12 @@ void Preferences::definePreferenceItems() {
   define(rhubarbPath, "rhubarbPath", QMetaType::QString, "");
   define(rhubarbTimeout, "rhubarbTimeout", QMetaType::Int, 600, 0,
          std::numeric_limits<int>::max());
+  // External-program effects (Preview/Render page). The editor applies it at
+  // start-up and on change; tcomposer ignores it and takes its own option.
+  define(runExternalEffectPrograms, "runExternalEffectPrograms",
+         QMetaType::Bool, false);
+  setCallBack(runExternalEffectPrograms,
+              &Preferences::setExternalProgramPolicy);
 
   // Drawing
   define(DefRasterFormat, "DefRasterFormat", QMetaType::QString, "tif");
@@ -1083,6 +1090,12 @@ void Preferences::setCameraUnits() {
 void Preferences::setRasterBackgroundColor() {
   TPixel color = getColorValue(rasterBackgroundColor);
   TImageWriter::setBackgroundColor(color);
+}
+
+//-----------------------------------------------------------------
+
+void Preferences::setExternalProgramPolicy() {
+  TExternalProgramPolicy::setAllowed(getBoolValue(runExternalEffectPrograms));
 }
 
 //-----------------------------------------------------------------

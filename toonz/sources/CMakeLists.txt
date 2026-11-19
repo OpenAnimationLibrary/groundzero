@@ -1104,7 +1104,8 @@ if(BUILD_RELIABILITY_TESTS)
     target_link_libraries(cubicbezier_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME cubicbezier COMMAND cubicbezier_test)
     set_tests_properties(cubicbezier PROPERTIES TIMEOUT 60)
-    # External-program effects start only an installed declaration's program
+    # External-program effects start a program only when allowed, and only an
+    # installed declaration's program
     add_executable(externalprogramgate_test tnzbase/tests/externalprogramgate_test.cpp)
     target_link_libraries(externalprogramgate_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME externalprogramgate COMMAND externalprogramgate_test)

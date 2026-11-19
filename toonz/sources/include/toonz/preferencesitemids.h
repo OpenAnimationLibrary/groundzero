@@ -269,6 +269,9 @@ enum PreferencesItemId {
   ztorycExecutablePath,
   ot3dExecutablePath,
 
+  // External-program effects (Preferences > Preview/Render), off by default
+  runExternalEffectPrograms,
+
   PreferencesItemCount
 };
 

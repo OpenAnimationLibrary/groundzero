@@ -15,6 +15,7 @@
 
 #include <QString>
 
+#include <atomic>
 #include <cctype>
 #include <cerrno>
 #include <cstring>
@@ -34,6 +35,8 @@ namespace {
 TFilePath getExternFxPath() {
   return TSystem::getBinDir() + "plugins" + "externFxs";
 }
+
+std::atomic<bool> externalProgramsAllowed(false);
 
 // A declaration is named by a plain file name inside the declarations folder.
 bool isDeclarationName(const std::string& name) {
@@ -213,6 +216,14 @@ std::string readExternalOutput(const TFilePath& path, const TRaster32P& destinat
 
 //=========================================================
 
+void TExternalProgramPolicy::setAllowed(bool allowed) {
+  externalProgramsAllowed = allowed;
+}
+
+bool TExternalProgramPolicy::isAllowed() { return externalProgramsAllowed; }
+
+//=========================================================
+
 // not implemented yet
 void TExternFx::getNames(std::vector<std::string> &names) {}
 
@@ -371,6 +382,14 @@ void TExternalProgramFx::doCompute(TTile &tile, double frame,
                  m_externFxName +
                  ".xml\" in the plugins/externFxs folder next to the "
                  "application.");
+  // Every preview, render and batch frame reaches the program through here,
+  // before any input is computed or written.
+  if (!TExternalProgramPolicy::isAllowed())
+    refuseLaunch("External effect " + nodeLabel(*this) + " did not run \"" +
+                 ::to_string(m_executablePath) +
+                 "\": external effect programs are turned off. Turn on "
+                 "Preferences > Preview/Render > Run External Effect "
+                 "Programs, or pass -allowexternalprograms to tcomposer.");
   std::string args           = m_args;
   std::string executablePath = ::to_string(m_executablePath);
   std::map<std::string, TFilePath> tmpFiles;  // portname --> file

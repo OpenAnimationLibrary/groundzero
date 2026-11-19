@@ -1,8 +1,10 @@
-// An external-program effect starts only the program of a declaration
-// installed next to the application. A scene names the declaration; a program
-// path or arguments stored in the scene are never started.
+// An external-program effect starts a program only when external programs are
+// allowed, and only the program of a declaration installed next to the
+// application. A scene names the declaration; a program path or arguments
+// stored in the scene are never started.
 
 #include "texternfx.h"
+#include "tconvert.h"
 #include "texception.h"
 #include "tstream.h"
 #include "tsystem.h"
@@ -100,6 +102,31 @@ public:
   }
 };
 
+// Refused by default, naming the node and the program; started once allowed.
+void launchNeedsApproval(const QString& program, const QDir& directory) {
+  const QString marker = directory.filePath("approval.txt");
+  TExternalProgramFx effect;
+  effect.setName(L"Gate node");
+  effect.setExecutable(TFilePath(program), markerArguments(marker));
+  effect.addPort("out", "png", false);
+  require(!TExternalProgramPolicy::isAllowed(),
+          "External programs are allowed before anything allowed them");
+  const std::string refusal = compute(effect);
+  require(!QFile::exists(marker),
+          "An external program started without approval");
+  for (const std::string& part :
+       {std::string("\"Gate node\""), ::to_string(TFilePath(program)),
+        std::string("turned off")})
+    require(refusal.find(part) != std::string::npos,
+            "The refusal does not name " + part + ": " + refusal);
+
+  TExternalProgramPolicy::setAllowed(true);
+  const std::string error = compute(effect);
+  TExternalProgramPolicy::setAllowed(false);
+  require(QFile::exists(marker),
+          "An allowed external program did not start: " + error);
+}
+
 void scenePathIsNotStarted(const QString& program, const QDir& directory) {
   const QString marker = directory.filePath("scene path.txt");
   TExternalProgramFx effect;
@@ -159,6 +186,9 @@ int main(int argc, char** argv) {
     QTemporaryDir temporary;
     require(temporary.isValid(), "Cannot create a temporary folder");
     const QDir directory(temporary.path());
+    launchNeedsApproval(program, directory);
+    // Allowed from here: what a scene names must still not start.
+    TExternalProgramPolicy::setAllowed(true);
     scenePathIsNotStarted(program, directory);
     declarationOutsideFolderIsNotRead(program, directory);
     installedDeclarationRuns(program, directory);

@@ -50,6 +50,7 @@
 #include "tunit.h"
 #include "tenv.h"
 #include "tpassivecachemanager.h"
+#include "texternfx.h"
 // #include "tcacheresourcepool.h"
 
 // TnzCore includes
@@ -651,8 +652,12 @@ int main(int argc, char *argv[]) {
   StringQualifier tileSize("-maxtilesize n",
                            "Enable tile rendering of max n MB per tile");
   StringQualifier tmsg("-tmsg val", "only internal use");
+  SimpleQualifier allowExternalPrograms(
+      "-allowexternalprograms",
+      "Run the programs of external effects installed in plugins/externFxs");
   usageLine = srcName + dstName + range + stepOpt + shrinkOpt + multimedia +
-              farmData + idq + nthreads + tileSize + tmsg;
+              farmData + idq + nthreads + tileSize + tmsg +
+              allowExternalPrograms;
 
   // system path qualifiers
   std::map<QString, std::unique_ptr<TCli::QualifierT<TFilePath>>>
@@ -683,6 +688,7 @@ int main(int argc, char *argv[]) {
   Usage usage(argv[0]);
   usage.add(usageLine);
   if (!usage.parse(argc, argv)) exit(1);
+  TExternalProgramPolicy::setAllowed(allowExternalPrograms.isSelected());
 
   QHash<QString, QString> argumentPathValues;
   for (auto q_itr = systemPathQualMap.begin(); q_itr != systemPathQualMap.end();

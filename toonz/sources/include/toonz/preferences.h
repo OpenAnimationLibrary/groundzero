@@ -127,6 +127,8 @@ public:
   void setCameraUnits();
   // Saving
   void setRasterBackgroundColor();
+  // Import / Export
+  void setExternalProgramPolicy();
 
 public:
   static Preferences *instance();

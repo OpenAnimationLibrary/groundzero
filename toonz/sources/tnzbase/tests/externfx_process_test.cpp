@@ -404,6 +404,8 @@ int main(int argc, char** argv) {
     TThread::init();
     initImageIo();
     TRenderer::initialize();
+    // These cases test the launch itself; externalprogramgate tests the gate.
+    TExternalProgramPolicy::setAllowed(true);
     const QString executable = QCoreApplication::applicationFilePath();
     QTemporaryDir directory;
     require(directory.isValid(), "Cannot create external-effect fixture");

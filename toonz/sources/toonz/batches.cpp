@@ -271,8 +271,13 @@ class PlanBuilder {
         m_plan->nodes[index].children.push_back(child);
       }
     } else {
+      QStringList arguments = task->getCommandLineArgumentsList();
+      // The artist's preference is the explicit allow for local batch renders.
+      if (task->m_isComposerTask &&
+          Preferences::instance()->getBoolValue(runExternalEffectPrograms))
+        arguments << "-allowexternalprograms";
       m_plan->nodes[index].command = {task->m_id, task->getCommandLinePrgName(),
-                                      task->getCommandLineArgumentsList()};
+                                      arguments};
     }
   }
 

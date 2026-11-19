@@ -1311,6 +1311,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {sceneNumberingEnabled, tr("Add Info water mark in Rendered Frames")},
       {checkSceneBeforeRendering,
        tr("Check the Scene before Rendering and Ask when It Has Errors")},
+      {runExternalEffectPrograms, tr("Run External Effect Programs")},
       {watchFileSystemEnabled,
        tr("Watch File System and Update File Browser Automatically")},
       {fileBrowserFolderDoubleClick,
@@ -2657,6 +2658,15 @@ QWidget* PreferencesPopup::createPreviewPage() {
                    this),
         renderLay->rowCount(), 0, 1, 3, Qt::AlignLeft | Qt::AlignVCenter);
     insertUI(fastRenderPath, renderLay);
+    renderLay->addWidget(
+        new QLabel(tr("External effects run the program of a declaration "
+                      "installed in plugins/externFxs next to the\n"
+                      "application; a scene cannot choose the program. Batch "
+                      "renders started here pass\n"
+                      "-allowexternalprograms to tcomposer when this is on."),
+                   this),
+        renderLay->rowCount(), 0, 1, 3, Qt::AlignLeft | Qt::AlignVCenter);
+    insertUI(runExternalEffectPrograms, renderLay);
   }
 
   lay->setRowStretch(lay->rowCount(), 1);

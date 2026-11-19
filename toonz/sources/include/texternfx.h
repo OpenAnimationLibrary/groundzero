@@ -21,6 +21,17 @@
 
 //---------------------------------------------------------
 
+//! Whether external-program effects may start their installed program. Off
+//! until the application turns it on: the editor from its "Run External
+//! Effect Programs" preference, tcomposer from -allowexternalprograms.
+class DVAPI TExternalProgramPolicy {
+public:
+  static void setAllowed(bool allowed);
+  static bool isAllowed();
+};
+
+//---------------------------------------------------------
+
 class DVAPI TExternFx : public TBaseRasterFx {
 public:
   TExternFx() { setName(L"ExternFx"); }

@@ -66,6 +66,7 @@
 #include "permissionsmanager.h"
 #include "tenv.h"
 #include "tcli.h"
+#include "texternfx.h"
 
 // TnzCore includes
 #include "tsystem.h"
@@ -754,6 +755,10 @@ int main(int argc, char *argv[]) {
       [](const QString& title, const QString& message) {
         QMessageBox::warning(nullptr, title, message);
       });
+
+  // External-effect programs run only when the artist has turned them on.
+  TExternalProgramPolicy::setAllowed(
+      Preferences::instance()->getBoolValue(runExternalEffectPrograms));
 
   TTool::setApplication(TApp::instance());
   TApp::instance()->init();
