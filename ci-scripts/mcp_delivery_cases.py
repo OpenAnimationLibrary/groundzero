@@ -205,7 +205,7 @@ def delivery_refuses_jobs_it_cannot_publish(case: NativeAcceptance) -> None:
     case.assertEqual(case.wait_job(check)["status"], "completed")
     refusals = {
         released: ("job_discarded", None),
-        "job_00000000_00000000-0000-0000-0000-000000000000": ("unknown_job", None),
+        "job_00000000_00000000-0000-0000-0000-000000000000": ("unknown_job", "other_worker"),
         check: ("unsupported_target", "not_a_render_job"),
     }
     for job, (code, reason) in refusals.items():
@@ -310,13 +310,22 @@ def delivery_parent_swapped_during_copy_is_not_followed(case: NativeAcceptance) 
     verify(root / "moved" / "take", answer["result"]["manifest_sha256"])
 
 
+FAULT_OPERATION = "delivery-under-test"
+
+
 def _fault_render(case: NativeAcceptance, name: str, *flags: str) -> tuple[Path, list[dict]]:
-    """A worker with one output root and a test fault, and a 3-frame render to publish."""
+    """A worker with one output root and a test fault that fires only in the publication
+    named FAULT_OPERATION, and a 3-frame render to publish."""
     root = case.directory / f"out-{name}"
     root.mkdir()
-    restart(case, name, "--output-root", f"{ROOT}={root.resolve()}", *flags)
+    fault = ("--test-fault-operation", FAULT_OPERATION)
+    restart(case, name, "--output-root", f"{ROOT}={root.resolve()}", *flags, *fault)
     document, _level, _column = case.populated_scene()
     return root.resolve(), _items((_render(case, document, frames=3), "frames"))
+
+
+def _fault_params(case: NativeAcceptance, items: list[dict[str, str]]) -> dict[str, Any]:
+    return {**_publish_params(case, "take", items), "operation_id": FAULT_OPERATION}
 
 
 def _require_progress(
@@ -332,14 +341,30 @@ def _require_progress(
     case.assertEqual((details["published"], details["container_left"]), (False, False), error)
 
 
+def _raced(case: NativeAcceptance, root: Path, params: dict[str, Any]) -> dict[str, Any]:
+    """Publish while holding before the rename, and take the name meanwhile."""
+    answer: dict[str, Any] = {}
+    publishing = threading.Thread(
+        target=lambda: answer.update(case.worker.call("delivery.publish", params))
+    )
+    publishing.start()
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline and not [
+        name for name in os.listdir(root) if name.startswith(".groundzero-staging-")
+    ]:
+        time.sleep(0.05)
+    (root / "take").write_text("other party\n")
+    publishing.join(timeout=60)
+    return answer["error"]
+
+
 @acceptance_case(worker_only=FAULT_FLAG)
 def delivery_failures_report_file_by_file_and_leave_nothing(case: NativeAcceptance) -> None:
-    """A full volume, a job file changed since its render, a name taken just before the
-    rename and a volume without a no-replace rename each fail the publication, report how
-    far it got file by file and leave nothing in the root; a retry returns the recorded
-    failure and writes nothing."""
+    """A full volume, a job file changed since its render and a name taken just before the
+    rename each fail the publication, report how far it got file by file and leave nothing
+    under the final name; a retry returns the recorded failure and writes nothing."""
     root, items = _fault_render(case, "no-space", "--test-write-fault", "publish:no-space")
-    params = _publish_params(case, "take", items)
+    params = _fault_params(case, items)
     error = case.failure("delivery.publish", params)
     case.assertEqual(
         (_cause(error), error["details"]["reason"], error["details"]["stage"]),
@@ -349,14 +374,14 @@ def delivery_failures_report_file_by_file_and_leave_nothing(case: NativeAcceptan
     case.assertEqual(case.failure("delivery.publish", params), error)
     case.assertEqual(os.listdir(root), [])
     root, items = _fault_render(case, "changed", "--test-write-fault", "publish:staged-changed")
-    error = case.failure("delivery.publish", _publish_params(case, "take", items))
+    error = case.failure("delivery.publish", _fault_params(case, items))
     case.assertEqual(
         (_cause(error), error["details"]["reason"]), ("delivery_write_failed", "staged_changed")
     )
     _require_progress(case, error, 0, "frames/frame.0001.png")
     case.assertEqual(os.listdir(root), [])
-    root, items = _fault_render(case, "raced", "--test-publish-fault", "racing_destination")
-    error = case.failure("delivery.publish", _publish_params(case, "take", items))
+    root, items = _fault_render(case, "raced", "--test-write-fault", "journal:intent:hold")
+    error = _raced(case, root, _fault_params(case, items))
     case.assertEqual(
         (_cause(error), error["details"]["reason"], error["details"]["stage"]),
         ("delivery_write_failed", "name_taken", "publish"),
@@ -364,19 +389,6 @@ def delivery_failures_report_file_by_file_and_leave_nothing(case: NativeAcceptan
     _require_progress(case, error, 4, None)
     case.assertEqual((root / "take").read_text(), "other party\n")
     case.assertEqual(os.listdir(root), ["take"])
-    root, items = _fault_render(
-        case, "no-rename", "--test-publish-fault", "exclusive_rename_refused"
-    )
-    error = case.failure("delivery.publish", _publish_params(case, "take", items))
-    case.assertEqual(error["code"], "publication_unsupported", error)
-    _require_progress(case, error, 4, None)
-    case.assertEqual(os.listdir(root), [])
-    planned = _preflight(case, "take", items)
-    case.assertEqual(_states(planned)["filesystem"], ("fail", "publication_unsupported"))
-    refused = case.failure("delivery.publish", _publish_params(case, "take", items))
-    case.assertEqual(
-        (refused["code"], refused["details"]["check"]), ("publication_unsupported", "filesystem")
-    )
 
 
 @acceptance_case(worker_only=FAULT_FLAG)
@@ -391,7 +403,7 @@ def delivery_interrupted_publication_is_recovered(case: NativeAcceptance) -> Non
         with case.subTest(point=point):
             name = point.replace(":", "-")
             root, items = _fault_render(case, name, "--test-write-fault", f"{point}:crash")
-            params = _publish_params(case, "take", items)
+            params = _fault_params(case, items)
             with case.assertRaises(RuntimeError):
                 case.worker.call("delivery.publish", params)
             case.assertEqual(case.worker.process.wait(timeout=30), CRASH_EXIT_CODE)
@@ -467,5 +479,14 @@ def delivery_to_other_volumes(case: NativeAcceptance) -> None:
     case.assertEqual(_visible(small), ["filler"])
     error = case.failure("delivery.publish", _publish_params(case, "take", items, "fat"))
     case.assertEqual(error["code"], "publication_unsupported", error)
-    case.assertEqual(error["details"]["files_copied"], 3)
+    details = error["details"]
+    case.assertEqual(
+        (details["files_total"], details["files_copied"], details["published"]), (3, 3, False)
+    )
     case.assertEqual(_visible(fat), [])
+    planned = case.success("delivery.preflight", _request("take", items, "fat"))
+    case.assertEqual(_states(planned)["filesystem"], ("fail", "publication_unsupported"))
+    refused = case.failure("delivery.publish", _publish_params(case, "take", items, "fat"))
+    case.assertEqual(
+        (refused["code"], refused["details"]["check"]), ("publication_unsupported", "filesystem")
+    )

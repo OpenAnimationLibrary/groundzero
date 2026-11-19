@@ -469,6 +469,12 @@ PROJECT_TOOLS = {
 # Package tools whose path cases live in mcp_collection_cases.py (preflight) and
 # mcp_cleanup_cases.py (removal), not yet in the boundary matrix.
 PACKAGE_TOOLS = {"scene.save_preflight": ("directory",), "package.remove": ("directory",)}
+# Delivery tools take a destination below an output root only; their boundary cases live in
+# mcp_delivery_cases.py, as mcp_output_root_cases.py holds the package tools' output-root rows.
+DELIVERY_TOOLS = {
+    "delivery.preflight": ("destination.path",),
+    "delivery.publish": ("destination.path",),
+}
 
 
 def path_parameters(schema: Any, prefix: str = "") -> list[str]:
@@ -486,6 +492,30 @@ def path_parameters(schema: Any, prefix: str = "") -> list[str]:
     return found
 
 
+# The tables of tools whose path parameters other case files cover, and where to extend them.
+SEPARATE_CASES = (
+    (PACKAGE_TOOLS, "its cases and PACKAGE_TOOLS in ci-scripts/mcp_file_tools.py"),
+    (
+        DELIVERY_TOOLS,
+        "its cases in ci-scripts/mcp_delivery_cases.py and DELIVERY_TOOLS in mcp_file_tools.py",
+    ),
+    (
+        PROJECT_TOOLS,
+        "its cases in ci-scripts/mcp_file_project_cases.py and PROJECT_TOOLS in mcp_file_tools.py",
+    ),
+)
+
+
+def _separate_problem(name: str, found: tuple[str, ...]) -> str | None:
+    """None for a tool no separate table lists; else its problem, or an empty string."""
+    for table, where in SEPARATE_CASES:
+        if name in table:
+            if table[name] == found:
+                return ""
+            return f"{name} now takes path parameters {list(found)}: extend {where}"
+    return None
+
+
 def _tool_problem(tool: dict[str, Any]) -> str:
     """Return what is wrong with one catalog tool's coverage, or an empty string."""
     name = tool["name"]
@@ -497,20 +527,9 @@ def _tool_problem(tool: dict[str, Any]) -> str:
             f"{name} is a new shared-library tool: add it to SHARED_TOOLS in "
             "ci-scripts/mcp_file_tools.py and give it cases in mcp_file_shared_cases.py"
         )
-    if name in PACKAGE_TOOLS:
-        if PACKAGE_TOOLS[name] == found:
-            return ""
-        return (
-            f"{name} now takes path parameters {list(found)}: extend its cases and "
-            "PACKAGE_TOOLS in ci-scripts/mcp_file_tools.py"
-        )
-    if name in PROJECT_TOOLS:
-        if PROJECT_TOOLS[name] == found:
-            return ""
-        return (
-            f"{name} now takes path parameters {list(found)}: extend its cases in "
-            "ci-scripts/mcp_file_project_cases.py and PROJECT_TOOLS in mcp_file_tools.py"
-        )
+    separate = _separate_problem(name, found)
+    if separate is not None:
+        return separate
     covered = PATH_TOOLS[name].parameters if name in PATH_TOOLS else None
     if found and covered != found and name not in SHARED_TOOLS:
         return (
@@ -531,6 +550,7 @@ def unqualified_tools(tools: list[dict[str, Any]]) -> list[str]:
         | set(HANDLE_TOOLS)
         | set(PROJECT_TOOLS)
         | set(PACKAGE_TOOLS)
+        | set(DELIVERY_TOOLS)
     )
     for name in sorted(qualified - names):
         problems.append(f"{name} is qualified in mcp_file_tools.py but absent from the catalog")

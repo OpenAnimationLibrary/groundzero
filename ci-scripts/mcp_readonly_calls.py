@@ -452,6 +452,24 @@ def _save_preflight(f: Fixture) -> list[Call]:
     ]
 
 
+def _delivery_preflight(f: Fixture) -> list[Call]:
+    def request(path: str, job: str, root: str = "renders", **extra: Any) -> dict[str, Any]:
+        items = [{"job_id": job, "folder": "frames"}]
+        return {"destination": {"root": root, "path": path}, "items": items, **extra}
+
+    job = f.ids["job"]
+    return [
+        Call("one preview", request("planned", job)),
+        Call("last page", request("planned", job, offset=1, limit=1)),
+        Call("existing destination", request("saved", job)),
+        Call("read-only document's job", request("planned", f.ids["read_only_job"])),
+        Call("unknown job", request("planned", _missing("job"))),
+        Call("root not granted", request("planned", job, root="archive"), "root_unavailable"),
+        Call("reserved name", request(".groundzero-x", job), "invalid_path", "reserved"),
+        Call("past the files", request("planned", job, offset=2), "invalid_params"),
+    ]
+
+
 def _ro_save_preflight(_f: Fixture, document: str) -> list[Call]:
     params = {"document_id": document, "expected_revision": "0", "directory": "planned"}
     return [
@@ -878,6 +896,7 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "operation.list": _operations,
     "scene.package_info": _package,
     "scene.save_preflight": _save_preflight,
+    "delivery.preflight": _delivery_preflight,
     "scene.import_plan": _editable_import_plan,
     "cast.list": _pinned_with("stale_revision"),
     "camera.list": _pinned_with("stale_revision"),

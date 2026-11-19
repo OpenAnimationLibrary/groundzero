@@ -58,6 +58,7 @@ def file_tools_are_all_qualified(case: NativeAcceptance) -> None:
         | set(mcp_file_tools.SHARED_TOOLS)
         | set(mcp_file_tools.PROJECT_TOOLS)
         | set(mcp_file_tools.PACKAGE_TOOLS)
+        | set(mcp_file_tools.DELIVERY_TOOLS)
     )
     case.assertTrue(named <= covered, named - covered)
 
