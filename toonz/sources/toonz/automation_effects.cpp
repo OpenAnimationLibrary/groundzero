@@ -228,8 +228,9 @@ const QHash<QString, Declaration>& declarations() {
       {"render.preview",
        {ToolEffects{
             "job_start", "reads", {"writes_private"}, "starts", {}, false},
-        {"fx_preflight_failed", "missing_dependency", "render_blocked",
-         "render_busy", "render_unavailable", "source_changed"}}},
+        {"fx_preflight_failed", "invalid_package", "missing_dependency",
+         "render_blocked", "render_busy", "render_unavailable",
+         "source_changed"}}},
       {"render.submit",
        {ToolEffects{"job_start",
                     "reads",
