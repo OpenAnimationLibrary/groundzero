@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -312,6 +313,63 @@ class CensusFailureCases(unittest.TestCase):
         after = census_check.report(self.census)
         self.assertLess(after["tested"], before)
         self.assertIn("scene.summary", after["tools_without_tests"])
+
+    def test_tool_that_no_source_names_fails(self) -> None:
+        self.census["tools"]["scene.ghost"] = {
+            "origin": "worker",
+            "toolset": "scene",
+            "writes": False,
+            "tests": [],
+        }
+        self.census["tools"]["toolsets.ghost"] = {
+            "origin": "adapter",
+            "toolset": "adapter",
+            "writes": False,
+            "tests": [],
+        }
+        problems = self.static()
+        self.assert_reports(problems, "tool scene.ghost: no native or adapter source names it")
+        self.assert_reports(problems, "tool toolsets.ghost: no native or adapter source names it")
+        sources = census_check.derive_sources(self.census)
+        self.assertTrue(
+            any(name.endswith("automation_scene.cpp") for name in sources["scene.summary"])
+        )
+        self.assertEqual(sources["live.receipt"], ["tools/mcp/src/live-protocol.ts"])
+
+    def test_report_names_the_source_revision_and_counts_native_evidence(self) -> None:
+        revision = census_check.source_revision()
+        self.assertRegex(revision, r"^[0-9a-f]{40}( \(uncommitted changes\))?$")
+        text = census_check.format_report(census_check.report(self.census), revision)
+        self.assertIn(f"source revision: {revision}", text)
+        total = len(self.census["tools"])
+        self.assertIn(f"named by a native or adapter source: {total} of {total}", text)
+        with tempfile.TemporaryDirectory() as empty:
+            self.assertEqual(
+                census_check.source_revision(Path(empty)), "unknown (not a git checkout)"
+            )
+        self.census["tools"]["scene.ghost"] = {"origin": "worker", "tests": []}
+        counts = census_check.report(self.census)
+        self.assertEqual(counts["tools_without_source"], ["scene.ghost"])
+
+    def test_executed_evidence_needs_a_passing_log_line(self) -> None:
+        tests = self.census["tools"]["scene.summary"]["tests"]
+        listed = next(t for t in tests if t.startswith(f"{census_check.ACCEPTANCE}::"))
+        name = listed.removeprefix(f"{census_check.ACCEPTANCE}::")
+        self.assertIsNone(census_check.report(self.census)["executed"])
+        with tempfile.TemporaryDirectory() as scratch:
+            log = Path(scratch) / "shard.log"
+            passing = f"{name} (mcp_acceptance.NativeAcceptance.{name}) ... ok\n"
+            log.write_text(passing, encoding="utf-8")
+            passed = census_check.passed_tests([log])
+            self.assertEqual(passed, {name})
+            self.assertIn("scene.summary", census_check.executed_tools(self.census, passed))
+            log.write_text(passing.replace("... ok", "... FAIL"), encoding="utf-8")
+            failed = census_check.passed_tests([log])
+            self.assertEqual(failed, set())
+            self.assertNotIn("scene.summary", census_check.executed_tools(self.census, failed))
+        counts = census_check.report(self.census, passed={name})
+        self.assertLess(counts["executed"], counts["implemented"])
+        self.assertGreater(counts["executed"], 0)
 
 
 if __name__ == "__main__":
