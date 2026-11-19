@@ -418,6 +418,24 @@ reopened. Whole-curve copy and retime still refuse objects with layers. IK, pins
 published channels, Plastic deformation, and hook tracker regions are outside this
 profile, and these tools have no live-editor or undo counterpart.
 
+The cell tools edit up to 64 level columns per call, all or nothing; rows are
+zero-based frames valid at the call's `expected_revision`. `cells.set` writes explicit
+runs of drawings and blanks without shifting (`overwrite: false` refuses occupied rows
+with `occupied_cells`). `cells.clear` blanks an interval and keeps later frame numbers;
+`cells.remove` deletes the interval and moves later cells up; `cells.insert` adds blank
+rows and moves later cells down, leaving a column with nothing at or after the frame
+unchanged. `cells.copy` copies exposure references (never drawings) to as many
+destination columns, inserting or replacing, and `source_after: "clear"` makes it a move.
+`cells.replace` swaps one level for another, or explicit drawing pairs, inside an
+interval without changing timing. Each call checks every column first: a locked, sound,
+generator or sub-xsheet column, a missing drawing, a cell past frame 999999 or more than
+1,000,000 stored cells refuses the whole call. The worker computes the result with its
+own cell model, applies it natively, and compares every touched column with the model; a
+difference is `partially_applied`. Results list each column's `cells_changed`,
+`rows_delta` and cell range before and after. A non-empty `sheet_path` is refused with
+`unsupported_target` until nested sheets become editable. `column.expose` uses the same
+service.
+
 `scene.save_copy` writes a new package directory containing `scene.tnz`, its
 artwork, and a hash manifest. It checks every saved drawing through the native
 reader and compares palette styles, pages, and keys before publishing. Existing
@@ -993,11 +1011,12 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (114):
+- `core` toolset (120):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
   `automation.list_documents`, `camera.inspect`, `camera.update`, `cast.list`, `cast.usage`,
+  `cells.clear`, `cells.copy`, `cells.insert`, `cells.remove`, `cells.replace`, `cells.set`,
   `column.cells`, `column.create`, `column.delete`, `column.expose`, `column.update`,
   `drawing.analysis.submit`, `drawing.clone`, `drawing.create`, `drawing.inspect`,
   `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`, `fx.create`, `fx.delete`,

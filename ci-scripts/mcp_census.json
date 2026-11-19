@@ -315,6 +315,36 @@
    "toolset": "core",
    "writes": false
   },
+  "cells.clear": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "cells.copy": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "cells.insert": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "cells.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "cells.replace": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "cells.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "column.cells": {
    "origin": "worker",
    "toolset": "core",
@@ -1613,12 +1643,18 @@
   {
    "id": "timeline.cell_and_time_edits",
    "domain": "Timeline and columns",
-   "outcome": "Insert or remove time, clear cells, duplicate, group, fold or merge columns.",
-   "classification": "not_exposed",
-   "tools": [],
+   "outcome": "Write explicit drawing runs, clear cells, insert or remove time, copy or move blocks and replace exposed drawings over several columns at once.",
+   "classification": "exposed",
+   "tools": [
+    "cells.set",
+    "cells.clear",
+    "cells.insert",
+    "cells.remove",
+    "cells.copy",
+    "cells.replace"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W2"
+    "kind": "implemented"
    }
   },
   {

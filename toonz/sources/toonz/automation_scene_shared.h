@@ -65,6 +65,8 @@ void addColumnOperations(QJsonArray& catalog);
 void addColumnHandlers(SceneHandlers& handlers);
 void addCellOperations(QJsonArray& catalog);
 void addCellHandlers(SceneHandlers& handlers);
+void addCellToolOperations(QJsonArray& catalog);
+void addCellToolHandlers(SceneHandlers& handlers);
 
 }  // namespace SceneShared
 }  // namespace GroundzeroAutomation

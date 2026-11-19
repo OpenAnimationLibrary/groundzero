@@ -779,6 +779,7 @@ QJsonArray sceneOperations() {
   addLevelOperations(catalog);
   addColumnOperations(catalog);
   addCellOperations(catalog);
+  addCellToolOperations(catalog);
   addAnimationOperations(catalog);
   addWholeCurveOperations(catalog);
   return catalog;
@@ -817,6 +818,7 @@ QJsonValue executeScene(Context& context, const QString& method,
     addLevelHandlers(result);
     addColumnHandlers(result);
     addCellHandlers(result);
+    addCellToolHandlers(result);
     return result;
   }();
   const auto handler = handlers.find(method);

@@ -70,20 +70,6 @@ def _levels(case: NativeAcceptance, document: str) -> tuple[str, str]:
     return ink, paint
 
 
-def _expose(
-    case: NativeAcceptance, document: str, column: str, level: str, drawing: dict, start: int
-) -> None:
-    case.mutate(
-        "column.expose",
-        document,
-        column_id=column,
-        level_id=level,
-        drawing_id=drawing,
-        start_frame=start,
-        length=2,
-    )
-
-
 def _rig(case: NativeAcceptance, document: str, column_object: str) -> None:
     root = case.mutate("object.create", document, name="Root", kind="pegbar")["object_id"]
     child = case.mutate("object.create", document, name="Child", kind="pegbar")["object_id"]
@@ -128,17 +114,19 @@ def journey_scene(case: NativeAcceptance) -> tuple[str, dict[str, Any]]:
     ink, paint = _levels(case, document)
     lines = case.mutate("column.create", document, name="Lines")
     fill = case.mutate("column.create", document, name="Fill")
-    for start in range(0, FRAMES, 2):
-        drawing = DRAWING_1 if start % 4 == 0 else DRAWING_2
-        _expose(case, document, lines["column_id"], ink, drawing, start)
+    on_twos = [
+        {"level_id": ink, "drawing_id": DRAWING_1 if start % 4 == 0 else DRAWING_2, "length": 2}
+        for start in range(0, FRAMES, 2)
+    ]
+    held = [{"level_id": paint, "drawing_id": DRAWING_1, "length": FRAMES}]
     case.mutate(
-        "column.expose",
+        "cells.set",
         document,
-        column_id=fill["column_id"],
-        level_id=paint,
-        drawing_id=DRAWING_1,
-        start_frame=0,
-        length=FRAMES,
+        columns=[
+            {"column_id": lines["column_id"], "start_frame": 0, "runs": on_twos},
+            {"column_id": fill["column_id"], "start_frame": 0, "runs": held},
+        ],
+        overwrite=False,
     )
     _rig(case, document, lines["object_id"])
     return document, camera_move(case, document)

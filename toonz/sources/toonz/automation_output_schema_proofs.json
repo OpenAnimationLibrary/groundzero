@@ -87,6 +87,30 @@
     "handler": null,
     "read": []
   },
+  "cells.clear": {
+    "handler": "clearCells",
+    "read": []
+  },
+  "cells.copy": {
+    "handler": "copyCells",
+    "read": []
+  },
+  "cells.insert": {
+    "handler": "insertCells",
+    "read": []
+  },
+  "cells.remove": {
+    "handler": "removeCells",
+    "read": []
+  },
+  "cells.replace": {
+    "handler": "replaceCells",
+    "read": []
+  },
+  "cells.set": {
+    "handler": "setCells",
+    "read": []
+  },
   "column.cells": {
     "handler": "inspectCells",
     "read": []
