@@ -425,7 +425,10 @@ ruler guides in inches, and one `settings_scope` row per setting: whether it is 
 a project default, machine tuning or editor view state (safe area, viewer aspect guides,
 camera box), and which tool edits it. `scene.output.set` changes only the blocks named in
 `apply_to`; 128 bpp and linear color are not settable. Worker renders take their own
-explicit settings and never read these stored ones. `scene.guides.set` replaces the field
+explicit settings and never read these stored ones: `render.preview`, `render.submit` and
+`render.preflight` take `aspect_export` (`none`, or `letterbox`/`crop` with a ratio and an
+optional fill color), and the preflight reports the written `output_width` and
+`output_height`. `scene.guides.set` replaces the field
 guide, markers or each ruler guide list; guides change no rendered pixel. `scene.create`
 and `scene.settings` take an explicit `background_color`. Guides, the field guide ratio
 and the aspect export ratio are saved at full precision.
@@ -456,7 +459,9 @@ them with an empty port), and a column with stage children until `children_polic
 `report_frames` returns their world change). `column.duplicate` copies a level column in
 its sheet: cells share the same levels, the stage object, its curves and offset layers
 are copied independently, the parent is kept or set to the table, and
-`fx_policy: "exclusive_branch"` also copies the effects fed only by the source.
+`fx_policy: "exclusive_branch"` also copies the effects fed only by the source; a macro
+among those effects is refused with `unsupported_target` (expand it first), for
+`delete_exclusive` too.
 `column.kinds` lists every native column kind with the tools that create and delete it.
 
 The cell tools edit up to 64 level columns per call, all or nothing; rows are

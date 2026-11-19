@@ -1196,6 +1196,36 @@
             ],
             "type": "string"
           },
+          "aspect_export": {
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "enum": [
+                  "none",
+                  "letterbox",
+                  "crop"
+                ],
+                "type": "string"
+              },
+              "output_height": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "output_width": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
           "audio": {
             "const": false,
             "type": "boolean"
@@ -1390,19 +1420,19 @@
           }
         },
         "required": [
-          "width",
-          "height",
-          "fit_scale",
-          "frames",
-          "frame_rate",
-          "profile",
-          "color_depth_bits",
-          "color_space",
-          "color_space_gamma",
           "alpha",
           "audio",
           "camera",
-          "crop"
+          "color_depth_bits",
+          "color_space",
+          "color_space_gamma",
+          "crop",
+          "fit_scale",
+          "frame_rate",
+          "frames",
+          "height",
+          "profile",
+          "width"
         ],
         "type": "object"
       },
@@ -11448,6 +11478,36 @@
                 ],
                 "type": "string"
               },
+              "aspect_export": {
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "none",
+                      "letterbox",
+                      "crop"
+                    ],
+                    "type": "string"
+                  },
+                  "output_height": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "output_width": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "ratio": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
               "audio": {
                 "const": false,
                 "type": "boolean"
@@ -13029,6 +13089,36 @@
                         ],
                         "type": "string"
                       },
+                      "aspect_export": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "mode": {
+                            "enum": [
+                              "none",
+                              "letterbox",
+                              "crop"
+                            ],
+                            "type": "string"
+                          },
+                          "output_height": {
+                            "maximum": 2147483647,
+                            "minimum": -2147483648,
+                            "type": "integer"
+                          },
+                          "output_width": {
+                            "maximum": 2147483647,
+                            "minimum": -2147483648,
+                            "type": "integer"
+                          },
+                          "ratio": {
+                            "maximum": 1.7976931348623157e+308,
+                            "minimum": -1.7976931348623157e+308,
+                            "type": "number"
+                          }
+                        },
+                        "required": [],
+                        "type": "object"
+                      },
                       "audio": {
                         "const": false,
                         "type": "boolean"
@@ -14299,6 +14389,36 @@
                   "opaque"
                 ],
                 "type": "string"
+              },
+              "aspect_export": {
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "none",
+                      "letterbox",
+                      "crop"
+                    ],
+                    "type": "string"
+                  },
+                  "output_height": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "output_width": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "ratio": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                },
+                "required": [],
+                "type": "object"
               },
               "audio": {
                 "const": false,
@@ -21116,6 +21236,36 @@
                 ],
                 "type": "string"
               },
+              "aspect_export": {
+                "additionalProperties": false,
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "none",
+                      "letterbox",
+                      "crop"
+                    ],
+                    "type": "string"
+                  },
+                  "output_height": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "output_width": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "ratio": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
               "audio": {
                 "const": false,
                 "type": "boolean"
@@ -21423,6 +21573,36 @@
             ],
             "type": "string"
           },
+          "aspect_export": {
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "enum": [
+                  "none",
+                  "letterbox",
+                  "crop"
+                ],
+                "type": "string"
+              },
+              "output_height": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "output_width": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
           "audio": {
             "const": false,
             "type": "boolean"
@@ -21617,19 +21797,19 @@
           }
         },
         "required": [
-          "width",
-          "height",
-          "fit_scale",
-          "frames",
-          "frame_rate",
-          "profile",
-          "color_depth_bits",
-          "color_space",
-          "color_space_gamma",
           "alpha",
           "audio",
           "camera",
-          "crop"
+          "color_depth_bits",
+          "color_space",
+          "color_space_gamma",
+          "crop",
+          "fit_scale",
+          "frame_rate",
+          "frames",
+          "height",
+          "profile",
+          "width"
         ],
         "type": "object"
       },
@@ -22132,6 +22312,36 @@
             ],
             "type": "string"
           },
+          "aspect_export": {
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "enum": [
+                  "none",
+                  "letterbox",
+                  "crop"
+                ],
+                "type": "string"
+              },
+              "output_height": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "output_width": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
           "audio": {
             "const": false,
             "type": "boolean"
@@ -22326,19 +22536,19 @@
           }
         },
         "required": [
-          "width",
-          "height",
-          "fit_scale",
-          "frames",
-          "frame_rate",
-          "profile",
-          "color_depth_bits",
-          "color_space",
-          "color_space_gamma",
           "alpha",
           "audio",
           "camera",
-          "crop"
+          "color_depth_bits",
+          "color_space",
+          "color_space_gamma",
+          "crop",
+          "fit_scale",
+          "frame_rate",
+          "frames",
+          "height",
+          "profile",
+          "width"
         ],
         "type": "object"
       },

@@ -293,6 +293,16 @@ QJsonValue createCamera(Context& context, const QJsonObject& params) {
   return QJsonObject{{"camera", cameraRecord(document, object)}};
 }
 
+// The rigging profile's bound of 1024 offset layers per scene.
+void requireLayerRoom(Document& document, TStageObject& source) {
+  int layers = source.getOffsetLayerCount();
+  for (int index = 0; index < tree(document)->getStageObjectCount(); ++index)
+    layers += tree(document)->getStageObject(index)->getOffsetLayerCount();
+  if (layers > 1024)
+    throw Error("resource_limit", "A scene holds at most 1024 offset layers.",
+                {{"reason", "offset_layers"}});
+}
+
 QJsonArray layerMap(Document& document, TStageObject* source,
                     TStageObject* copy) {
   const QJsonArray from = automationLayerSummaries(document, *source);
@@ -316,6 +326,7 @@ QJsonValue duplicateCamera(Context& context, const QJsonObject& params) {
                 {{"reason", "follows_path"}});
   const QString name = readCameraName(document, params, nullptr);
   requireCameraRoom(document);
+  requireLayerRoom(document, *source);
   const bool keepParent =
       params.value("parent_policy").toString() == "same_parent";
   context.markMutationStarted();
