@@ -13,13 +13,16 @@ The static layer regenerates this document and fails when it differs, so it cann
 
 READING = """## How to read this
 
-Each cell is one admitted FX type rendered to one output format on one platform. Four outcomes
+Each cell is one admitted FX type rendered to one output format on one platform. Five outcomes
 are kept apart and never summed into "supported":
 
 - **passed**: a recorded run rendered the cell through the worker, decoded the output
   independently, and its difference from the stored reference is within the tolerance the cell
   states;
 - **failed**: a run rendered it and the output was wrong; the reason says how;
+- **unverified**: a run rendered it and the output decoded, but the oracle cannot tell this picture
+  from another type's (the movie's tolerance is not smaller than the distance to the nearest other
+  picture), so the cell is not claimed as passed; the exact PNG cell of the type still stands;
 - **unavailable**: the platform could not run the cell (for example no media tools); the reason
   says what was missing;
 - **not tested**: no run has covered the cell. Nothing is claimed about it.
@@ -61,13 +64,23 @@ def _summary(data: dict[str, Any], summaries: dict[str, dict[str, Any]]) -> list
                 "complete" if found["complete"] else "incomplete",
                 str(counts["passed"]),
                 str(counts["failed"]),
+                str(counts["unverified"]),
                 str(counts["unavailable"]),
                 str(counts["not_tested"]),
                 str(found["stale"]),
                 entry.get("latest_run") or "none",
             ]
         )
-    header = ["Platform", "Label", "Passed", "Failed", "Unavailable", "Not tested", "Older run"]
+    header = [
+        "Platform",
+        "Label",
+        "Passed",
+        "Failed",
+        "Unverified",
+        "Unavailable",
+        "Not tested",
+        "Older run",
+    ]
     return ["## Platforms", ""] + _table([*header, "Latest run"], rows)
 
 
@@ -129,7 +142,7 @@ def _measured(data: dict[str, Any], types: list[str]) -> list[str]:
     for kind in types:
         for form, platforms in data["cells"][kind].items():
             for platform, cell in platforms.items():
-                if cell["status"] in {"passed", "failed"}:
+                if cell["status"] in {"passed", "failed", "unverified"}:
                     rows.append(
                         [
                             f"`{kind}`",

@@ -6,7 +6,7 @@
    "job_format": "png",
    "profile": "rgba8-png",
    "census_format": "png",
-   "compared": "decoded RGBA of frame 6 with the reference stored for the type on the platform",
+   "compared": "decoded RGBA of frame 6 at 256 x 256 with the reference stored for the type on the platform",
    "cap": "color 0, alpha 0, differing pixels 0 (lossless: any difference on one platform is a defect)"
   },
   {
@@ -14,13 +14,13 @@
    "job_format": "mp4",
    "profile": "opaque8-mp4",
    "census_format": "mp4",
-   "compared": "frame 6 decoded by an independent ffmpeg: with the stored decode of the type, and with the PNG render composited on black",
-   "cap": "mean error 40 and max error 220 against the PNG render (8-bit code values: a gross-error guard only), 0 bytes against the stored decode"
+   "compared": "frame 6 at 256 x 256 decoded by an independent ffmpeg, composited on black: its worst 32 pixel block and whole-frame mean against the PNG render, and its bytes against the stored decode (determinism only)",
+   "cap": "worst block 16 and mean 6 code values against the PNG render (a cell states its own, from its observed error with a 25 percent margin); 0 bytes against the stored decode"
   }
  ],
  "platforms": {
   "macOS": {
-   "latest_run": "macOS-20261119-124106"
+   "latest_run": "macOS-20261119-125254"
   },
   "Linux": {
    "latest_run": null
@@ -30,17 +30,17 @@
   }
  },
  "runs": {
-  "macOS-20261119-124106": {
+  "macOS-20261119-125254": {
    "platform": "macOS",
-   "recorded": "2026-11-19 12:41:06",
-   "reason": "First full recorded run of the render matrix on macOS, to establish references",
+   "recorded": "2026-11-19 12:52:54",
+   "reason": "First full recorded run of the render matrix on macOS at 256 pixels, to establish references",
    "covered": "31 of 31 types",
    "identity": {
     "build": "groundzero 1.8 digest 360befa2ca1316d98e3e49500253cb3907d3158611caa9023fb6437104a4e653",
     "operating_system": "macos 27.2",
     "cpu": "arm64 (built for arm64)",
     "qt": "built 5.15.19, running 5.15.19",
-    "graphics_backend": "cocoa, probe {'elapsed_ms': 617, 'renderer': 'Apple M2 Max', 'renderer_class': 'hardware', 'result': 'context_ready', 'vendor': 'Apple', 'version': '2.1 Metal - 91.7'}",
+    "graphics_backend": "cocoa, probe {'elapsed_ms': 585, 'renderer': 'Apple M2 Max', 'renderer_class': 'hardware', 'result': 'context_ready', 'vendor': 'Apple', 'version': '2.1 Metal - 91.7'}",
     "plugins": "policy builtin_only",
     "fonts": "usable True",
     "media_tools": "ffmpeg not configured, sha256 2ce81b92499c1b6b96eb060c69723114bd0da13f1bfbd9da26dee24d099e644a",
@@ -53,7 +53,7 @@
   "colorCardFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "3b84d1aa1c6088001f0cf294cc992696867296d58904cb240f143e057ad08146",
+     "reference": "8484fe38033a096663c175ff1364beb3d8fdb164981fffd8b2fda28d77ad5c17",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -66,7 +66,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -79,21 +79,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "3b84d1aa1c6088001f0cf294cc992696867296d58904cb240f143e057ad08146",
-     "decoded_reference": "3bca589cb1316d60ef95699210eb18c23b161ae31c6a0d144b7e4ac5cf6ed9b5",
+     "reference": "8484fe38033a096663c175ff1364beb3d8fdb164981fffd8b2fda28d77ad5c17",
+     "decoded_reference": "0853cbadc538ab3df21e6650f03b596706476a485d366f17bdcb1dfc1819fff7",
+     "separation": {
+      "nearest_other_block_error": 85.0,
+      "nearest_other_type": "STD_targetSpotFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 2.0,
+      "mean_error": 2.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 1.303,
-      "max_error": 3,
+      "mean_error": 0.667,
+      "block_error": 0.667,
+      "max_error": 1,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -108,7 +113,7 @@
   "overFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "reference": "d8c33aea81b4716d01f707b65cbdecac882b1afb5ce7f9fd3b2ca81a7fd802cd",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -121,7 +126,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -134,21 +139,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
-     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "reference": "d8c33aea81b4716d01f707b65cbdecac882b1afb5ce7f9fd3b2ca81a7fd802cd",
+     "decoded_reference": "fd4ccabb049b861bacb265a06812b370b9f88cfae4105e9d4427b6e600ac959b",
+     "separation": {
+      "nearest_other_block_error": 7.77,
+      "nearest_other_type": "blendFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 2.994,
-      "max_error": 37,
+      "mean_error": 1.376,
+      "block_error": 3.416,
+      "max_error": 52,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -163,7 +173,7 @@
   "STD_iwa_LinearGradientFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "47bd97489f1f32cfb6ba061e24e08b034ff9562a16bbee690c3010e0efa0f808",
+     "reference": "4afec06dab0a747d3304877dcbc0a6f9124b80d52447bb5d00e7f9aacac359e3",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -176,7 +186,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -189,21 +199,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "47bd97489f1f32cfb6ba061e24e08b034ff9562a16bbee690c3010e0efa0f808",
-     "decoded_reference": "ae6d507d9367a550bfc34881c9b17d4041a269b4cb2438b50c4609ece84ea0b7",
+     "reference": "4afec06dab0a747d3304877dcbc0a6f9124b80d52447bb5d00e7f9aacac359e3",
+     "decoded_reference": "38986b798406c58bb3c316496b25c29840c56fc4f4d94e93fb393917edafd193",
+     "separation": {
+      "nearest_other_block_error": 95.465,
+      "nearest_other_type": "outFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 3.0,
+      "mean_error": 2.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 7.233,
-      "max_error": 37,
+      "mean_error": 0.78,
+      "block_error": 1.348,
+      "max_error": 6,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -218,7 +233,7 @@
   "STD_radialGradientFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "3d6b56d91e1ba8335e4f9bfe0a868c198fdb496d105f20ce4a49198a6328fee1",
+     "reference": "f154eb863b397b2b61e3490641a8cfce716062020af88b7c23ed7d129ac3beef",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -231,7 +246,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -244,21 +259,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "3d6b56d91e1ba8335e4f9bfe0a868c198fdb496d105f20ce4a49198a6328fee1",
-     "decoded_reference": "97ed114c5111c2663c1fdef6b327d518559185f3c0d1892c7a5184910370a271",
+     "reference": "f154eb863b397b2b61e3490641a8cfce716062020af88b7c23ed7d129ac3beef",
+     "decoded_reference": "347dc9aed3181ba239e48ddb45647deee340b9859718a0df85573b3cd385e7b3",
+     "separation": {
+      "nearest_other_block_error": 94.89,
+      "nearest_other_type": "outFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 4.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 11.122,
-      "max_error": 63,
+      "mean_error": 0.847,
+      "block_error": 1.621,
+      "max_error": 11,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -273,7 +293,7 @@
   "STD_blurFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "96d00b231c9de57afcb4c8b7e91a53759ef63dbc72f2cc55c6b154d5b4a90b38",
+     "reference": "a1d2aca23e83189b6a2fb7e18438eec09aaf7eb923a721d5e28b406d9ca385de",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -286,7 +306,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -299,21 +319,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "96d00b231c9de57afcb4c8b7e91a53759ef63dbc72f2cc55c6b154d5b4a90b38",
-     "decoded_reference": "7c74ce0dda35a3d38785f8656b12695eb4b1a140b6e216792f1b9c4031bf085c",
+     "reference": "a1d2aca23e83189b6a2fb7e18438eec09aaf7eb923a721d5e28b406d9ca385de",
+     "decoded_reference": "55456a44ff83ac223706940d6d636cfdc756d52ce57f946eb7217c339965bfdc",
+     "separation": {
+      "nearest_other_block_error": 28.707,
+      "nearest_other_type": "STD_backlitFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 10.025,
-      "max_error": 130,
+      "mean_error": 1.388,
+      "block_error": 3.372,
+      "max_error": 29,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -328,7 +353,7 @@
   "STD_glowFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "a2f1ffc6bff7a7f0369a8423b3ef94c969a13a9705c6c0c13fc61af055b4ba01",
+     "reference": "eff6f6c7da6090b780b1cd30d9ad05d5593f616deb726aa5a1ba4ac430536505",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -341,7 +366,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -354,21 +379,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "a2f1ffc6bff7a7f0369a8423b3ef94c969a13a9705c6c0c13fc61af055b4ba01",
-     "decoded_reference": "655d020e400f6375b08d58bbd25e18c1aadd5df2dff84d0229eab922a4ecb9b4",
+     "reference": "eff6f6c7da6090b780b1cd30d9ad05d5593f616deb726aa5a1ba4ac430536505",
+     "decoded_reference": "7a276b792fae61aab99bf029d779463603b94fe42f81603bbbfa9df2ae9f7cc1",
+     "separation": {
+      "nearest_other_block_error": 21.367,
+      "nearest_other_type": "STD_backlitFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 4.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 4.357,
-      "max_error": 38,
+      "mean_error": 1.947,
+      "block_error": 3.99,
+      "max_error": 54,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -383,7 +413,7 @@
   "STD_brightContFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "e58e1e0b316457e865384677e5aee2df0bd0fdcd30632eb01dbbd98b8fd0f86a",
+     "reference": "d0bd34e4f7735a6f5fe578f2088dc620ab8dcddfa664c81d988a65ef6e5c2195",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -396,7 +426,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -409,21 +439,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "e58e1e0b316457e865384677e5aee2df0bd0fdcd30632eb01dbbd98b8fd0f86a",
-     "decoded_reference": "7ad98eb93451da76d1f583894225bcd8861c18b84302d99b9df4a0b0a5ca02d5",
+     "reference": "d0bd34e4f7735a6f5fe578f2088dc620ab8dcddfa664c81d988a65ef6e5c2195",
+     "decoded_reference": "a1f3460aa59007d676cfd4da273c8ee5ec21a930636b5fb9ae6e7d5f452c8edb",
+     "separation": {
+      "nearest_other_block_error": 36.624,
+      "nearest_other_type": "STD_glowFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 4.369,
-      "max_error": 63,
+      "mean_error": 1.558,
+      "block_error": 3.357,
+      "max_error": 62,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -438,7 +473,7 @@
   "STD_hsvScaleFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "9c2a3b512acbdd6790e7bfda74b6a8432f86e4c0693cc074a0bd4f959e81ca89",
+     "reference": "ea452f298654d4f5a2b368deaf28d5aa949665f76f7b4e15299c89bcee82241e",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -451,7 +486,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -464,21 +499,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "9c2a3b512acbdd6790e7bfda74b6a8432f86e4c0693cc074a0bd4f959e81ca89",
-     "decoded_reference": "123f49e7483d26ceb09d74833451fa39ac5783b926dbf59c249b7e8a96463e78",
+     "reference": "ea452f298654d4f5a2b368deaf28d5aa949665f76f7b4e15299c89bcee82241e",
+     "decoded_reference": "da2b800ff298b4fcd322dac9d060b05dd23598ec033283b0b06e0c0118111f02",
+     "separation": {
+      "nearest_other_block_error": 101.333,
+      "nearest_other_type": "multFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 4.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 4.52,
-      "max_error": 41,
+      "mean_error": 1.689,
+      "block_error": 3.368,
+      "max_error": 46,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -493,7 +533,7 @@
   "multFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "e0bb66bc573b7a142d05caf0e1884bb7d437b91d2e4b6efd675b7e6bc04330fa",
+     "reference": "8584a5f710c80867e778812d205796b0e3517f9efcfacce14ecbad74a8e6f133",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -506,7 +546,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -519,21 +559,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "e0bb66bc573b7a142d05caf0e1884bb7d437b91d2e4b6efd675b7e6bc04330fa",
-     "decoded_reference": "26109f0f6fc5d0d83cbe803be4db8f930cb969d959da21e590f661d47d4e3c29",
+     "reference": "8584a5f710c80867e778812d205796b0e3517f9efcfacce14ecbad74a8e6f133",
+     "decoded_reference": "de8160d2da170e4f2af3fc2b19c6fc487b0b80da9c50c90801dbc0579c8ab6e5",
+     "separation": {
+      "nearest_other_block_error": 43.0,
+      "nearest_other_type": "STD_blurFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 4.783,
-      "max_error": 63,
+      "mean_error": 1.086,
+      "block_error": 3.812,
+      "max_error": 47,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -548,7 +593,7 @@
   "screenFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "reference": "bd0b2f4a66f25f866a4d2f541c052e6ba636b92164a946465726d95359f675d5",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -561,7 +606,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -574,21 +619,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
-     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "reference": "bd0b2f4a66f25f866a4d2f541c052e6ba636b92164a946465726d95359f675d5",
+     "decoded_reference": "f1e0154ed702cca2c78fcbf592f5666552922a65959343cd4b9f0f95b022523e",
+     "separation": {
+      "nearest_other_block_error": 9.225,
+      "nearest_other_type": "overFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 2.994,
-      "max_error": 37,
+      "mean_error": 1.203,
+      "block_error": 3.368,
+      "max_error": 54,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -603,7 +653,7 @@
   "inFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "reference": "37cf8270a994db48afb76d406123c53939b04ddcfa491446f691282b7150612f",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -616,7 +666,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -629,21 +679,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
-     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "reference": "37cf8270a994db48afb76d406123c53939b04ddcfa491446f691282b7150612f",
+     "decoded_reference": "ff0577c5dae6429b78bbb9a3c10cc5a0a09c17526d09d695638d1f636f581412",
+     "separation": {
+      "nearest_other_block_error": 8.35,
+      "nearest_other_type": "STD_sharpenFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 4.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 2.994,
-      "max_error": 37,
+      "mean_error": 1.697,
+      "block_error": 3.658,
+      "max_error": 71,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -658,7 +713,7 @@
   "outFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
+     "reference": "70652591b8f3c2e24af416131ebfcedb0ee2a6321eff42e01d2fe62e3d1d475b",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -671,7 +726,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -684,21 +739,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
-     "decoded_reference": "e80232b4d18d0bb7e794be263ba937626f383f9917d4b8a737ba893a8f752293",
+     "reference": "70652591b8f3c2e24af416131ebfcedb0ee2a6321eff42e01d2fe62e3d1d475b",
+     "decoded_reference": "7e00da673a35cac0d5c06a06bbd8fb5f08123bb9f7e905915a19d97ec7949e67",
+     "separation": {
+      "nearest_other_block_error": 20.675,
+      "nearest_other_type": "STD_solarizeFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 3.0,
+      "mean_error": 2.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 0.0,
-      "max_error": 0,
+      "mean_error": 0.367,
+      "block_error": 1.422,
+      "max_error": 28,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -713,7 +773,7 @@
   "invertFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "8794c7236b573631a2e1602746ed6748806be1fee354597134ff6832ac8b6c68",
+     "reference": "6d4cd66210615283494b27238c71b99c50b501475a3e23837e694de11009e205",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -726,7 +786,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -739,21 +799,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "8794c7236b573631a2e1602746ed6748806be1fee354597134ff6832ac8b6c68",
-     "decoded_reference": "afa30143d152ed900685324dcff2b8ab588e608ff042318eb2d26926fedf294f",
+     "reference": "6d4cd66210615283494b27238c71b99c50b501475a3e23837e694de11009e205",
+     "decoded_reference": "b3eb77ada3e8f9308f6bb2b0e9f7720b4a546888d01d7d1f049e9fae8fd076f6",
+     "separation": {
+      "nearest_other_block_error": 136.0,
+      "nearest_other_type": "STD_hsvScaleFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 7.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 3.294,
-      "max_error": 43,
+      "mean_error": 1.515,
+      "block_error": 4.045,
+      "max_error": 52,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -768,7 +833,7 @@
   "blendFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "reference": "48b2c809aa03c1665db34082c20c6f9679c5ff58aabc1a8ae4e5a3b94361c58e",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -781,7 +846,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -794,21 +859,27 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
-     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
-     "status": "passed",
+     "reference": "48b2c809aa03c1665db34082c20c6f9679c5ff58aabc1a8ae4e5a3b94361c58e",
+     "decoded_reference": "c82e9f660179d5ff0b298d30d5125bc6d166ebd70760768e9d260946fcb4fe5c",
+     "separation": {
+      "nearest_other_block_error": 3.277,
+      "nearest_other_type": "STD_backlitFx"
+     },
+     "status": "unverified",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 2.994,
-      "max_error": 37,
+      "mean_error": 1.396,
+      "block_error": 3.276,
+      "max_error": 45,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "reason": "the block tolerance 6.0 does not separate this picture from STD_backlitFx's (block error 3.277); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -823,7 +894,7 @@
   "STD_iwa_BloomFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "a1e2c02bd09b87cf3698344414183ad343446cf5f1744e29dbbd5010ec57d303",
+     "reference": "1e19469d8027ce9870cfbff2e488d807cb60ca896e11ec9caf82e602fb7adc88",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -836,7 +907,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -849,21 +920,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "a1e2c02bd09b87cf3698344414183ad343446cf5f1744e29dbbd5010ec57d303",
-     "decoded_reference": "c14e7bfbac0c105eeaf470ac4a64e15488ce93f30ac0c4286cc28b4ac775d133",
+     "reference": "1e19469d8027ce9870cfbff2e488d807cb60ca896e11ec9caf82e602fb7adc88",
+     "decoded_reference": "dd7dcb30d93b7bc610da6d721cd8bd3d19dbc1a2164d5e34245fb34291375793",
+     "separation": {
+      "nearest_other_block_error": 67.106,
+      "nearest_other_type": "STD_lightWrapFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 4.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 16.686,
-      "max_error": 118,
+      "mean_error": 1.205,
+      "block_error": 2.397,
+      "max_error": 32,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -878,7 +954,7 @@
   "STD_lightWrapFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "5576ef0c0686e9268b926f493fc1efbcdbc4d9b9931064eff5f4f6c817fa46b4",
+     "reference": "b64bf80493efce7256b8606daeddcc4ee822c4d775833176bd47cce718015039",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -891,7 +967,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -904,21 +980,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "5576ef0c0686e9268b926f493fc1efbcdbc4d9b9931064eff5f4f6c817fa46b4",
-     "decoded_reference": "6af6dcaa32d1ae289028de65e5b2477764711f4d4c68dc9e1b9ceda1e86bce53",
+     "reference": "b64bf80493efce7256b8606daeddcc4ee822c4d775833176bd47cce718015039",
+     "decoded_reference": "7769b11b166431ea720eae624c4a1d6567d2407b75844e5eb8d77d6390c12f75",
+     "separation": {
+      "nearest_other_block_error": 46.608,
+      "nearest_other_type": "STD_brightContFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 11.553,
-      "max_error": 89,
+      "mean_error": 1.597,
+      "block_error": 3.615,
+      "max_error": 51,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -933,7 +1014,7 @@
   "STD_backlitFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "reference": "d5215fcbb328895f32863aab13def5f10f3835e3e1c0d98a0cba14bd80cf4fee",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -946,7 +1027,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -959,21 +1040,27 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
-     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
-     "status": "passed",
+     "reference": "d5215fcbb328895f32863aab13def5f10f3835e3e1c0d98a0cba14bd80cf4fee",
+     "decoded_reference": "c80e27cf952c9f6124c70ec3ca2f3f5a9b63a4cb1349356ae58cbb787c267497",
+     "separation": {
+      "nearest_other_block_error": 3.491,
+      "nearest_other_type": "blendFx"
+     },
+     "status": "unverified",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 2.994,
-      "max_error": 37,
+      "mean_error": 1.6,
+      "block_error": 3.402,
+      "max_error": 54,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "reason": "the block tolerance 6.0 does not separate this picture from blendFx's (block error 3.491); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -988,7 +1075,7 @@
   "STD_bodyHighLightFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "6c6282f972280ce187b6904240eb79e4f9e5fd53a97b6e0419cb314d934f2723",
+     "reference": "806d3dec25837d75b549611d38e5b630cb22f8dc8d6efd3139aa51d5342be8a7",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1001,7 +1088,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1014,21 +1101,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "6c6282f972280ce187b6904240eb79e4f9e5fd53a97b6e0419cb314d934f2723",
-     "decoded_reference": "46c60998fe4e8d6bf0d5e9e110c0a17f7573065ac7e4088fdb6f729e08a4ecd3",
+     "reference": "806d3dec25837d75b549611d38e5b630cb22f8dc8d6efd3139aa51d5342be8a7",
+     "decoded_reference": "332ab2cbefb4a7d21a0b91f8b054807205faf796366f04a7fedab0d92b067b37",
+     "separation": {
+      "nearest_other_block_error": 25.132,
+      "nearest_other_type": "STD_glowFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 4.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 6.898,
-      "max_error": 92,
+      "mean_error": 1.749,
+      "block_error": 3.877,
+      "max_error": 54,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1043,7 +1135,7 @@
   "STD_lightSpotFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "13ddd3cfa78fe782932a4667d9181cb05251578b949413746657a5732762650b",
+     "reference": "fec82db09bb14134b139eaf484d04c36107fd5f179de16badcfc4de5aa1fbc82",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1056,7 +1148,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1069,21 +1161,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "13ddd3cfa78fe782932a4667d9181cb05251578b949413746657a5732762650b",
-     "decoded_reference": "b6575e9e1bd9787fa91afcdb216488c1d2a98477e2c6ea69790fd1a9f93c5498",
+     "reference": "fec82db09bb14134b139eaf484d04c36107fd5f179de16badcfc4de5aa1fbc82",
+     "decoded_reference": "950a1c3c695760a5009deec90ed0239f17920e92f98b41b531d16ea696cec3be",
+     "separation": {
+      "nearest_other_block_error": 112.658,
+      "nearest_other_type": "STD_iwa_LinearGradientFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 20.316,
-      "max_error": 122,
+      "mean_error": 1.345,
+      "block_error": 3.734,
+      "max_error": 75,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1098,7 +1195,7 @@
   "STD_targetSpotFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "8b217804022b45d1d83f45e2dd91261402eba3dfb7ba486460d9518a7c34d29d",
+     "reference": "ce58283b05c1517d80be9c589ada9a2e6e7782b64c6d2d46fe8a4cff78a39c7e",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1111,7 +1208,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1124,21 +1221,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "8b217804022b45d1d83f45e2dd91261402eba3dfb7ba486460d9518a7c34d29d",
-     "decoded_reference": "b240d0e417e5cd8247dd42539f549238d6523197f9ac998cb43ba9028b06bcff",
+     "reference": "ce58283b05c1517d80be9c589ada9a2e6e7782b64c6d2d46fe8a4cff78a39c7e",
+     "decoded_reference": "7c3d75326a42b6fbd117ef58a7ecbafb5a0fe1634efb68fe9396ff986bb6cdb7",
+     "separation": {
+      "nearest_other_block_error": 84.667,
+      "nearest_other_type": "colorCardFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 3.0,
+      "mean_error": 2.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 1.64,
+      "mean_error": 0.592,
+      "block_error": 1.327,
       "max_error": 3,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1153,7 +1255,7 @@
   "STD_directionalBlurFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "244b2bef504ada4c309c1d28fe5f3cc957059ee7df702bb687d040b5abc11146",
+     "reference": "b23fcc1d24bdca331a43c4536ec6186ca1dd39582ff7e280d2097cf17d6bb519",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1166,7 +1268,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1179,21 +1281,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "244b2bef504ada4c309c1d28fe5f3cc957059ee7df702bb687d040b5abc11146",
-     "decoded_reference": "3db3a718793061f5a5bbfffbb3b997e14bb2afbd8f8d5ab99003935cd98e9384",
+     "reference": "b23fcc1d24bdca331a43c4536ec6186ca1dd39582ff7e280d2097cf17d6bb519",
+     "decoded_reference": "466d948518940fa6a72396fc6f69fdfb729c5bf8d64559b2d5a48c9477e02a77",
+     "separation": {
+      "nearest_other_block_error": 83.793,
+      "nearest_other_type": "multFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 7.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 12.435,
-      "max_error": 166,
+      "mean_error": 1.585,
+      "block_error": 4.392,
+      "max_error": 60,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1208,7 +1315,7 @@
   "STD_localBlurFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "81b538c0a9502172b2f2e9680ddf5cf977f7f0c2eac9ba26a68fa82a9d870fec",
+     "reference": "cf646a98cfe5204d9e2d3912908388a5beb96a39c29267a135db9095fad88263",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1221,7 +1328,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1234,21 +1341,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "81b538c0a9502172b2f2e9680ddf5cf977f7f0c2eac9ba26a68fa82a9d870fec",
-     "decoded_reference": "54b5eb86e9d470722e021f0f8681d013fd1b9b4d95fb9500543783d3f19b09a8",
+     "reference": "cf646a98cfe5204d9e2d3912908388a5beb96a39c29267a135db9095fad88263",
+     "decoded_reference": "c0c4af6fd1b8f30c7c6647f74ffe574749eb77774e448d9da5df3a213455f125",
+     "separation": {
+      "nearest_other_block_error": 73.129,
+      "nearest_other_type": "multFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 16.193,
-      "max_error": 118,
+      "mean_error": 1.41,
+      "block_error": 3.681,
+      "max_error": 37,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1263,7 +1375,7 @@
   "STD_posterizeFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "df894663e850afa3619ed3d3825d9d1c6520f15fcd76aac25c4407c405fa8cfe",
+     "reference": "bc8edabc5b58790e084623af0ca381da5c9d273928b5f434c1e8924cdd659575",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1276,7 +1388,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1289,21 +1401,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "df894663e850afa3619ed3d3825d9d1c6520f15fcd76aac25c4407c405fa8cfe",
-     "decoded_reference": "e80232b4d18d0bb7e794be263ba937626f383f9917d4b8a737ba893a8f752293",
+     "reference": "bc8edabc5b58790e084623af0ca381da5c9d273928b5f434c1e8924cdd659575",
+     "decoded_reference": "e004fb02c9e13c545947ce8a8709cc21d91a9a069721728f2a9aa20cd2b507fe",
+     "separation": {
+      "nearest_other_block_error": 35.858,
+      "nearest_other_type": "STD_solarizeFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 15.0,
+      "mean_error": 4.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 0.0,
-      "max_error": 0,
+      "mean_error": 2.31,
+      "block_error": 10.756,
+      "max_error": 194,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1318,7 +1435,7 @@
   "STD_solarizeFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "df894663e850afa3619ed3d3825d9d1c6520f15fcd76aac25c4407c405fa8cfe",
+     "reference": "bcc4e628329b777fea6826206db4596931270fd9bd0753ef959c0a5e2c960416",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1331,7 +1448,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1344,21 +1461,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "df894663e850afa3619ed3d3825d9d1c6520f15fcd76aac25c4407c405fa8cfe",
-     "decoded_reference": "e80232b4d18d0bb7e794be263ba937626f383f9917d4b8a737ba893a8f752293",
+     "reference": "bcc4e628329b777fea6826206db4596931270fd9bd0753ef959c0a5e2c960416",
+     "decoded_reference": "431790378117c6622877754feb9c420908848a0bb39494a58e27812f068b4f48",
+     "separation": {
+      "nearest_other_block_error": 20.883,
+      "nearest_other_type": "outFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 7.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 0.0,
-      "max_error": 0,
+      "mean_error": 1.528,
+      "block_error": 4.547,
+      "max_error": 96,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1373,7 +1495,7 @@
   "STD_sharpenFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "reference": "c94413e06e20880b39f71282bb2fd1c4257403e5853c996fb401ffc0cc15952e",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1386,7 +1508,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1399,21 +1521,27 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
-     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
-     "status": "passed",
+     "reference": "c94413e06e20880b39f71282bb2fd1c4257403e5853c996fb401ffc0cc15952e",
+     "decoded_reference": "3ede224b43a8d39de2746f824c20ce62ce26f44a53ed1e6002acaed5de553c8c",
+     "separation": {
+      "nearest_other_block_error": 3.505,
+      "nearest_other_type": "blendFx"
+     },
+     "status": "unverified",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 2.994,
-      "max_error": 37,
+      "mean_error": 1.528,
+      "block_error": 3.743,
+      "max_error": 60,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "reason": "the block tolerance 6.0 does not separate this picture from blendFx's (block error 3.505); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1428,7 +1556,7 @@
   "STD_embossFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "15f0c8339dba1d797b06d439d6c76b11886293b6fa99765d6f7f4941d560d65e",
+     "reference": "1cb30ec9c93c325b4a0e0ff3ca4b0e68d7b34938752e2c7a512c4cddb6a3fa7f",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1441,7 +1569,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1454,21 +1582,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "15f0c8339dba1d797b06d439d6c76b11886293b6fa99765d6f7f4941d560d65e",
-     "decoded_reference": "21a1378755442c037d9abc8d4eb0948ce25806c7960459ecf423c4601f86ab04",
+     "reference": "1cb30ec9c93c325b4a0e0ff3ca4b0e68d7b34938752e2c7a512c4cddb6a3fa7f",
+     "decoded_reference": "35c236ca23a8555fcd0d1c812d30eceb16dde19e60897bf6101079c7d35f876c",
+     "separation": {
+      "nearest_other_block_error": 121.656,
+      "nearest_other_type": "STD_hsvScaleFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 5.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 25.865,
-      "max_error": 136,
+      "mean_error": 1.155,
+      "block_error": 2.75,
+      "max_error": 35,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1483,7 +1616,7 @@
   "STD_erodeDilateFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "2460b30e3f11d306f2cbaef06224c4bd8744b30d85b1c1781d3f6182ffbcd106",
+     "reference": "1c5df1417876d0557e307d1153de917d0ebc32695351befb7ad648fb8c78fa42",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1496,7 +1629,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1509,21 +1642,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "2460b30e3f11d306f2cbaef06224c4bd8744b30d85b1c1781d3f6182ffbcd106",
-     "decoded_reference": "93aafdffe2733d680b80d4534aca1bcb0e03e80a4f09a5609fee8d0c4c485a63",
+     "reference": "1c5df1417876d0557e307d1153de917d0ebc32695351befb7ad648fb8c78fa42",
+     "decoded_reference": "2d9d2c7aaeb42ee73be959a692d31aab3ff2e4dff32cbc63b6a47f41d94bc3f6",
+     "separation": {
+      "nearest_other_block_error": 56.725,
+      "nearest_other_type": "STD_matteChokeFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 14.409,
-      "max_error": 174,
+      "mean_error": 0.938,
+      "block_error": 3.351,
+      "max_error": 71,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1538,7 +1676,7 @@
   "STD_matteChokeFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "07ad0fc9d75bce1d016ff36e834454554ff6b2d6aeeaae6f104c8ffd8f5527d6",
+     "reference": "b5ce2a29e40a53985e251c3f05cfa3931d543b93d2332b91c55b15ad6b596129",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1551,7 +1689,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1564,21 +1702,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "07ad0fc9d75bce1d016ff36e834454554ff6b2d6aeeaae6f104c8ffd8f5527d6",
-     "decoded_reference": "67611e95293d92c4a4625e6eb27dbbf7b0d1d2ce973e21fce400402edfa92fd7",
+     "reference": "b5ce2a29e40a53985e251c3f05cfa3931d543b93d2332b91c55b15ad6b596129",
+     "decoded_reference": "6e862dfe1a5d29368b12082cdeafcde59c012fbc4cc8a80604bd0a2ec05d7823",
+     "separation": {
+      "nearest_other_block_error": 57.011,
+      "nearest_other_type": "STD_erodeDilateFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 14.656,
-      "max_error": 127,
+      "mean_error": 1.216,
+      "block_error": 3.595,
+      "max_error": 47,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1593,7 +1736,7 @@
   "STD_channelMixerFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "756ea751f6a9bc8218bc463bc6e9107ec7c096138aab79efeef7e500acf2edd9",
+     "reference": "05e3647400afc22b8fb8bfff48b500962e469e3ea78f97d16d16b92ce4cf2c38",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1606,7 +1749,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1619,21 +1762,26 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "756ea751f6a9bc8218bc463bc6e9107ec7c096138aab79efeef7e500acf2edd9",
-     "decoded_reference": "8d7b800f05c50f468d8c0ff6c7aa6e65dabbb491d3276b84411ad71a5d65b4c0",
+     "reference": "05e3647400afc22b8fb8bfff48b500962e469e3ea78f97d16d16b92ce4cf2c38",
+     "decoded_reference": "3b1f8e369aec7648de03df473e992b6346973803a8c618857d184209d485df9a",
+     "separation": {
+      "nearest_other_block_error": 85.0,
+      "nearest_other_type": "STD_sharpenFx"
+     },
      "status": "passed",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 6.0,
+      "mean_error": 3.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 3.802,
-      "max_error": 24,
+      "mean_error": 1.415,
+      "block_error": 3.619,
+      "max_error": 58,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1648,7 +1796,7 @@
   "STD_gammaFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "reference": "156ba165edc92850eae2699236e77dcdd40764fc98f6b25f09fd764bd63feaac",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1661,7 +1809,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1674,21 +1822,27 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
-     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
-     "status": "passed",
+     "reference": "156ba165edc92850eae2699236e77dcdd40764fc98f6b25f09fd764bd63feaac",
+     "decoded_reference": "89ef3012a20409f9453b2ecaadc648504bffafd2247fc7e2a6f45c24af368675",
+     "separation": {
+      "nearest_other_block_error": 5.659,
+      "nearest_other_type": "screenFx"
+     },
+     "status": "unverified",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 8.0,
+      "mean_error": 4.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 2.994,
-      "max_error": 37,
+      "mean_error": 1.881,
+      "block_error": 5.595,
+      "max_error": 80,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "reason": "the block tolerance 8.0 does not separate this picture from screenFx's (block error 5.659); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1703,7 +1857,7 @@
   "STD_iwa_AdjustExposureFx": {
    "png_sequence": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "reference": "a7a2c1b988f1fe59bd3b3b51835472d9f8f801d7d432617cbbac9cca57e46596",
      "status": "passed",
      "tolerance": {
       "max_color": 0,
@@ -1716,7 +1870,7 @@
       "max_alpha": 0,
       "differing_pixels": 0
      },
-     "run": "macOS-20261119-124106"
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",
@@ -1729,21 +1883,27 @@
    },
    "mp4": {
     "macOS": {
-     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
-     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
-     "status": "passed",
+     "reference": "a7a2c1b988f1fe59bd3b3b51835472d9f8f801d7d432617cbbac9cca57e46596",
+     "decoded_reference": "3e67d9263b4fa96f7ee0e5a99c18dd67e20a68eb2c33bec72e2e9d73d69de38a",
+     "separation": {
+      "nearest_other_block_error": 5.533,
+      "nearest_other_type": "screenFx"
+     },
+     "status": "unverified",
      "tolerance": {
-      "mean_error": 40.0,
-      "max_error": 220,
+      "block_error": 15.0,
+      "mean_error": 5.0,
       "decoded_differing_bytes": 0,
-      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
      },
      "observed": {
-      "mean_error": 2.994,
-      "max_error": 37,
+      "mean_error": 2.572,
+      "block_error": 10.733,
+      "max_error": 140,
       "decoded_differing_bytes": 0
      },
-     "run": "macOS-20261119-124106"
+     "reason": "the block tolerance 15.0 does not separate this picture from screenFx's (block error 5.533); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
     },
     "Linux": {
      "status": "not_tested",

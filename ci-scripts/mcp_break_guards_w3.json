@@ -130,19 +130,6 @@
     ]
   },
   {
-    "id": "fx-matrix-movie-decode-exact",
-    "file": "ci-scripts/mcp_fx_matrix_cases.py",
-    "find": "measured[\"decoded_digest\"] != references[\"decoded\"]",
-    "replace": "False",
-    "why": "A movie whose decoded bytes differ from the stored decode fails.",
-    "tests": [
-      {
-        "kind": "unit",
-        "pattern": "test_mcp_fx_matrix.py"
-      }
-    ]
-  },
-  {
     "id": "fx-matrix-cell-fails-outside-tolerance",
     "file": "ci-scripts/mcp_fx_matrix_cases.py",
     "find": "over = [name for name in observed if observed[name] > limits[name]]",
@@ -161,6 +148,84 @@
     "find": "return {\"status\": \"unavailable\", \"reason\": measured[\"skipped\"]}",
     "replace": "return {\"status\": \"passed\"}",
     "why": "A run without media tools must not pass a movie cell.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-movie-decode-exact",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "measured[\"decoded_digest\"] != references[\"decoded\"]",
+    "replace": "False",
+    "why": "A movie whose decoded bytes differ from the stored decode fails.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-movie-blind-is-unverified",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "tolerance[\"block_error\"] >= near[\"nearest_other_block_error\"]",
+    "replace": "False",
+    "why": "A movie tolerance that cannot tell the picture from another type's must not pass.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-block-metric",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "\"block_error\": round(max(block_errors(expected, decoded, size)), 3),",
+    "replace": "\"block_error\": 0.0,",
+    "why": "The movie is scored by its worst block, so a small wrong region is seen.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-tolerance-margin",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "return float(math.ceil(value * MARGIN) + 1)",
+    "replace": "return 1000.0",
+    "why": "A movie cell states a tolerance from its observed error with a margin, not a broad one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-passed-separates",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "blind = cell[\"tolerance\"][\"block_error\"] >= near",
+    "replace": "blind = False",
+    "why": "A passed movie cell's tolerance must be smaller than the distance to another picture.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-unverified-is-run",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "stale = sum(1 for cell in cells if cell[\"status\"] in MEASURED and cell[\"run\"] != latest)",
+    "replace": "stale = 0",
+    "why": "Cells from an older run make the platform incomplete.",
     "tests": [
       {
         "kind": "unit",

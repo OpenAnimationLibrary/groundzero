@@ -52,14 +52,15 @@ CENSUS_PATH = SCRIPTS / "mcp_census.json"
 REVISION_MATRIX_PATH = SCRIPTS / "mcp_revision_matrix.json"
 PROFILE_SOURCE = ROOT / "toonz" / "sources" / "toonz" / "automation_fx_profile.cpp"
 SCHEMA_VERSION = 1
-STATUSES = ("passed", "failed", "unavailable", "not_tested")
+STATUSES = ("passed", "failed", "unverified", "unavailable", "not_tested")
+MEASURED = ("passed", "failed", "unverified")
 MINIMUM_REASON = 12
 # The widest tolerance a format may state. PNG output is lossless, so any difference between two
 # renders on one platform is a defect; MP4 is lossy, so its decoded frame is compared with the PNG
 # render of the same scene under a stated error. Widening a cap is a change to this file.
 TOLERANCE_CAPS: dict[str, dict[str, float]] = {
     "png_sequence": {"max_color": 0, "max_alpha": 0, "differing_pixels": 0},
-    "mp4": {"mean_error": 40.0, "max_error": 220, "decoded_differing_bytes": 0},
+    "mp4": {"block_error": 16.0, "mean_error": 6.0, "decoded_differing_bytes": 0},
 }
 PROFILE_ROW = re.compile(r'^ {6}\{"([A-Za-z0-9_]+)",\s*\d+,', re.MULTILINE)
 NEGATIVE_CALL = re.compile(
@@ -150,7 +151,7 @@ def _cell_problems(
     found: list[str] = []
     if status != "passed" and len(cell.get("reason", "").strip()) < MINIMUM_REASON:
         found.append(f"{where}: a {status} cell needs its reason")
-    if status in {"passed", "failed"}:
+    if status in MEASURED:
         found += _measured_problems(where, cell, caps)
         if cell.get("run") not in runs:
             found.append(f"{where}: names run {cell.get('run')!r}, which is not recorded")
@@ -173,10 +174,10 @@ def _measured_problems(where: str, cell: dict[str, Any], caps: dict[str, float])
                 f"{where}: tolerance {name} {tolerance[name]} is above the cap {cap} for the "
                 "format; a broad tolerance could hide a driver, codec or font difference"
             )
-        if cell["status"] == "passed" and observed.get(name, float("inf")) > tolerance[name]:
+        if cell["status"] != "failed" and observed.get(name, float("inf")) > tolerance[name]:
             found.append(
-                f"{where}: passed, but {name} {observed.get(name)} is above its tolerance "
-                f"{tolerance[name]}"
+                f"{where}: {cell['status']}, but {name} {observed.get(name)} is above its "
+                f"tolerance {tolerance[name]}"
             )
     if any(tolerance[name] for name in caps) and not tolerance.get("why", "").strip():
         found.append(f"{where}: a tolerance above zero needs its reason in `why`")
@@ -208,7 +209,7 @@ def _reference_problems(data: dict[str, Any]) -> list[str]:
     """A passed cell needs its stored reference; a movie must be compared with the PNG's."""
     found = []
     for (kind, form, platform), cell in sorted(present_cells(data).items()):
-        if cell["status"] != "passed":
+        if cell["status"] not in {"passed", "unverified"}:
             continue
         where = f"{kind} / {form} / {platform}"
         if not re.fullmatch(r"[0-9a-f]{64}", cell.get("reference", "")):
@@ -218,6 +219,28 @@ def _reference_problems(data: dict[str, Any]) -> list[str]:
         png = data["cells"][kind].get("png_sequence", {}).get(platform, {})
         if form != "png_sequence" and png.get("reference") != cell.get("reference"):
             found.append(f"{where}: was not compared with the PNG render recorded for the type")
+    return found
+
+
+def _separation_problems(data: dict[str, Any]) -> list[str]:
+    """A movie that passed must be told from every other type's picture by its tolerance."""
+    found = []
+    for (kind, form, platform), cell in sorted(present_cells(data).items()):
+        if form != "mp4" or cell["status"] not in {"passed", "unverified"}:
+            continue
+        where = f"{kind} / {form} / {platform}"
+        near = cell.get("separation", {}).get("nearest_other_block_error")
+        if near is None:
+            found.append(f"{where}: no measure of how far the nearest other picture is")
+            continue
+        blind = cell["tolerance"]["block_error"] >= near
+        if cell["status"] == "passed" and blind:
+            found.append(
+                f"{where}: passed, but its block tolerance {cell['tolerance']['block_error']} "
+                f"does not separate it from another type's picture ({near}): it is unverified"
+            )
+        if cell["status"] == "unverified" and not blind:
+            found.append(f"{where}: unverified although its tolerance separates it: it passed")
     return found
 
 
@@ -261,9 +284,7 @@ def platform_summary(data: dict[str, Any], platform: str, types: list[str]) -> d
     ]
     counts = Counter(cell["status"] for cell in cells)
     latest = data["platforms"][platform].get("latest_run")
-    stale = sum(
-        1 for cell in cells if cell["status"] in {"passed", "failed"} and cell["run"] != latest
-    )
+    stale = sum(1 for cell in cells if cell["status"] in MEASURED and cell["run"] != latest)
     complete = bool(cells) and counts["not_tested"] == 0 and stale == 0
     return {"counts": counts, "total": len(cells), "stale": stale, "complete": complete}
 
@@ -334,7 +355,12 @@ def check_data(
     formats = {entry["id"]: TOLERANCE_CAPS.get(entry["id"], {}) for entry in data["formats"]}
     for (kind, form, platform), cell in sorted(present_cells(data).items()):
         found += _cell_problems(f"{kind} / {form} / {platform}", cell, formats.get(form, {}), runs)
-    found += _reference_problems(data) + _run_problems(data) + _label_problems(data, types)
+    found += (
+        _separation_problems(data)
+        + _reference_problems(data)
+        + _run_problems(data)
+        + _label_problems(data, types)
+    )
     found += negative_gap_problems(data, census, scripts)
     if len(types) != census["claims"]["fx_builtins"]:
         found.append(

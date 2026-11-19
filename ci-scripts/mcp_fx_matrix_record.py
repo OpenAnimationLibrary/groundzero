@@ -56,7 +56,7 @@ def record(executable: Path, media: Path | None, reason: str, only: list[str]) -
     recorder = Recorder()
     recorder.setUp()
     try:
-        results, identity = measure(recorder, only or types, media)
+        results, identity, _pictures = measure(recorder, only or types, media)
     finally:
         recorder.doCleanups()
         shutil.rmtree(Recorder.output, ignore_errors=True)

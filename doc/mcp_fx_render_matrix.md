@@ -5,13 +5,16 @@ The static layer regenerates this document and fails when it differs, so it cann
 
 ## How to read this
 
-Each cell is one admitted FX type rendered to one output format on one platform. Four outcomes
+Each cell is one admitted FX type rendered to one output format on one platform. Five outcomes
 are kept apart and never summed into "supported":
 
 - **passed**: a recorded run rendered the cell through the worker, decoded the output
   independently, and its difference from the stored reference is within the tolerance the cell
   states;
 - **failed**: a run rendered it and the output was wrong; the reason says how;
+- **unverified**: a run rendered it and the output decoded, but the oracle cannot tell this picture
+  from another type's (the movie's tolerance is not smaller than the distance to the nearest other
+  picture), so the cell is not claimed as passed; the exact PNG cell of the type still stands;
 - **unavailable**: the platform could not run the cell (for example no media tools); the reason
   says what was missing;
 - **not tested**: no run has covered the cell. Nothing is claimed about it.
@@ -23,18 +26,18 @@ otherwise. A run on one platform is no evidence about another.
 
 ## Platforms
 
-| Platform | Label | Passed | Failed | Unavailable | Not tested | Older run | Latest run |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| macOS | complete | 62 | 0 | 0 | 0 | 0 | macOS-20261119-124106 |
-| Linux | incomplete | 0 | 0 | 0 | 62 | 0 | none |
-| Windows | incomplete | 0 | 0 | 0 | 62 | 0 | none |
+| Platform | Label | Passed | Failed | Unverified | Unavailable | Not tested | Older run | Latest run |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| macOS | complete | 57 | 0 | 5 | 0 | 0 | 0 | macOS-20261119-125254 |
+| Linux | incomplete | 0 | 0 | 0 | 0 | 62 | 0 | none |
+| Windows | incomplete | 0 | 0 | 0 | 0 | 62 | 0 | none |
 
 ## Formats and the widest tolerance each may state
 
 | Format | Job format | What is compared | Cap |
 | --- | --- | --- | --- |
-| png_sequence | `png` (rgba8-png) | decoded RGBA of frame 6 with the reference stored for the type on the platform | color 0, alpha 0, differing pixels 0 (lossless: any difference on one platform is a defect) |
-| mp4 | `mp4` (opaque8-mp4) | frame 6 decoded by an independent ffmpeg: with the stored decode of the type, and with the PNG render composited on black | mean error 40 and max error 220 against the PNG render (8-bit code values: a gross-error guard only), 0 bytes against the stored decode |
+| png_sequence | `png` (rgba8-png) | decoded RGBA of frame 6 at 256 x 256 with the reference stored for the type on the platform | color 0, alpha 0, differing pixels 0 (lossless: any difference on one platform is a defect) |
+| mp4 | `mp4` (opaque8-mp4) | frame 6 at 256 x 256 decoded by an independent ffmpeg, composited on black: its worst 32 pixel block and whole-frame mean against the PNG render, and its bytes against the stored decode (determinism only) | worst block 16 and mean 6 code values against the PNG render (a cell states its own, from its observed error with a 25 percent margin); 0 bytes against the stored decode |
 
 ## Status by type
 
@@ -53,10 +56,10 @@ otherwise. A run on one platform is no evidence about another.
 | `inFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `outFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `invertFx` | passed | not tested | not tested | passed | not tested | not tested |
-| `blendFx` | passed | not tested | not tested | passed | not tested | not tested |
+| `blendFx` | passed | not tested | not tested | unverified | not tested | not tested |
 | `STD_iwa_BloomFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `STD_lightWrapFx` | passed | not tested | not tested | passed | not tested | not tested |
-| `STD_backlitFx` | passed | not tested | not tested | passed | not tested | not tested |
+| `STD_backlitFx` | passed | not tested | not tested | unverified | not tested | not tested |
 | `STD_bodyHighLightFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `STD_lightSpotFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `STD_targetSpotFx` | passed | not tested | not tested | passed | not tested | not tested |
@@ -64,80 +67,80 @@ otherwise. A run on one platform is no evidence about another.
 | `STD_localBlurFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `STD_posterizeFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `STD_solarizeFx` | passed | not tested | not tested | passed | not tested | not tested |
-| `STD_sharpenFx` | passed | not tested | not tested | passed | not tested | not tested |
+| `STD_sharpenFx` | passed | not tested | not tested | unverified | not tested | not tested |
 | `STD_embossFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `STD_erodeDilateFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `STD_matteChokeFx` | passed | not tested | not tested | passed | not tested | not tested |
 | `STD_channelMixerFx` | passed | not tested | not tested | passed | not tested | not tested |
-| `STD_gammaFx` | passed | not tested | not tested | passed | not tested | not tested |
-| `STD_iwa_AdjustExposureFx` | passed | not tested | not tested | passed | not tested | not tested |
+| `STD_gammaFx` | passed | not tested | not tested | unverified | not tested | not tested |
+| `STD_iwa_AdjustExposureFx` | passed | not tested | not tested | unverified | not tested | not tested |
 
 ## Tolerance and observed difference of every cell that ran
 
 | FX type | Format | Platform | Status | Tolerance used | Observed |
 | --- | --- | --- | --- | --- | --- |
 | `colorCardFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `colorCardFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 1.303, max_error 3, decoded_differing_bytes 0 |
+| `colorCardFx` | mp4 | macOS | passed | block_error 2.0, mean_error 2.0, decoded_differing_bytes 0 | mean_error 0.667, block_error 0.667, max_error 1, decoded_differing_bytes 0 |
 | `overFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `overFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 2.994, max_error 37, decoded_differing_bytes 0 |
+| `overFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.376, block_error 3.416, max_error 52, decoded_differing_bytes 0 |
 | `STD_iwa_LinearGradientFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_iwa_LinearGradientFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 7.233, max_error 37, decoded_differing_bytes 0 |
+| `STD_iwa_LinearGradientFx` | mp4 | macOS | passed | block_error 3.0, mean_error 2.0, decoded_differing_bytes 0 | mean_error 0.78, block_error 1.348, max_error 6, decoded_differing_bytes 0 |
 | `STD_radialGradientFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_radialGradientFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 11.122, max_error 63, decoded_differing_bytes 0 |
+| `STD_radialGradientFx` | mp4 | macOS | passed | block_error 4.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 0.847, block_error 1.621, max_error 11, decoded_differing_bytes 0 |
 | `STD_blurFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_blurFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 10.025, max_error 130, decoded_differing_bytes 0 |
+| `STD_blurFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.388, block_error 3.372, max_error 29, decoded_differing_bytes 0 |
 | `STD_glowFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_glowFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 4.357, max_error 38, decoded_differing_bytes 0 |
+| `STD_glowFx` | mp4 | macOS | passed | block_error 6.0, mean_error 4.0, decoded_differing_bytes 0 | mean_error 1.947, block_error 3.99, max_error 54, decoded_differing_bytes 0 |
 | `STD_brightContFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_brightContFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 4.369, max_error 63, decoded_differing_bytes 0 |
+| `STD_brightContFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.558, block_error 3.357, max_error 62, decoded_differing_bytes 0 |
 | `STD_hsvScaleFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_hsvScaleFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 4.52, max_error 41, decoded_differing_bytes 0 |
+| `STD_hsvScaleFx` | mp4 | macOS | passed | block_error 6.0, mean_error 4.0, decoded_differing_bytes 0 | mean_error 1.689, block_error 3.368, max_error 46, decoded_differing_bytes 0 |
 | `multFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `multFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 4.783, max_error 63, decoded_differing_bytes 0 |
+| `multFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.086, block_error 3.812, max_error 47, decoded_differing_bytes 0 |
 | `screenFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `screenFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 2.994, max_error 37, decoded_differing_bytes 0 |
+| `screenFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.203, block_error 3.368, max_error 54, decoded_differing_bytes 0 |
 | `inFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `inFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 2.994, max_error 37, decoded_differing_bytes 0 |
+| `inFx` | mp4 | macOS | passed | block_error 6.0, mean_error 4.0, decoded_differing_bytes 0 | mean_error 1.697, block_error 3.658, max_error 71, decoded_differing_bytes 0 |
 | `outFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `outFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 0.0, max_error 0, decoded_differing_bytes 0 |
+| `outFx` | mp4 | macOS | passed | block_error 3.0, mean_error 2.0, decoded_differing_bytes 0 | mean_error 0.367, block_error 1.422, max_error 28, decoded_differing_bytes 0 |
 | `invertFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `invertFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 3.294, max_error 43, decoded_differing_bytes 0 |
+| `invertFx` | mp4 | macOS | passed | block_error 7.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.515, block_error 4.045, max_error 52, decoded_differing_bytes 0 |
 | `blendFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `blendFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 2.994, max_error 37, decoded_differing_bytes 0 |
+| `blendFx` | mp4 | macOS | unverified | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.396, block_error 3.276, max_error 45, decoded_differing_bytes 0 |
 | `STD_iwa_BloomFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_iwa_BloomFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 16.686, max_error 118, decoded_differing_bytes 0 |
+| `STD_iwa_BloomFx` | mp4 | macOS | passed | block_error 4.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.205, block_error 2.397, max_error 32, decoded_differing_bytes 0 |
 | `STD_lightWrapFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_lightWrapFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 11.553, max_error 89, decoded_differing_bytes 0 |
+| `STD_lightWrapFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.597, block_error 3.615, max_error 51, decoded_differing_bytes 0 |
 | `STD_backlitFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_backlitFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 2.994, max_error 37, decoded_differing_bytes 0 |
+| `STD_backlitFx` | mp4 | macOS | unverified | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.6, block_error 3.402, max_error 54, decoded_differing_bytes 0 |
 | `STD_bodyHighLightFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_bodyHighLightFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 6.898, max_error 92, decoded_differing_bytes 0 |
+| `STD_bodyHighLightFx` | mp4 | macOS | passed | block_error 6.0, mean_error 4.0, decoded_differing_bytes 0 | mean_error 1.749, block_error 3.877, max_error 54, decoded_differing_bytes 0 |
 | `STD_lightSpotFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_lightSpotFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 20.316, max_error 122, decoded_differing_bytes 0 |
+| `STD_lightSpotFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.345, block_error 3.734, max_error 75, decoded_differing_bytes 0 |
 | `STD_targetSpotFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_targetSpotFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 1.64, max_error 3, decoded_differing_bytes 0 |
+| `STD_targetSpotFx` | mp4 | macOS | passed | block_error 3.0, mean_error 2.0, decoded_differing_bytes 0 | mean_error 0.592, block_error 1.327, max_error 3, decoded_differing_bytes 0 |
 | `STD_directionalBlurFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_directionalBlurFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 12.435, max_error 166, decoded_differing_bytes 0 |
+| `STD_directionalBlurFx` | mp4 | macOS | passed | block_error 7.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.585, block_error 4.392, max_error 60, decoded_differing_bytes 0 |
 | `STD_localBlurFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_localBlurFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 16.193, max_error 118, decoded_differing_bytes 0 |
+| `STD_localBlurFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.41, block_error 3.681, max_error 37, decoded_differing_bytes 0 |
 | `STD_posterizeFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_posterizeFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 0.0, max_error 0, decoded_differing_bytes 0 |
+| `STD_posterizeFx` | mp4 | macOS | passed | block_error 15.0, mean_error 4.0, decoded_differing_bytes 0 | mean_error 2.31, block_error 10.756, max_error 194, decoded_differing_bytes 0 |
 | `STD_solarizeFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_solarizeFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 0.0, max_error 0, decoded_differing_bytes 0 |
+| `STD_solarizeFx` | mp4 | macOS | passed | block_error 7.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.528, block_error 4.547, max_error 96, decoded_differing_bytes 0 |
 | `STD_sharpenFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_sharpenFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 2.994, max_error 37, decoded_differing_bytes 0 |
+| `STD_sharpenFx` | mp4 | macOS | unverified | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.528, block_error 3.743, max_error 60, decoded_differing_bytes 0 |
 | `STD_embossFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_embossFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 25.865, max_error 136, decoded_differing_bytes 0 |
+| `STD_embossFx` | mp4 | macOS | passed | block_error 5.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.155, block_error 2.75, max_error 35, decoded_differing_bytes 0 |
 | `STD_erodeDilateFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_erodeDilateFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 14.409, max_error 174, decoded_differing_bytes 0 |
+| `STD_erodeDilateFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 0.938, block_error 3.351, max_error 71, decoded_differing_bytes 0 |
 | `STD_matteChokeFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_matteChokeFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 14.656, max_error 127, decoded_differing_bytes 0 |
+| `STD_matteChokeFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.216, block_error 3.595, max_error 47, decoded_differing_bytes 0 |
 | `STD_channelMixerFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_channelMixerFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 3.802, max_error 24, decoded_differing_bytes 0 |
+| `STD_channelMixerFx` | mp4 | macOS | passed | block_error 6.0, mean_error 3.0, decoded_differing_bytes 0 | mean_error 1.415, block_error 3.619, max_error 58, decoded_differing_bytes 0 |
 | `STD_gammaFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_gammaFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 2.994, max_error 37, decoded_differing_bytes 0 |
+| `STD_gammaFx` | mp4 | macOS | unverified | block_error 8.0, mean_error 4.0, decoded_differing_bytes 0 | mean_error 1.881, block_error 5.595, max_error 80, decoded_differing_bytes 0 |
 | `STD_iwa_AdjustExposureFx` | png_sequence | macOS | passed | max_color 0, max_alpha 0, differing_pixels 0 | max_color 0, max_alpha 0, differing_pixels 0 |
-| `STD_iwa_AdjustExposureFx` | mp4 | macOS | passed | mean_error 40.0, max_error 220, decoded_differing_bytes 0 | mean_error 2.994, max_error 37, decoded_differing_bytes 0 |
+| `STD_iwa_AdjustExposureFx` | mp4 | macOS | unverified | block_error 15.0, mean_error 5.0, decoded_differing_bytes 0 | mean_error 2.572, block_error 10.733, max_error 140, decoded_differing_bytes 0 |
 
 ## Cells that did not pass
 
@@ -147,6 +150,11 @@ otherwise. A run on one platform is no evidence about another.
 | not tested | mp4 | Windows | 31 | added to the grid; no run has covered it yet |
 | not tested | png_sequence | Linux | 31 | added to the grid; no run has covered it yet |
 | not tested | png_sequence | Windows | 31 | added to the grid; no run has covered it yet |
+| unverified | mp4 | macOS | 1 | the block tolerance 15.0 does not separate this picture from screenFx's (block error 5.533); the movie cannot confirm it, the PNG cell of the type is the check |
+| unverified | mp4 | macOS | 1 | the block tolerance 6.0 does not separate this picture from STD_backlitFx's (block error 3.277); the movie cannot confirm it, the PNG cell of the type is the check |
+| unverified | mp4 | macOS | 1 | the block tolerance 6.0 does not separate this picture from blendFx's (block error 3.491); the movie cannot confirm it, the PNG cell of the type is the check |
+| unverified | mp4 | macOS | 1 | the block tolerance 6.0 does not separate this picture from blendFx's (block error 3.505); the movie cannot confirm it, the PNG cell of the type is the check |
+| unverified | mp4 | macOS | 1 | the block tolerance 8.0 does not separate this picture from screenFx's (block error 5.659); the movie cannot confirm it, the PNG cell of the type is the check |
 
 ## Agreement between platforms
 
@@ -154,16 +162,16 @@ References are kept per platform and compared exactly on that platform. Fewer th
 
 ## Recorded runs
 
-### Run `macOS-20261119-124106` on macOS
+### Run `macOS-20261119-125254` on macOS
 
-- recorded: 2026-11-19 12:41:06
-- reason: First full recorded run of the render matrix on macOS, to establish references
+- recorded: 2026-11-19 12:52:54
+- reason: First full recorded run of the render matrix on macOS at 256 pixels, to establish references
 - covered: 31 of 31 types
 - build: `groundzero 1.8 digest 360befa2ca1316d98e3e49500253cb3907d3158611caa9023fb6437104a4e653`
 - operating_system: `macos 27.2`
 - cpu: `arm64 (built for arm64)`
 - qt: `built 5.15.19, running 5.15.19`
-- graphics_backend: `cocoa, probe {'elapsed_ms': 617, 'renderer': 'Apple M2 Max', 'renderer_class': 'hardware', 'result': 'context_ready', 'vendor': 'Apple', 'version': '2.1 Metal - 91.7'}`
+- graphics_backend: `cocoa, probe {'elapsed_ms': 585, 'renderer': 'Apple M2 Max', 'renderer_class': 'hardware', 'result': 'context_ready', 'vendor': 'Apple', 'version': '2.1 Metal - 91.7'}`
 - plugins: `policy builtin_only`
 - fonts: `usable True`
 - media_tools: `ffmpeg not configured, sha256 2ce81b92499c1b6b96eb060c69723114bd0da13f1bfbd9da26dee24d099e644a`

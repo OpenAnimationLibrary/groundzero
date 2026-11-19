@@ -33,9 +33,26 @@ def cell_passed(form: str, run: str = "r1") -> dict[str, Any]:
         tolerance = dict(cases.PNG_TOLERANCE)
         observed = {"max_color": 0, "max_alpha": 0, "differing_pixels": 0}
     else:
-        tolerance = dict(cases.MP4_TOLERANCE)
-        observed = {"mean_error": 1.5, "max_error": 20, "decoded_differing_bytes": 0}
-    extra = {} if form == "png_sequence" else {"decoded_reference": "cd" * 32}
+        tolerance = {
+            "block_error": 6.0,
+            "mean_error": 3.0,
+            "decoded_differing_bytes": 0,
+            "why": "from the observed error",
+        }
+        observed = {
+            "block_error": 4.0,
+            "mean_error": 1.5,
+            "max_error": 20,
+            "decoded_differing_bytes": 0,
+        }
+    extra = (
+        {}
+        if form == "png_sequence"
+        else {
+            "decoded_reference": "cd" * 32,
+            "separation": {"nearest_other_block_error": 40.0, "nearest_other_type": "betaFx"},
+        }
+    )
     return {
         **extra,
         "status": "passed",
@@ -135,11 +152,11 @@ class CheckTest(unittest.TestCase):
         self.assertTrue(self.named("above the cap"))
 
     def test_a_movie_tolerance_above_the_cap_is_reported(self) -> None:
-        self.data["cells"]["alphaFx"]["mp4"]["macOS"]["tolerance"]["max_error"] = 255
+        self.data["cells"]["alphaFx"]["mp4"]["macOS"]["tolerance"]["block_error"] = 17
         self.assertTrue(self.named("above the cap"))
 
     def test_a_pass_outside_its_own_tolerance_is_reported(self) -> None:
-        self.data["cells"]["alphaFx"]["mp4"]["macOS"]["observed"]["mean_error"] = 41
+        self.data["cells"]["alphaFx"]["mp4"]["macOS"]["observed"]["mean_error"] = 7
         self.assertTrue(self.named("is above its tolerance"))
 
     def test_a_nonzero_tolerance_needs_its_reason(self) -> None:
@@ -153,6 +170,22 @@ class CheckTest(unittest.TestCase):
     def test_a_movie_must_be_compared_with_the_png_of_its_type(self) -> None:
         self.data["cells"]["alphaFx"]["mp4"]["macOS"]["reference"] = "ef" * 32
         self.assertTrue(self.named("was not compared with the PNG render"))
+
+    def test_a_passed_movie_whose_tolerance_does_not_separate_it_is_reported(self) -> None:
+        cell = self.data["cells"]["alphaFx"]["mp4"]["macOS"]
+        cell["separation"]["nearest_other_block_error"] = 5.0
+        self.assertTrue(self.named("does not separate it from another type's picture"))
+
+    def test_an_unverified_movie_is_accepted_only_when_it_is_blind(self) -> None:
+        cell = self.data["cells"]["alphaFx"]["mp4"]["macOS"]
+        cell["status"], cell["reason"] = "unverified", "the movie cannot tell it from betaFx"
+        self.assertTrue(self.named("unverified although its tolerance separates it"))
+        cell["separation"]["nearest_other_block_error"] = 5.0
+        self.assertEqual(self.problems(), [])
+
+    def test_a_movie_cell_without_a_separation_measure_is_reported(self) -> None:
+        del self.data["cells"]["alphaFx"]["mp4"]["macOS"]["separation"]
+        self.assertTrue(self.named("no measure of how far the nearest other picture is"))
 
     def test_a_passed_movie_cell_needs_its_reference_decode(self) -> None:
         del self.data["cells"]["alphaFx"]["mp4"]["macOS"]["decoded_reference"]
@@ -286,19 +319,45 @@ class MeasurementTest(unittest.TestCase):
             "passed",
         )
 
-    def test_the_movie_cell_fails_beyond_the_stated_error(self) -> None:
-        references = {"png": DIGEST, "decoded": "cd" * 32}
-        good = {"mean_error": 3.0, "max_error": 40, "decoded_digest": "cd" * 32}
-        self.assertEqual(cases.cell_from(good, "mp4", references)["status"], "passed")
-        bad = {**good, "mean_error": 41.0}
-        self.assertEqual(cases.cell_from(bad, "mp4", references)["status"], "failed")
+    def movie(self, **changes: object) -> dict[str, object]:
+        measured: dict[str, object] = {
+            "mean_error": 1.5,
+            "block_error": 4.0,
+            "max_error": 20,
+            "decoded_digest": "cd" * 32,
+            "nearest_other_block_error": 40.0,
+            "nearest_other_type": "betaFx",
+        }
+        return {**measured, **changes}
+
+    references = {"png": DIGEST, "decoded": "cd" * 32}
+
+    def test_the_movie_cell_takes_its_tolerance_from_the_observed_error(self) -> None:
+        cell = cases.cell_from(self.movie(), "mp4", self.references)
+        self.assertEqual(cell["status"], "passed")
+        self.assertEqual(cell["tolerance"]["block_error"], 6.0)
+        self.assertEqual(cell["tolerance"]["mean_error"], 3.0)
+
+    def test_a_stored_tolerance_fails_a_worse_frame(self) -> None:
+        stored = cases.cell_from(self.movie(), "mp4", self.references)["tolerance"]
+        worse = self.movie(block_error=9.0)
+        cell = cases.cell_from(worse, "mp4", self.references, stored)
+        self.assertEqual(cell["status"], "failed")
+        self.assertIn("block_error", cell["reason"])
 
     def test_the_movie_cell_fails_when_the_decoded_bytes_change(self) -> None:
-        references = {"png": DIGEST, "decoded": "cd" * 32}
-        changed = {"mean_error": 3.0, "max_error": 40, "decoded_digest": "ee" * 32}
-        cell = cases.cell_from(changed, "mp4", references)
+        stored = cases.cell_from(self.movie(), "mp4", self.references)["tolerance"]
+        cell = cases.cell_from(self.movie(decoded_digest="ee" * 32), "mp4", self.references, stored)
         self.assertEqual(cell["status"], "failed")
         self.assertIn("decoded_differing_bytes", cell["reason"])
+
+    def test_a_movie_that_cannot_be_told_from_another_picture_is_unverified_not_passed(
+        self,
+    ) -> None:
+        blind = self.movie(nearest_other_block_error=5.0, nearest_other_type="gammaFx")
+        cell = cases.cell_from(blind, "mp4", self.references)
+        self.assertEqual(cell["status"], "unverified")
+        self.assertIn("gammaFx", cell["reason"])
 
     def test_a_run_without_media_tools_is_unavailable_never_passed(self) -> None:
         cell = cases.cell_from(
@@ -307,10 +366,22 @@ class MeasurementTest(unittest.TestCase):
         self.assertEqual(cell["status"], "unavailable")
 
     def test_movie_error_is_measured_against_the_matte_of_the_png(self) -> None:
-        pixels = [(200, 100, 50, 128)]
+        pixels = [(200, 100, 50, 128)] * 256
         matte = cases.black_matte(pixels)
-        self.assertEqual(list(matte), [100, 50, 25])
-        self.assertEqual(cases.movie_difference(matte, bytes([100, 50, 28]))["max_error"], 3)
+        self.assertEqual(list(matte[:3]), [100, 50, 25])
+        measured = cases.movie_difference(matte, bytes([100, 50, 28] * 256), size=16)
+        self.assertEqual(measured["max_error"], 3)
+        self.assertEqual(measured["block_error"], 1.0)
+
+    def test_a_small_wrong_region_shows_in_its_block_but_hardly_in_the_mean(self) -> None:
+        size = 64
+        expected = bytes(size * size * 3)
+        wrong = bytearray(expected)
+        for row in range(8):
+            wrong[row * size * 3 : row * size * 3 + 8 * 3] = bytes([200] * 24)
+        found = cases.movie_difference(expected, bytes(wrong), size=size)
+        self.assertLess(found["mean_error"], 4.0)
+        self.assertGreater(found["block_error"], 12.0)
 
     def test_apply_run_stores_the_run_and_marks_a_subset_incomplete(self) -> None:
         data = make_data()
