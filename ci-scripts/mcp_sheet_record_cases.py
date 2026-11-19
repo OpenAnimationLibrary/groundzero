@@ -158,13 +158,22 @@ def editor_reads(case: NativeAcceptance, package: Path) -> dict[str, Any]:
         case.mutate("scene.discard", document)
 
 
+def _without_dropped(reads: dict[str, Any], dropped: int) -> dict[str, Any]:
+    kept = reads["columns"][: len(reads["columns"]) - dropped]
+    names = {row[1] for row in kept}
+    cells = {name: rows for name, rows in reads["cells"].items() if name in names}
+    return {**reads, "columns": kept, "cells": cells}
+
+
 def save_and_reopen(case: NativeAcceptance, document: str, name: str) -> tuple[dict[str, Any], str]:
-    """Save a package, reopen it, and require both loaders to read what was saved."""
+    """Save a package, reopen it, and require both loaders to read what was saved: the
+    document's reads without the trailing empty columns the save reports as dropped."""
     before = sheet_reads(case, document)
     saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / name))
+    expected = _without_dropped(before, len(saved["trailing_empty_columns_dropped"]))
     reopened = case.mutate("scene.open", None, path=saved["package_directory"])["document_id"]
-    case.assertEqual(sheet_reads(case, reopened), before)
-    case.assertEqual(editor_reads(case, Path(saved["package_directory"])), before)
+    case.assertEqual(sheet_reads(case, reopened), expected)
+    case.assertEqual(editor_reads(case, Path(saved["package_directory"])), expected)
     return saved, reopened
 
 

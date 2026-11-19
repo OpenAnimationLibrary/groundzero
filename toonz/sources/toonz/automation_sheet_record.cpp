@@ -118,17 +118,29 @@ QJsonObject sheetSection(ToonzScene& scene) {
   return {{"columns", columns}, {"columns_sha256", sha256(columns)}};
 }
 
+bool usesHandles(TDoubleKeyframe::Type type) {
+  return type == TDoubleKeyframe::SpeedInOut ||
+         type == TDoubleKeyframe::EaseInOut ||
+         type == TDoubleKeyframe::EaseInOutPercentage;
+}
+
+// The fields a key's interpolation reads: handles only around speed and ease
+// segments, text only for expression, file and similar-shape segments.
 QJsonObject keyRecord(const TDoubleKeyframe& key) {
-  return {{"frame", key.m_frame},
-          {"value", key.m_value},
-          {"type", int(key.m_type)},
-          {"step", key.m_step},
-          {"speed_in", QJsonArray{key.m_speedIn.x, key.m_speedIn.y}},
-          {"speed_out", QJsonArray{key.m_speedOut.x, key.m_speedOut.y}},
-          {"linked_handles", key.m_linkedHandles},
-          {"expression", QString::fromStdString(key.m_expressionText)},
-          {"unit", QString::fromStdString(key.m_unitName)},
-          {"similar_shape_offset", key.m_similarShapeOffset}};
+  QJsonObject record{{"frame", key.m_frame},
+                     {"value", key.m_value},
+                     {"type", int(key.m_type)},
+                     {"step", key.m_step}};
+  if (usesHandles(key.m_prevType))
+    record.insert("speed_in", QJsonArray{key.m_speedIn.x, key.m_speedIn.y});
+  if (usesHandles(key.m_type))
+    record.insert("speed_out", QJsonArray{key.m_speedOut.x, key.m_speedOut.y});
+  if (!TDoubleKeyframe::isKeyframeBased(key.m_type)) {
+    record.insert("expression", QString::fromStdString(key.m_expressionText));
+    record.insert("unit", QString::fromStdString(key.m_unitName));
+    record.insert("similar_shape_offset", key.m_similarShapeOffset);
+  }
+  return record;
 }
 
 QString curveDigest(TStageObject& object) {
