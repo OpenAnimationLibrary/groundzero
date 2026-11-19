@@ -10,11 +10,18 @@
 //#include "tparamcontainer.h"
 #include "tfxparam.h"
 #include "tstream.h"
+#include "tmsgcore.h"
+#include "tconvert.h"
 
-#include <vector>
+#include <QString>
+
+#include <cctype>
 #include <cerrno>
 #include <cstring>
+#include <mutex>
+#include <set>
 #include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -26,6 +33,84 @@ namespace {
 
 TFilePath getExternFxPath() {
   return TSystem::getBinDir() + "plugins" + "externFxs";
+}
+
+// A declaration is named by a plain file name inside the declarations folder.
+bool isDeclarationName(const std::string& name) {
+  if (name.empty() || name[0] == '.' || name.find("..") != std::string::npos)
+    return false;
+  for (unsigned char character : name)
+    if (!std::isalnum(character) && character != '_' && character != '-' &&
+        character != '.' && character != ' ')
+      return false;
+  return true;
+}
+
+struct Declaration {
+  struct Port {
+    std::string name, ext;
+    bool isInput;
+  };
+  TFilePath executable;
+  std::string arguments;
+  std::vector<Port> ports;
+  std::vector<std::string> params;
+};
+
+// Reads the declaration installed as <bin>/plugins/externFxs/<name>.xml: the
+// only place an external effect's program and arguments come from.
+bool readDeclaration(const std::string& name, Declaration& declaration) {
+  if (!isDeclarationName(name)) return false;
+  try {
+    TIStream is(getExternFxPath() + (name + ".xml"));
+    if (!is) return false;
+    std::string tagName;
+    if (!is.matchTag(tagName) || tagName != "externFx") return false;
+    while (is.matchTag(tagName)) {
+      if (tagName == "executable") {
+        declaration.executable = TFilePath(is.getTagAttribute("path"));
+        declaration.arguments  = is.getTagAttribute("args");
+        if (declaration.executable == TFilePath() ||
+            declaration.arguments.empty())
+          return false;
+      } else if (tagName == "inport" || tagName == "outport") {
+        const std::string portName = is.getTagAttribute("name");
+        const std::string ext      = is.getTagAttribute("ext");
+        if (portName.empty() || ext.empty()) return false;
+        declaration.ports.push_back({portName, ext, tagName == "inport"});
+      } else if (tagName == "param") {
+        const std::string paramName = is.getTagAttribute("name");
+        if (paramName.empty() || is.getTagAttribute("type") != "double")
+          return false;
+        declaration.params.push_back(paramName);
+      } else
+        return false;
+    }
+    is.closeChild();
+  } catch (...) {
+    return false;
+  }
+  return true;
+}
+
+std::string nodeLabel(const TFx& fx) {
+  std::string label     = "\"" + ::to_string(fx.getName()) + "\"";
+  const std::wstring id = fx.getFxId();
+  return id.empty() ? label : label + " (" + ::to_string(id) + ")";
+}
+
+// Reports a program that was not started once per message in this process,
+// then fails the frame with the same text.
+[[noreturn]] void refuseLaunch(const std::string& message) {
+  static std::mutex mutex;
+  static std::set<std::string> reported;
+  bool first;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    first = reported.insert(message).second;
+  }
+  if (first) DVGui::warning(QString::fromStdString(message));
+  throw TException(message);
 }
 
 #ifdef _WIN32
@@ -161,48 +246,18 @@ TExternalProgramFx::~TExternalProgramFx() {}
 //------------------------------------------------------------------
 
 void TExternalProgramFx::initialize(std::string name) {
-  TFilePath fp = getExternFxPath() + (name + ".xml");
-  TIStream is(fp);
-  if (!is) return;
-
-  std::string tagName;
-  if (!is.matchTag(tagName) || tagName != "externFx") return;
-
-  try {
-    while (is.matchTag(tagName)) {
-      if (tagName == "executable") {
-        TFilePath executable = TFilePath(is.getTagAttribute("path"));
-        std::string args     = is.getTagAttribute("args");
-        if (executable == TFilePath())
-          throw TException("missing executable path");
-        if (args == "") throw TException("missing args string");
-        setExecutable(executable, args);
-      } else if (tagName == "inport" || tagName == "outport") {
-        std::string portName = is.getTagAttribute("name");
-        std::string ext      = is.getTagAttribute("ext");
-        if (portName == "") throw TException("missing port name");
-        if (ext == "") throw TException("missing port ext");
-        addPort(portName, ext, tagName == "inport");
-      } else if (tagName == "param") {
-        std::string paramName = is.getTagAttribute("name");
-        if (paramName == "") throw TException("missing param name");
-        std::string type = is.getTagAttribute("type");
-        if (type == "") throw TException("missing param type");
-        if (type != "double")
-          throw TException("param type not yet implemented");
-        TDoubleParamP param = new TDoubleParam();
-        param->setName(paramName);
-        m_params.push_back(param);
-      } else
-        throw TException("unexpected tag " + tagName);
-    }
-    is.closeChild();
-
-    for (int i = 0; i < (int)m_params.size(); i++)
-      bindParam(this, m_params[i]->getName(), m_params[i]);
-
-  } catch (...) {
+  Declaration declaration;
+  if (!readDeclaration(name, declaration)) return;
+  setExecutable(declaration.executable, declaration.arguments);
+  for (const Declaration::Port& port : declaration.ports)
+    addPort(port.name, port.ext, port.isInput);
+  for (const std::string& paramName : declaration.params) {
+    TDoubleParamP param = new TDoubleParam();
+    param->setName(paramName);
+    m_params.push_back(param);
   }
+  // Bound after the last push_back: binding keeps a reference to the element.
+  for (TParamP& param : m_params) bindParam(this, param->getName(), param);
 }
 
 //------------------------------------------------------------------
@@ -309,6 +364,13 @@ void TExternalProgramFx::doCompute(TTile &tile, double frame,
                                    const TRenderSettings &ri) {
   TRaster32P ras = tile.getRaster();
   if (!ras) return;
+  if (m_executablePath == TFilePath())
+    refuseLaunch("External effect " + nodeLabel(*this) +
+                 " did not run: no program is installed for it on this "
+                 "computer. Install its declaration \"" +
+                 m_externFxName +
+                 ".xml\" in the plugins/externFxs folder next to the "
+                 "application.");
   std::string args           = m_args;
   std::string executablePath = ::to_string(m_executablePath);
   std::map<std::string, TFilePath> tmpFiles;  // portname --> file
@@ -395,9 +457,12 @@ void TExternalProgramFx::loadData(TIStream &is) {
   std::string tagName;
   while (is.openChild(tagName)) {
     if (tagName == "path") {
-      is >> m_executablePath;
+      // A scene never chooses the program: the installed declaration does.
+      TFilePath ignoredPath;
+      is >> ignoredPath;
     } else if (tagName == "args") {
-      is >> m_args;
+      std::string ignoredArguments;
+      is >> ignoredArguments;
     } else if (tagName == "name") {
       is >> m_externFxName;
       // initialize(m_externFxName);
@@ -433,6 +498,11 @@ void TExternalProgramFx::loadData(TIStream &is) {
       throw TException("unexpected tag " + tagName);
     is.closeChild();
   }
+  Declaration declaration;
+  if (readDeclaration(m_externFxName, declaration))
+    setExecutable(declaration.executable, declaration.arguments);
+  else
+    setExecutable(TFilePath(), std::string());
 }
 
 void TExternalProgramFx::saveData(TOStream &os) {
