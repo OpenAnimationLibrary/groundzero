@@ -439,7 +439,7 @@
     "read": []
   },
   "scene.check.submit": {
-    "handler": "submit",
+    "handler": null,
     "read": [
       "requested",
       "requested_ms"
