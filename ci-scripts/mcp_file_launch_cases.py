@@ -206,6 +206,8 @@ def launch_roots_that_cannot_be_read_stay_unreadable(case: NativeAcceptance) -> 
     Args:
         case: A fresh native-worker acceptance fixture.
     """
+    if os.name == "nt":
+        case.skipTest("Windows grants access by ACL; chmod sets only the read-only attribute")
     if os.geteuid() == 0:
         case.skipTest("permission bits do not bind the superuser this run uses")
     sealed = case.directory / "sealed"
@@ -233,6 +235,9 @@ def launch_roots_with_odd_names_are_admitted_as_names(case: NativeAcceptance) ->
         case: A fresh native-worker acceptance fixture.
     """
     names = ["line\nbreak", "esc\x1b[31m", "n" * 255, unicodedata.normalize("NFC", "café")]
+    if os.name == "nt":
+        # Windows file names cannot hold the characters 1 to 31.
+        names = [name for name in names if name.isprintable()]
     for index, name in enumerate(names):
         with case.subTest(name=repr(name[:20])):
             root = case.directory / name
