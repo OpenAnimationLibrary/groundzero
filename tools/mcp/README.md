@@ -151,6 +151,19 @@ grant for a configured role; the current tools only read. The worker never uses
 the editor's own STUDIOPALETTE or LIBRARY folders. Without a grant, the tools
 stay listed and return `root_unavailable`.
 
+Output roots are named directories outside the workspace where finished work may
+be published: `--output-root NAME=DIR`, at most 8. `NAME` is lowercase letters,
+digits, `_` or `-`, starting with a letter, and not `workspace` or `input`; `DIR`
+is a canonical directory, not a symlink, that neither equals, contains nor lies
+inside the workspace, an input root, a shared root or another output root.
+`--output-modify NAME` additionally grants removal and replacement in that root.
+`automation.capabilities` lists them under `authority` as `output_roots`, each
+`{name, path, modify}`, and the authority digest covers them, so a write recorded under one set
+of output roots is `operation_conflict` (`grant_changed`) when retried under
+another. An output root is reached only through descriptors pinned to it, one
+component at a time, never through a link or a case or normalization variant of a
+stored name; no path tool reaches it by an absolute path.
+
 What a session may do is fixed at launch, with no prompts and no tool that changes
 it. `--grants LIST` names grant classes, comma-separated:
 
@@ -999,7 +1012,8 @@ node /opt/groundzero-mcp/dist/cli.js \
 The adapter starts a non-GUI connector to the selected editor. Native code checks
 the session-file security and operating-system peer identity before authenticating.
 Live attachment excludes `--workspace`, `--input-root`, `--media-tools`,
-`--shared-root`, `--shared-write`, `--toolsets`, `--grants` and `--domains`; the
+`--shared-root`, `--shared-write`, `--output-root`, `--output-modify`, `--toolsets`,
+`--grants` and `--domains`; the
 editor's own `inspect` or `edit` mode is the live grant.
 
 The editor and the connector must be the same build. The session file, the

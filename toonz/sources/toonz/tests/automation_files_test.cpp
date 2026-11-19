@@ -278,6 +278,45 @@ void checkHardLinks(const QString& root) {
 }
 #endif
 
+// Output-root paths: the grammar, and a walk that never follows a link or a
+// case variant of a stored name.
+void checkRootWalk(const QString& workspace) {
+  require(rootPathProblem("renders/shot-01", 1).isEmpty(),
+          "valid path refused");
+  for (const QString& bad :
+       {QString(), QString("/abs"), QString("a/../b"), QString("a/./b"),
+        QString("a\\b"), QString(".groundzero-staging/x"), QString("a//b"),
+        QString(QString("c/").repeated(17))})
+    require(!rootPathProblem(bad, 0).isEmpty(), "invalid root path admitted");
+  require(!rootPathProblem("ok/-dash", 1).isEmpty(),
+          "a new name starting with a dash was admitted");
+  QTemporaryDir directory(workspace + "/root-walk-XXXXXX");
+  const QString root = QFileInfo(directory.path()).canonicalFilePath();
+  require(QDir(root).mkpath("Shots/One"), "cannot create the fixture");
+  const int reached = openRootDirectory(root, "Shots/One");
+  require(reached >= 0, "an existing directory was not reached");
+  ::close(reached);
+  require(openRootDirectory(root, "Shots/Missing") < 0, "a missing one was");
+  require(QFile::link(root + "/Shots", root + "/Linked"), "cannot link");
+  bool refused = false;
+  try {
+    openRootDirectory(root, "Linked/One");
+  } catch (const Error& error) {
+    refused = error.code == "path_denied";
+  }
+  require(refused, "a linked component was followed");
+  refused = false;
+  try {
+    const int variant = openRootDirectory(root, "shots/One");
+    if (variant >= 0) ::close(variant);
+    // A case-sensitive volume has no such name: also not reached.
+    refused = variant < 0;
+  } catch (const Error& error) {
+    refused = error.code == "path_denied";
+  }
+  require(refused, "a case variant of a stored name was reached");
+}
+
 }  // namespace
 
 void runAutomationFilesTests(Context& context) {
@@ -289,6 +328,7 @@ void runAutomationFilesTests(Context& context) {
   checkHardLinks(root);
   checkPublicationPrimitives(root);
   checkTreeRemoval(root);
+  checkRootWalk(root);
 #endif
   std::cerr << "automation-files-test: PASS\n";
 }

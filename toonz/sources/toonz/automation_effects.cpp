@@ -703,6 +703,16 @@ QJsonObject authoritySchema() {
        {"workspace", path},
        {"input_roots", arraySchema(path, 0, 16)},
        {"shared_roots", arraySchema(sharedRoot, 0, 3)},
+       {"output_roots",
+        arraySchema(
+            strictObject(
+                {{"name", QJsonObject{{"type", "string"},
+                                      {"minLength", 1},
+                                      {"maxLength", 32},
+                                      {"pattern", "^[a-z][a-z0-9_-]{0,31}$"}}},
+                 {"path", path},
+                 {"modify", QJsonObject{{"type", "boolean"}}}}),
+            0, 8)},
        {"media_tools",
         QJsonObject{
             {"oneOf", QJsonArray{path, QJsonObject{{"type", "null"}}}}}},

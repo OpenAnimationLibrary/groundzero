@@ -267,13 +267,27 @@ export function workerArguments(options: WorkerOptions): string[] {
   args.push("--grants", options.grants.join(","), "--domains", options.domains.join(","));
   for (const root of options.inputRoots) args.push("--input-root", root);
   if (options.mediaToolsDirectory) args.push("--media-tools", options.mediaToolsDirectory);
-  for (const root of options.sharedRoots ?? []) {
-    args.push("--shared-root", `${root.role}=${root.path}`);
-  }
-  for (const root of options.sharedRoots ?? []) {
-    if (root.writable) args.push("--shared-write", root.role);
-  }
-  return args;
+  return [...args, ...sharedRootArguments(options), ...outputRootArguments(options)];
+}
+
+/** Shared roots, read-only unless a write role is named. */
+function sharedRootArguments(options: WorkerOptions): string[] {
+  const roots = options.sharedRoots ?? [];
+  const writes = roots.filter((root) => root.writable);
+  return [
+    ...roots.flatMap((root) => ["--shared-root", `${root.role}=${root.path}`]),
+    ...writes.flatMap((root) => ["--shared-write", root.role]),
+  ];
+}
+
+/** Output roots, with the removal grant where it was given. */
+function outputRootArguments(options: WorkerOptions): string[] {
+  const roots = options.outputRoots ?? [];
+  const modify = roots.filter((root) => root.modify);
+  return [
+    ...roots.flatMap((root) => ["--output-root", `${root.name}=${root.path}`]),
+    ...modify.flatMap((root) => ["--output-modify", root.name]),
+  ];
 }
 
 /** Spawn the configured executable with filesystem grants fixed in its arguments.

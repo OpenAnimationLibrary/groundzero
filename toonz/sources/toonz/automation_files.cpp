@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonObject>
+#include <QRegularExpression>
 
 #include <chrono>
 #include <cstdlib>
@@ -680,6 +681,67 @@ bool flushTree(const QString& path) {
 
 bool flushDirectory(const QString& directory) {
   return flushPath(directory, true, true);
+}
+
+#endif
+
+QString rootPathProblem(const QString& relative, int creating) {
+  static const QRegularExpression created("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
+  if (relative.isEmpty() || relative.size() > 1024) return "length";
+  if (relative.contains('\\') || relative.startsWith('/') ||
+      relative.contains(QChar::Null))
+    return "separator";
+  const QStringList parts = relative.split('/');
+  if (parts.size() > 16) return "components";
+  for (int index = 0; index < parts.size(); ++index) {
+    const QString& part = parts.at(index);
+    if (part.isEmpty() || part == "." || part == "..") return "component";
+    if (part.startsWith(".groundzero-")) return "reserved";
+    if (index >= parts.size() - creating && !created.match(part).hasMatch())
+      return "name";
+  }
+  return {};
+}
+
+#ifdef _WIN32
+
+int openRootDirectory(const QString&, const QString&) {
+  throw Error("root_unavailable",
+              "Output roots are not available on this platform yet.");
+}
+
+#else
+
+int openRootDirectory(const QString& root, const QString& relative) {
+  int current = ::open(QFile::encodeName(root).constData(),
+                       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (current < 0 || !sameDirectory(descriptorPath(current), root)) {
+    if (current >= 0) ::close(current);
+    throw Error("root_unavailable",
+                "The output root is not the granted directory.");
+  }
+  QString reached = QDir::cleanPath(root);
+  for (const QString& part : relative.split('/', Qt::SkipEmptyParts)) {
+    const QByteArray name = QFile::encodeName(part);
+    const int next = ::openat(current, name.constData(),
+                              O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    struct stat status{};
+    const bool link =
+        next < 0 &&
+        fstatat(current, name.constData(), &status, AT_SYMLINK_NOFOLLOW) == 0 &&
+        S_ISLNK(status.st_mode);
+    ::close(current);
+    if (link) redirected();
+    if (next < 0) return -1;
+    reached += '/' + part;
+    // A case-insensitive volume opens a variant spelling: refuse it.
+    if (!sameDirectory(descriptorPath(next), reached)) {
+      ::close(next);
+      redirected();
+    }
+    current = next;
+  }
+  return current;
 }
 
 #endif

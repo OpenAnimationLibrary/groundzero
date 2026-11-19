@@ -175,6 +175,24 @@ private:
   bool m_remove = true;
 };
 
+// Why a path relative to an output root breaks the grammar, or empty: at most
+// 1,024 characters and 16 components, forward slashes, no "." or "..", and a
+// component to be created matching [A-Za-z0-9][A-Za-z0-9._-]{0,127} and not
+// starting with ".groundzero-". `creating` is the number of trailing
+// components that will be created.
+QString rootPathProblem(const QString& relative, int creating);
+
+// The directory at a root-relative path, opened component by component from
+// the root's own descriptor without following any link, each existing
+// component named exactly as stored. Returns an open descriptor, or -1 when a
+// component is missing or not a directory.
+//
+// Throws:
+//   Error: path_denied when a component is a link or a case or normalization
+//   variant of the stored name; root_unavailable when the root cannot be
+//   opened as the granted canonical directory.
+int openRootDirectory(const QString& root, const QString& relative);
+
 enum class ListResult { Listed, Failed, TooMany };
 
 // List the entries of the approved directory, in no particular order and

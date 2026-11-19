@@ -41,6 +41,7 @@
 #include <QMetaObject>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QRegularExpression>
 #include <QSemaphore>
 #include <QSettings>
 #include <QThread>
@@ -101,6 +102,8 @@ struct Options {
   QString mediaToolsDirectory;
   QMap<QString, SharedRootGrant> sharedRoots;
   QStringList sharedWrites;
+  QMap<QString, OutputRootGrant> outputRoots;
+  QStringList outputModify;
   Authority authority;
   QString parseHelper;
   QString sceneHost;
@@ -231,6 +234,40 @@ void addSharedWrite(Options& options, const QString& role) {
   options.sharedWrites.append(role);
 }
 
+// --output-root NAME=DIR: a canonical directory under a name that is neither
+// reserved nor used twice.
+void addOutputRoot(Options& options, const QString& value) {
+  static const QRegularExpression name("^[a-z][a-z0-9_-]{0,31}$");
+  const int separator = value.indexOf('=');
+  const QString root  = value.left(separator);
+  if (separator <= 0 || !name.match(root).hasMatch() || root == "workspace" ||
+      root == "input")
+    throw Error("invalid_argument",
+                "--output-root requires NAME=DIR with NAME of lowercase "
+                "letters, digits, _ or -, starting with a letter, and not "
+                "workspace or input.",
+                {{"option", "--output-root"}});
+  if (options.outputRoots.contains(root) || options.outputRoots.size() >= 8)
+    throw Error("invalid_argument",
+                "Specify each --output-root name once, at most 8 roots.",
+                {{"option", "--output-root"}});
+  const QString path = value.mid(separator + 1);
+  QString directory;
+  try {
+    directory = canonicalWorkerRoot(path);
+  } catch (const Error& error) {
+    throw Error("invalid_argument",
+                "Invalid --output-root directory: " + error.message,
+                {{"option", "--output-root"}});
+  }
+  if (QDir::cleanPath(QDir::fromNativeSeparators(path)) != directory)
+    throw Error("invalid_argument",
+                "--output-root must name its canonical directory without "
+                "symlink components.",
+                {{"option", "--output-root"}});
+  options.outputRoots.insert(root, {directory, false});
+}
+
 void addAuthority(Options& options, const QString& key, const QString& value) {
   QStringList& list =
       key == "--grants" ? options.authority.grants : options.authority.domains;
@@ -250,6 +287,10 @@ void addOption(Options& options, const QString& key, const QString& value) {
     addSharedRoot(options, value);
   else if (key == "--shared-write")
     addSharedWrite(options, value);
+  else if (key == "--output-root")
+    addOutputRoot(options, value);
+  else if (key == "--output-modify")
+    options.outputModify.append(value);
   else if (key == "--parse-helper")
     options.parseHelper = value;
   else if (key == "--scene-host")
@@ -266,6 +307,7 @@ bool valueOption(const QString& key) {
   return key == "--workspace" || key == "--input-root" ||
          key == "--media-tools" || key == "--shared-root" ||
          key == "--shared-write" || key == "--parse-helper" ||
+         key == "--output-root" || key == "--output-modify" ||
          key == "--scene-host" || key == "--worker-instance" ||
          key == "--worker-epoch" || key == "--grants" || key == "--domains";
 }
@@ -295,6 +337,33 @@ void validateSharedRoots(Options& options) {
       if (overlapping(path, options.sharedRoots.value(roles[other]).path))
         throw Error("invalid_argument",
                     "Shared roots must not overlap one another.");
+  }
+}
+
+// Output roots lie outside the workspace, every input root, every shared root
+// and each other; --output-modify names a configured root once.
+void validateOutputRoots(Options& options) {
+  for (const QString& name : options.outputModify) {
+    if (!options.outputRoots.contains(name) ||
+        options.outputModify.count(name) > 1)
+      throw Error("invalid_argument",
+                  "--output-modify names a configured --output-root once.",
+                  {{"option", "--output-modify"}});
+    options.outputRoots[name].modify = true;
+  }
+  QStringList others{options.workspace};
+  others += options.inputRoots;
+  for (const SharedRootGrant& shared : options.sharedRoots)
+    others.append(shared.path);
+  QStringList seen;
+  for (const OutputRootGrant& root : options.outputRoots) {
+    for (const QString& other : others + seen)
+      if (overlapping(root.path, other))
+        throw Error("invalid_argument",
+                    "Output roots must not overlap the workspace, an input "
+                    "root, a shared root or another output root.",
+                    {{"option", "--output-root"}});
+    seen.append(root.path);
   }
 }
 
@@ -392,19 +461,23 @@ Options parseOptions(const QStringList& arguments) {
       throw Error("invalid_argument",
                   "Worker accepts --workspace DIR, --grants LIST, --domains "
                   "LIST, repeated --input-root DIR, optional --media-tools "
-                  "DIR, repeated --shared-root ROLE=DIR and repeated "
-                  "--shared-write ROLE.");
+                  "DIR, repeated --shared-root ROLE=DIR, repeated "
+                  "--shared-write ROLE, repeated --output-root NAME=DIR and "
+                  "repeated --output-modify NAME.");
     addOption(options, key, arguments[++index]);
   }
   if (options.workspace.isEmpty())
     throw Error("invalid_argument",
                 "Automation worker requires --workspace DIR.");
-  if (!options.sceneHost.isEmpty() && (!options.mediaToolsDirectory.isEmpty() ||
-                                       !options.sharedRoots.isEmpty()))
+  if (!options.sceneHost.isEmpty() &&
+      (!options.mediaToolsDirectory.isEmpty() ||
+       !options.sharedRoots.isEmpty() || !options.outputRoots.isEmpty()))
     throw Error("invalid_argument",
-                "A scene host never receives media tools or shared roots.");
+                "A scene host never receives media tools, shared or output "
+                "roots.");
   validateWorkerInstance(options);
   validateSharedRoots(options);
+  validateOutputRoots(options);
   validateAuthority(options);
   return options;
 }
@@ -820,6 +893,7 @@ int executeWorker(QApplication& application, QFile& output,
     armPathSwap(options.pathSwap[0], options.pathSwap[1], options.pathSwap[2]);
 #endif
   context.sharedRoots         = options.sharedRoots;
+  context.outputRoots         = options.outputRoots;
   context.authority           = options.authority;
   context.runtimeDirectory    = runtime;
   if (!options.parseHelper.isEmpty())
