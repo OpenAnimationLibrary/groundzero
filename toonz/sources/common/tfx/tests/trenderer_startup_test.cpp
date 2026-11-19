@@ -461,6 +461,65 @@ void checkOutputWindows() {
   checkGatedWindows(true, parallel);
 }
 
+// Records how many references each frame graph has when the renderer reports
+// the render finished.
+class GraphPort final : public TRenderPort {
+public:
+  QEventLoop loop;
+  std::vector<TRasterFxP> graphs;
+  std::vector<int> references;
+
+  GraphPort() { setRenderArea(TRectD(0, 0, 4, 4)); }
+  void onRenderRasterCompleted(const RenderData&) override {}
+  void onRenderFailure(const RenderData&, TException&) override {}
+  void onRenderFinished(bool) override {
+    for (const TRasterFxP& graph : graphs)
+      references.push_back(graph->getRefCount());
+    loop.quit();
+  }
+};
+
+// A pool worker can destroy its finished task after the render is reported
+// finished. The task must not own a frame graph by then: destroying one
+// unregisters ports from FX the caller is free to edit or destroy.
+void checkFinishedTasksReleaseGraphs() {
+  TRenderer renderer(2);
+  renderer.enablePrecomputing(false);
+  renderer.enableFrameStrips(false);
+  WindowState state;
+  WindowOptions options;
+  GraphPort port;
+  renderer.addPort(&port);
+  TRenderSettings settings;
+  auto* frames = new RenderDataVector;
+  for (int frame = 0; frame < 3; ++frame) {
+    port.graphs.push_back(new WindowFx(state, options));
+    TFxPair roots;
+    roots.m_frameA = port.graphs.back();
+    frames->push_back(TRenderer::RenderData(frame, settings, roots));
+  }
+  renderer.startRendering(frames);
+
+  bool timedOut = false;
+  QTimer timeout;
+  timeout.setSingleShot(true);
+  QObject::connect(&timeout, &QTimer::timeout, [&] {
+    timedOut = true;
+    port.loop.quit();
+  });
+  timeout.start(5000);
+  port.loop.exec();
+  timeout.stop();
+  renderer.removePort(&port);
+  require(!timedOut, "graph release render did not finish");
+  require(port.references.size() == 3, "graph release render ended twice");
+  // Besides this test's reference, only the render's root (the first frame's
+  // graph) is still held, by the notification that is running on this thread.
+  require(port.references[0] <= 2 && port.references[1] == 1 &&
+              port.references[2] == 1,
+          "a finished task still owned its frame graph at render end");
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -475,6 +534,7 @@ int main(int argc, char **argv) {
     checkStartup(StartupAction::FailPrecompute, false);
     checkStartup(StartupAction::FailStartHandler, false);
     checkOutputWindows();
+    checkFinishedTasksReleaseGraphs();
     std::cout << "Renderer startup and output-window completion passed\n";
     return 0;
   } catch (const TException &) {

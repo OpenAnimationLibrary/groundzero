@@ -1045,6 +1045,24 @@ if(BUILD_RELIABILITY_TESTS)
     add_executable(swap24_test sound/tests/swap24_test.cpp sound/tsioutils.cpp)
     target_link_libraries(swap24_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME swap24 COMMAND swap24_test)
+    add_executable(byteswap_test sound/tests/byteswap_test.cpp)
+    target_link_libraries(byteswap_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME byteswap COMMAND byteswap_test)
+    add_executable(soundsample_conversion_test sound/tests/soundsample_conversion_test.cpp)
+    target_link_libraries(soundsample_conversion_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME soundsample_conversion COMMAND soundsample_conversion_test)
+    add_executable(aiff_reader_test sound/tests/aiff_reader_test.cpp
+        sound/aiff/tsio_aiff.cpp sound/tsioutils.cpp)
+    target_include_directories(aiff_reader_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sound)
+    target_link_libraries(aiff_reader_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME aiff_reader COMMAND aiff_reader_test)
+    add_executable(wav_reader_test sound/tests/wav_reader_test.cpp
+        sound/wav/tsio_wav.cpp sound/tsioutils.cpp)
+    target_include_directories(wav_reader_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sound)
+    target_link_libraries(wav_reader_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
+    add_test(NAME wav_reader COMMAND wav_reader_test)
     add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
     target_include_directories(timagecache_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/common/tsystem)
@@ -1098,6 +1116,23 @@ if(BUILD_RELIABILITY_TESTS)
     endif()
     add_test(NAME malformed_scene COMMAND malformed_scene_test)
     set_tests_properties(malformed_scene PROPERTIES TIMEOUT 300)
+
+    # A sub-xsheet saved without an <output> entry loads with a default output
+    # node and builds its FX tree instead of crashing
+    add_executable(subxsheet_output_test toonzlib/tests/subxsheet_output_test.cpp)
+    target_link_libraries(subxsheet_output_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME subxsheet_output COMMAND subxsheet_output_test)
+    set_tests_properties(subxsheet_output PROPERTIES TIMEOUT 60)
+
+    # Loading a level reports what it cannot load through the level and an
+    # installed handler instead of opening a dialog. The timeout ends a run
+    # that waits on a dialog.
+    add_executable(level_load_report_test toonzlib/tests/level_load_report_test.cpp)
+    target_link_libraries(level_load_report_test PRIVATE
+        toonzlib image tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME level_load_report COMMAND level_load_report_test)
+    set_tests_properties(level_load_report PROPERTIES TIMEOUT 30)
 endif()
 add_subdirectory(toonzfarm/tfarm)
 add_subdirectory(glb)

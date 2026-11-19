@@ -43,6 +43,7 @@
 #include "tthreadmessage.h"
 #include <QApplication>
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QComboBox>
 #include <QKeyEvent>
@@ -1428,7 +1429,9 @@ void runVectorMorphNativeChecks() {
                 policy->currentData().toInt() == TInbetween::FadeUnmatched,
             "native Fade controls or stable policy value missing");
     std::exception_ptr failure;
+    int acceptedCount = 0;
     QObject::connect(&review, &QDialog::accepted, [&]() {
+      ++acceptedCount;
       try { FilmstripCmd::inbetween(level,TFrameId(1),TFrameId(3),FilmstripCmd::II_Linear,{},options); }
       catch (...) { failure = std::current_exception(); }
     });
@@ -1438,6 +1441,26 @@ void runVectorMorphNativeChecks() {
     TVectorImageP before = level->getFrame(TFrameId(2),false);
     QTimer drive, deadline; drive.setInterval(30); deadline.setSingleShot(true);
     int stage = 0; bool finished = false; QImage midpoint, early;
+    // The deadline is a stall limit, not a measurement: it restarts whenever the
+    // dialog shows new progress (status text or stage), so a slow machine that
+    // keeps advancing is not failed, and a dialog that stops advancing is
+    // reported as that, never as a result of the checks below.
+    constexpr int stallLimitMs = 5000;
+    QElapsedTimer opened, sinceProgress, sinceTick;
+    bool stalled = false;
+    int longestGapMs = 0;
+    QString progressStatus;
+    int progressStage = -1;
+    auto where = [&]() {
+      return std::string(" [dialog open ") + std::to_string(opened.elapsed()) +
+             " ms, result " + (review.result() == QDialog::Accepted ? "Accepted" : "Rejected") +
+             ", stage " + std::to_string(stage) + ", status \"" +
+             status->text().left(120).toStdString() + "\", longest gap between checks " +
+             std::to_string(longestGapMs) + " ms]";
+    };
+    auto need = [&](bool ok, const char *message) {
+      if (!ok) throw std::runtime_error(std::string(message) + where());
+    };
     auto comparePixels = [&](const QImage &actual, const QImage &expected, const char *phase) {
       if (actual == expected) return;
       std::cerr << "vector-fade-preview-native: " << phase << " stage=" << stage
@@ -1468,31 +1491,43 @@ void runVectorMorphNativeChecks() {
       std::cerr << std::endl;
     };
     QObject::connect(&drive, &QTimer::timeout, [&]() {
+      if (stalled) return;
+      longestGapMs = std::max(longestGapMs, int(sinceTick.restart()));
+      if (status->text() != progressStatus || stage != progressStage) {
+        progressStatus = status->text(); progressStage = stage;
+        sinceProgress.restart(); deadline.start(stallLimitMs);
+      }
       try {
-        require(undo->getCurrentHistoryIndex() == history &&
+        need(undo->getCurrentHistoryIndex() == history &&
                     app->getCurrentScene()->getDirtyFlag() == dirty &&
                     level->getProperties()->getDirtyFlag() == levelDirty &&
                     TVectorImageP(level->getFrame(TFrameId(2),false)) == before,
                 "native Fade preview changed artwork/history/dirty state");
-        require(TVectorImageP(level->getFrame(TFrameId(1),false)) == sourceFirst &&
+        need(TVectorImageP(level->getFrame(TFrameId(1),false)) == sourceFirst &&
                     TVectorImageP(level->getFrame(TFrameId(3),false)) == sourceLast &&
                     VectorImageSnapshot::sameContent(sourceFirst,firstSnapshot) &&
                     VectorImageSnapshot::sameContent(sourceLast,lastSnapshot),
                 "native Fade preview changed an authored source or palette");
         if (blocked) {
           if (!status->text().contains("painted regions")) return;
-          require(!button->isEnabled() && !table->property("previewReady").toBool(),
-                  "painted-boundary Fade still enabled Apply");
+          need(!button->isEnabled() && !table->property("previewReady").toBool(),
+               "painted-boundary Fade still enabled Apply");
           review.accept(); // Programmatic/keyboard acceptance must revalidate too.
-          require(review.isVisible(), "unsupported Fade bypassed preflight through accept");
+          // Visibility is not evidence: the stall limit also hides the dialog.
+          need(review.result() != QDialog::Accepted && acceptedCount == 0,
+               "unsupported Fade bypassed preflight through accept");
+          need(!button->isEnabled() && !table->property("previewReady").toBool() &&
+                   status->text().contains("painted regions"),
+               "unsupported Fade dialog stopped reporting its blocked preflight after accept");
           finished = true; cancel->click(); return;
         }
         if (!table->property("previewReady").toBool()) return;
-        require(button->isEnabled(), "supported Fade preview did not enable Apply");
+        need(button->isEnabled(), "supported Fade preview did not enable Apply");
         const TVectorImageP generated = review.previewImageForTest();
-        require(generated && generated->getStrokeCount() == 2,
+        need(generated && generated->getStrokeCount() == 2,
                 "native Fade preview lost its generated stroke topology");
-        requireGeometry(generated,sourceFirst,"native Fade preview geometry changed");
+        try { requireGeometry(generated,sourceFirst,"native Fade preview geometry changed"); }
+        catch (const std::exception &error) { need(false, error.what()); }
         const double expectedOpacity = .6 * (1. - position->value() / 100.);
         for (int i = 0; i < 2; ++i) {
           const auto *stroke = generated->getStroke(i), *source = sourceFirst->getStroke(i);
@@ -1502,7 +1537,7 @@ void runVectorMorphNativeChecks() {
                       << " position=" << position->value() << " stroke=" << i
                       << " actual_opacity=" << stroke->getOpacity()
                       << " expected_opacity=" << scalar << std::endl;
-          require(stroke->getOpacity() == scalar &&
+          need(stroke->getOpacity() == scalar &&
                       stroke->getOpacityProfile() == source->getOpacityProfile() &&
                       stroke->getStyle() == source->getStyle() &&
                       stroke->isSelfLoop() == source->isSelfLoop() &&
@@ -1512,7 +1547,7 @@ void runVectorMorphNativeChecks() {
         }
         const TAffine beforeView = swatch->viewAff();
         const QImage image = swatch->grabFramebuffer();
-        require(!image.isNull(), "native Fade preview framebuffer is empty");
+        need(!image.isNull(), "native Fade preview framebuffer is empty");
         const TAffine afterView = swatch->viewAff();
         std::cout << "vector-fade-preview-native: stage=" << stage
                   << " position=" << position->value() << " apply=" << apply
@@ -1531,8 +1566,8 @@ void runVectorMorphNativeChecks() {
         swatch->viewAff() = TTranslation(swatch->width()*4.,swatch->height()*3.) * TScale(.125);
         const QImage repeated = swatch->grabFramebuffer();
         comparePixels(repeated,image,"prior-view repaint mismatch");
-        require(repeated == image,"Fade preview pixels depend on the prior view transform");
-        require(review.previewImageForTest() == generated &&
+        need(repeated == image,"Fade preview pixels depend on the prior view transform");
+        need(review.previewImageForTest() == generated &&
                     generated->getStroke(1)->getOpacity() == expectedOpacity &&
                     generated->getStroke(1)->getOpacityProfile() == fadeProfile &&
                     VectorImageSnapshot::sameContent(sourceFirst,firstSnapshot) &&
@@ -1540,23 +1575,33 @@ void runVectorMorphNativeChecks() {
                 "repainting Fade changed the generated opacity or authored source");
         if (stage == 0) { midpoint = image; ++stage; position->setValue(25); return; }
         if (stage == 1) {
-          early = image; require(early != midpoint, "Fade preview did not change visible opacity");
+          early = image; need(early != midpoint, "Fade preview did not change visible opacity");
           ++stage; position->setValue(75); return;
         }
         if (stage == 2) {
-          require(image != early && image != midpoint, "Fade preview reused stale opacity");
+          need(image != early && image != midpoint, "Fade preview reused stale opacity");
           ++stage; position->setValue(50); return;
         }
         comparePixels(image,midpoint,"repeated midpoint mismatch");
-        require(image == midpoint, "repeated Fade preview accumulated opacity changes");
+        need(image == midpoint, "repeated Fade preview accumulated opacity changes");
         finished = true;
         if (apply) button->click(); else cancel->click();
       } catch (...) { failure = std::current_exception(); review.reject(); }
     });
-    QObject::connect(&deadline, &QTimer::timeout, &review, &QDialog::reject);
-    drive.start(); deadline.start(5000); review.exec(); drive.stop(); deadline.stop();
+    QObject::connect(&deadline, &QTimer::timeout, &review, [&]() {
+      stalled = true; drive.stop();
+      review.reject();
+    });
+    opened.start(); sinceProgress.start(); sinceTick.start();
+    drive.start(); deadline.start(stallLimitMs); review.exec(); drive.stop(); deadline.stop();
+    if (stalled)
+      throw std::runtime_error(std::string("native Fade dialog did not finish: no progress for ") +
+                               std::to_string(sinceProgress.elapsed()) + " ms (limit " +
+                               std::to_string(stallLimitMs) + " ms), last phase stage " +
+                               std::to_string(progressStage) + ", status \"" +
+                               progressStatus.left(120).toStdString() + "\"" + where());
     if (failure) std::rethrow_exception(failure);
-    require(finished, "native Fade dialog did not finish its preview/preflight workflow");
+    need(finished, "native Fade dialog did not finish its preview/preflight workflow");
   };
   auto verifyFade = [&]() {
     TVectorImageP image = level->getFrame(TFrameId(2),false);
