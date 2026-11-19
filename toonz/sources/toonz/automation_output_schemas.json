@@ -23130,6 +23130,134 @@
   "scene.package_info": {
     "additionalProperties": false,
     "properties": {
+      "cameras": {
+        "additionalProperties": false,
+        "properties": {
+          "cameras": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "curves_sha256": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "height_in": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "height_px": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "index": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "interest_rect": {
+                  "items": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "maxItems": 4,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "parent": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "index": {
+                      "maximum": 2147483647,
+                      "minimum": -2147483648,
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "enum": [
+                        "none",
+                        "table",
+                        "pegbar",
+                        "column",
+                        "camera"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "roles": {
+                  "items": {
+                    "enum": [
+                      "output",
+                      "preview"
+                    ]
+                  },
+                  "maxItems": 2,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "width_in": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "width_px": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "x_prevalence": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "curves_sha256",
+                "height_in",
+                "height_px",
+                "index",
+                "interest_rect",
+                "name",
+                "parent",
+                "roles",
+                "width_in",
+                "width_px",
+                "x_prevalence"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4096,
+            "minItems": 0,
+            "type": "array"
+          },
+          "output_camera": {
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "integer"
+          },
+          "preview_camera": {
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cameras",
+          "output_camera",
+          "preview_camera"
+        ],
+        "type": "object"
+      },
       "files": {
         "items": {
           "additionalProperties": false,
@@ -23367,6 +23495,56 @@
               "required": [],
               "type": "object"
             },
+            "settings": {
+              "additionalProperties": false,
+              "properties": {
+                "antialias_softness": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "color_space_gamma": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "dpi": {
+                  "items": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  },
+                  "maxItems": 2,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "dpi_policy": {
+                  "enum": [
+                    "custom",
+                    "image"
+                  ]
+                },
+                "premultiply": {
+                  "type": "boolean"
+                },
+                "subsampling": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "white_transparent": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "antialias_softness",
+                "color_space_gamma",
+                "premultiply",
+                "subsampling",
+                "white_transparent"
+              ],
+              "type": "object"
+            },
             "stroke_opacity_sha256": {
               "oneOf": [
                 {
@@ -23401,6 +23579,365 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "scene_properties": {
+        "additionalProperties": false,
+        "properties": {
+          "background_color": {
+            "items": {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 0,
+            "type": "array"
+          },
+          "color_filters": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "color": {
+                  "items": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "maxItems": 4,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "color",
+                "name"
+              ],
+              "type": "object"
+            },
+            "maxItems": 1024,
+            "minItems": 0,
+            "type": "array"
+          },
+          "column_filters_on_render": {
+            "type": "boolean"
+          },
+          "field_guide": {
+            "additionalProperties": false,
+            "properties": {
+              "aspect_ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "size": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "aspect_ratio",
+              "size"
+            ],
+            "type": "object"
+          },
+          "markers": {
+            "items": {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            "maxItems": 3,
+            "minItems": 0,
+            "type": "array"
+          },
+          "output": {
+            "additionalProperties": false,
+            "properties": {
+              "aspect_color": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "maxItems": 4,
+                "minItems": 0,
+                "type": "array"
+              },
+              "aspect_mode": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "aspect_ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "bpp": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "frame_rate": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "linear_color_space": {
+                "type": "boolean"
+              },
+              "range": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 0,
+                "type": "array"
+              },
+              "shrink": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "step": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "sync_color_settings": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "aspect_color",
+              "aspect_mode",
+              "aspect_ratio",
+              "bpp",
+              "frame_rate",
+              "linear_color_space",
+              "range",
+              "shrink",
+              "step",
+              "sync_color_settings"
+            ],
+            "type": "object"
+          },
+          "preview": {
+            "additionalProperties": false,
+            "properties": {
+              "aspect_color": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "maxItems": 4,
+                "minItems": 0,
+                "type": "array"
+              },
+              "aspect_mode": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "aspect_ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "bpp": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "frame_rate": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "linear_color_space": {
+                "type": "boolean"
+              },
+              "range": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 0,
+                "type": "array"
+              },
+              "shrink": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "step": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "sync_color_settings": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "aspect_color",
+              "aspect_mode",
+              "aspect_ratio",
+              "bpp",
+              "frame_rate",
+              "linear_color_space",
+              "range",
+              "shrink",
+              "step",
+              "sync_color_settings"
+            ],
+            "type": "object"
+          },
+          "ruler_guides": {
+            "additionalProperties": false,
+            "properties": {
+              "horizontal": {
+                "items": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "maxItems": 1048576,
+                "minItems": 0,
+                "type": "array"
+              },
+              "vertical": {
+                "items": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "maxItems": 1048576,
+                "minItems": 0,
+                "type": "array"
+              }
+            },
+            "required": [
+              "horizontal",
+              "vertical"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "background_color",
+          "color_filters",
+          "column_filters_on_render",
+          "field_guide",
+          "markers",
+          "output",
+          "preview",
+          "ruler_guides"
+        ],
+        "type": "object"
+      },
+      "sheet": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "camstand_visible": {
+                  "type": "boolean"
+                },
+                "cell_runs": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "cells_sha256": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "color_filter_id": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "kind": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "opacity": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "parent": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "index": {
+                      "maximum": 2147483647,
+                      "minimum": -2147483648,
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "enum": [
+                        "none",
+                        "table",
+                        "pegbar",
+                        "column",
+                        "camera"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "kind"
+                  ],
+                  "type": "object"
+                },
+                "preview_visible": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            "maxItems": 4096,
+            "minItems": 0,
+            "type": "array"
+          },
+          "columns_sha256": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [
+          "columns",
+          "columns_sha256"
+        ],
+        "type": "object"
       },
       "sound_columns": {
         "items": {
