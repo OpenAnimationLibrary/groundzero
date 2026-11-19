@@ -255,14 +255,14 @@ struct SaveStep final {
   QString file;
 };
 
-// A test write fault at `point` (package:level, ...): the step's typed error.
+// A test write fault at `point` (package:level, ...): the step fails as a
+// native writer would, with an error that does not name its step.
 void packageFault(const Context& context, const char* point,
                   const SaveStep& step) {
   if (writeFaultFires(context, point))
-    throw stagedWriteError("package_write_failed",
-                           "Cannot write the package at its " + step.stage +
-                               " step; nothing was published.",
-                           step.stage, step.file, false);
+    throw Error("package_write_failed", "Cannot write the package at its " +
+                                            step.stage +
+                                            " step; nothing was published.");
 }
 
 QJsonArray writeLevels(const Context& context, ToonzScene& scene,
@@ -555,9 +555,9 @@ Package publishPackage(Context& context, Document& document,
                            "Cannot create a private package staging directory.",
                            "stage", QString(), false);
   SaveStep step;
-  packageFault(context, "package:staged", step);
   Package package;
   try {
+    packageFault(context, "package:staged", step);
     package = writePackage(context, document, staging.path(), step);
     step    = {"verify", QString()};
     reopenPackage(context, staging.path(), package);
