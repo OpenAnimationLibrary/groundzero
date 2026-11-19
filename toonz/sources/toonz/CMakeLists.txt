@@ -227,6 +227,7 @@ set(HEADERS
     automation_activity.h
     automation_shutdown.h
     automation_scene_host.h
+    automation_scene_shared.h
     automation_runtime.h
     activechecks.h
     batchtaskexecution.h
@@ -322,6 +323,11 @@ set(SOURCES
     automation_drawing_inspection.cpp
     automation_vector_opacity.cpp
     automation_scene.cpp
+    automation_scene_shared.cpp
+    automation_camera.cpp
+    automation_levels.cpp
+    automation_columns.cpp
+    automation_cells.cpp
     automation_fx.cpp
     automation_fx_preflight.cpp
     automation_fx_profile.cpp
