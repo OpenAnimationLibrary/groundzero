@@ -1,0 +1,171 @@
+[
+  {
+    "id": "fx-matrix-subset-label",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "complete = bool(cells) and counts[\"not_tested\"] == 0 and stale == 0",
+    "replace": "complete = bool(cells)",
+    "why": "A platform is complete only when every cell ran and came from its latest run.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-tolerance-cap",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "        if tolerance[name] > cap:",
+    "replace": "        if False:",
+    "why": "A tolerance above the format's cap could hide a driver or codec difference.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-pass-within-tolerance",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "observed.get(name, float(\"inf\")) > tolerance[name]",
+    "replace": "observed.get(name, float(\"inf\")) > 1e18",
+    "why": "A passed cell's observed difference must be inside its own tolerance.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-missing-cell",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "for key in sorted(wanted - set(present))",
+    "replace": "for key in sorted(set())",
+    "why": "A type, format or platform without a cell is reported, never silently missing.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-negative-test-required",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "for tool in sorted(lacking - set(listed))",
+    "replace": "for tool in []",
+    "why": "A released tool without a negative test must be written or listed.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-stale-gap",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "for tool in sorted(set(listed) & (tools - lacking))",
+    "replace": "for tool in []",
+    "why": "A listed gap that now has a negative test must be deleted.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-document-current",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "if path.read_text(encoding=\"utf-8\") != expected:",
+    "replace": "if False:",
+    "why": "The stored document must equal the generated one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-negative-call-counts",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "NEGATIVE_CALL.search(_call_name(node.func))",
+    "replace": "NEGATIVE_CALL.search('failure')",
+    "why": "Only a call that expects a refusal is a negative test: a success call must not count.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-movie-reference",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "png.get(\"reference\") != cell.get(\"reference\")",
+    "replace": "False",
+    "why": "A movie cell must have been compared with the PNG render recorded for the type.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-png-exact",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "observed[\"differing_pixels\"] = max(observed[\"differing_pixels\"], 1)",
+    "replace": "pass",
+    "why": "A PNG whose pixels differ from the stored reference fails.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-movie-decode-exact",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "measured[\"decoded_digest\"] != references[\"decoded\"]",
+    "replace": "False",
+    "why": "A movie whose decoded bytes differ from the stored decode fails.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-cell-fails-outside-tolerance",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "over = [name for name in observed if observed[name] > limits[name]]",
+    "replace": "over = []",
+    "why": "A measurement outside its tolerance makes the cell failed.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-no-media-is-unavailable",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "return {\"status\": \"unavailable\", \"reason\": measured[\"skipped\"]}",
+    "replace": "return {\"status\": \"passed\"}",
+    "why": "A run without media tools must not pass a movie cell.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  }
+]
