@@ -273,7 +273,14 @@ private:
     return nullptr;
   }
 
+  // Each slice is a posted event, so the event loop does not go idle while
+  // the job runs; publishing here keeps polls answered elsewhere current.
   void step() {
+    runSlice();
+    jobRegistry(m_context).publish();
+  }
+
+  void runSlice() {
     if (terminal() || m_interrupted) return;
     Document* document = bound();
     if (!document) return;

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -12,15 +14,18 @@ from typing import TYPE_CHECKING, Any
 
 import mcp_analysis_cases
 import mcp_failure_cases
+import mcp_scene_check_cases
 from mcp_scene_access_cases import (
     DEADLINE,
     DEADLINE_EXIT,
     SLACK,
     _alive,
+    call,
     close_and_time,
     corpus,
     fault_worker,
     host_processes,
+    open_scene,
 )
 from mcp_worker import Worker
 
@@ -255,3 +260,40 @@ def end_of_input_during_an_analysis_job_is_bounded(case: NativeAcceptance) -> No
     case.assertEqual(code, 0)
     case.assertLess(elapsed, DEADLINE + SLACK)
     case.assertFalse(_openmp_registration(case.worker.process.pid).exists())
+
+
+def _hosted_check(case: NativeAcceptance, scene: Path, name: str) -> tuple[str, int]:
+    """Start a slow scene check on a read-only document; return the job and its host."""
+    opened = open_scene(case, case.worker, scene, "standalone")["document_id"]
+    params = {"document_id": opened, "expected_revision": "0", "operation_id": f"hosted-{name}"}
+    job = call(case, case.worker, "scene.check.submit", {**params, "check": "unused_styles"})
+    case.assertEqual(job["executor"], "scene_host")
+    time.sleep(0.2)
+    status = call(case, case.worker, "job.status", {"job_id": job["job_id"]})
+    case.assertFalse(status["terminal"], status)
+    host = next(pid for pid, owner in host_processes(case.worker) if owner == opened)
+    return job["job_id"], host
+
+
+def hosted_scene_check_ends_with_its_host_and_its_worker(case: NativeAcceptance) -> None:
+    """A scene check running in a scene host fails when its host is killed, and one still
+    running when input ends goes with the worker: in time, with the host gone and no claim
+    left."""
+    mcp_scene_check_cases._slow_worker(case)
+    document, _levels = mcp_scene_check_cases._scene(case)
+    saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "hosted"))
+    package = case.inputs / "hosted"
+    shutil.copytree(saved["package_directory"], package)
+    job, host = _hosted_check(case, package / "scene.tnz", "killed")
+    os.kill(host, signal.SIGKILL)
+    record = call(case, case.worker, "job.status", {"job_id": job})
+    case.assertEqual((record["status"], record["failure"]["code"]), ("failed", "scene_host_failed"))
+    _job, host = _hosted_check(case, package / "scene.tnz", "closed")
+    elapsed, code = close_and_time(case, case.worker)
+    case.assertEqual(code, 0)
+    case.assertLess(elapsed, DEADLINE + SLACK)
+    deadline = time.monotonic() + 5
+    while _alive(host) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    case.assertFalse(_alive(host), "The scene host outlived its worker")
+    case.assertEqual(_claims(case.workspace), [])

@@ -1334,9 +1334,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_scene_check_cancel_write_and_busy",
+    "ci-scripts/mcp_acceptance.py::test_hosted_scene_check_ends_with_its_host_and_its_worker",
     "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
     "ci-scripts/mcp_acceptance.py::test_scene_check_analysis_job_after_worker_loss",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_compatibility_codes_and_certainty",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_fx_test.cpp"
    ]
@@ -1627,7 +1627,7 @@
     "ci-scripts/mcp_acceptance.py::test_scene_check_cancel_write_and_busy",
     "ci-scripts/mcp_acceptance.py::test_scene_check_read_only_runs_in_the_host",
     "ci-scripts/mcp_acceptance.py::test_scene_check_retention_refuses_the_33rd_check",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_analysis_job_after_worker_loss",
+    "ci-scripts/mcp_acceptance.py::test_hosted_scene_check_ends_with_its_host_and_its_worker",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_scene_check_test.cpp"
    ]

@@ -848,6 +848,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_scene_check_read_only_runs_in_the_host(self) -> None:
         mcp_scene_check_cases.read_only_checks_run_in_the_host(self)
 
+    def test_hosted_scene_check_ends_with_its_host_and_its_worker(self) -> None:
+        mcp_shutdown_cases.hosted_scene_check_ends_with_its_host_and_its_worker(self)
+
     def test_job_movie_cancel_while_encoding_is_forced(self) -> None:
         mcp_jobs_cases.movie_cancel_while_encoding_is_forced(self)
 
