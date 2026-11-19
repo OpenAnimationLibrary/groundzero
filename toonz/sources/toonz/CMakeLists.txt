@@ -221,6 +221,8 @@ set(HEADERS
     automation_text.h
     automation_shared.h
     automation_shared_parse.h
+    automation_activity.h
+    automation_shutdown.h
     automation_scene_host.h
     automation_runtime.h
     activechecks.h
@@ -323,6 +325,7 @@ set(SOURCES
     automation_render.cpp
     automation_media.cpp
     automation_runtime.cpp
+    automation_shutdown.cpp
     automation_persistence.cpp
     automation_production.cpp
     automation_assistance.cpp
@@ -648,7 +651,7 @@ if(WITH_PYTHON)
 endif()
 
 
-set(OBJCSOURCES filebrowsermodel.cpp)
+set(OBJCSOURCES filebrowsermodel.cpp automation_activity.cpp)
 
 # Resource file(s)
 set(RESOURCES toonz.qrc)

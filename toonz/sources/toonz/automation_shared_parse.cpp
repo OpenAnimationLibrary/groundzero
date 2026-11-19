@@ -243,14 +243,18 @@ QJsonObject helperReply(Context& context, const QString& kind) {
   }
 }
 
-void startSelfWatchdog() {
+int helperDeadlineMs(const QString& kind) {
+  return kind == "gl_probe" ? GraphicsProbeDeadlineMs : SharedParseDeadlineMs;
+}
+
+void startSelfWatchdog(int deadlineMs) {
   const qint64 process = QCoreApplication::applicationPid();
-  std::thread([process] {
+  std::thread([process, deadlineMs] {
     const auto start = std::chrono::steady_clock::now();
     for (;;) {
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
       if (std::chrono::steady_clock::now() - start >
-          std::chrono::milliseconds(SharedParseDeadlineMs + 5000))
+          std::chrono::milliseconds(deadlineMs + 5000))
         std::_Exit(TimeoutExit);
       if (processMemoryBytes(process) > SharedParseMemoryBytes)
         std::_Exit(MemoryExit);
@@ -272,27 +276,27 @@ QString exitCause(const QProcess& helper) {
 }
 
 QString breach(const QProcess& helper, const QElapsedTimer& timer,
-               qint64 output) {
+               qint64 output, int deadlineMs) {
   if (output > MaxHelperOutput) return "crashed";
-  if (timer.elapsed() > SharedParseDeadlineMs) return "timeout";
+  if (timer.elapsed() > deadlineMs) return "timeout";
   if (processMemoryBytes(helper.processId()) > SharedParseMemoryBytes)
     return "memory";
   return {};
 }
 
-HelperRun superviseHelper(QProcess& helper) {
+HelperRun superviseHelper(QProcess& helper, int deadlineMs) {
   QElapsedTimer timer;
   timer.start();
   helper.start();
   HelperRun run;
-  if (!helper.waitForStarted(SharedParseDeadlineMs)) {
+  if (!helper.waitForStarted(deadlineMs)) {
     run.cause = "crashed";
     return run;
   }
   while (helper.state() != QProcess::NotRunning) {
     helper.waitForFinished(20);
     run.output += helper.readAllStandardOutput();
-    run.cause = breach(helper, timer, run.output.size());
+    run.cause = breach(helper, timer, run.output.size(), deadlineMs);
     if (run.cause.isEmpty()) continue;
     helper.kill();
     helper.waitForFinished(3000);
@@ -373,7 +377,8 @@ QJsonObject parseSharedFile(Context& context, const QString& kind,
   copy.close();
   QProcess helper;
   configureHelper(helper, context, directory.path(), kind);
-  return interpret(superviseHelper(helper), failureCode);
+  return interpret(superviseHelper(helper, helperDeadlineMs(kind)),
+                   failureCode);
 }
 
 HelperProbeRun runProbeHelper(Context& context, const QString& kind) {
@@ -385,7 +390,7 @@ HelperProbeRun runProbeHelper(Context& context, const QString& kind) {
     throw Error("io_error", "Cannot create the private probe directory.");
   QProcess helper;
   configureHelper(helper, context, directory.path(), kind);
-  const HelperRun run = superviseHelper(helper);
+  const HelperRun run = superviseHelper(helper, helperDeadlineMs(kind));
   HelperProbeRun result;
   result.cause              = run.cause;
   result.elapsedMs          = run.elapsedMs;
@@ -396,7 +401,7 @@ HelperProbeRun runProbeHelper(Context& context, const QString& kind) {
 }
 
 int runSharedParseHelper(Context& context, const QString& kind, QFile& output) {
-  startSelfWatchdog();
+  startSelfWatchdog(helperDeadlineMs(kind));
 #ifdef BUILD_UI_PORT_TESTS
   injectChildFault(context.childFault);
 #endif

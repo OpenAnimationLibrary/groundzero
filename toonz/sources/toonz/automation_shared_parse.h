@@ -8,6 +8,9 @@ namespace GroundzeroAutomation {
 
 // Wall-clock and memory bounds of one helper parse, start-up included.
 constexpr int SharedParseDeadlineMs     = 10000;
+// The graphics probe's bound: it starts a whole application and a GL context,
+// which on a loaded machine can take far longer than the 0.5 s it usually does.
+constexpr int GraphicsProbeDeadlineMs   = 20000;
 constexpr qint64 SharedParseMemoryBytes = 1024LL * 1024 * 1024;
 
 // Parse a user-authored shared file in a short-lived helper process.

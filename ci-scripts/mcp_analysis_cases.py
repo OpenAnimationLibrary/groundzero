@@ -129,6 +129,16 @@ def _wait_running(case: NativeAcceptance, job: str) -> dict[str, Any]:
     raise AssertionError("The analysis made no progress within 60 seconds")
 
 
+def _wait_started(case: NativeAcceptance, job: str) -> None:
+    """Poll until the job leaves preparing."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if case.success("job.status", {"job_id": job})["status"] != "preparing":
+            return
+        time.sleep(0.02)
+    raise AssertionError("The analysis did not start within 30 seconds")
+
+
 def _rows(case: NativeAcceptance, job: str) -> list[dict[str, Any]]:
     """Every row of a job's result, read in pages of at most 7."""
     rows: list[dict[str, Any]] = []

@@ -459,6 +459,94 @@ void strokeBudgetAndUnreadable(Context& context) {
   context.removeDocument(document.id);
 }
 
+void estimateInSlices(Context& context) {
+  auto& document      = context.addDocument(std::make_unique<ToonzScene>());
+  const QString level = createLevel(context, document, "vector", "Many");
+  auto* simple        = document.level(level)->getSimpleLevel();
+  for (int number = 1; number <= 4096; ++number) {
+    TVectorImageP image = square(0, 0, 1, 2);
+    image->setPalette(simple->getPalette());
+    simple->setFrame(TFrameId(number), TImageP(image.getPointer()));
+  }
+  QElapsedTimer timer;
+  timer.start();
+  const auto record = startDrawingAnalysisUnscheduled(
+      context, document, params(document, level, "roles"), AnalysisBudget());
+  require(timer.elapsed() < 500, "Submit waited for the whole estimate");
+  const auto estimate =
+      record.value("analysis").toObject().value("estimate").toObject();
+  require(estimate.value("drawings").toInt() == 4096 &&
+              estimate.value("strokes").toInt() == 64,
+          "Submit estimated more than its stated drawings");
+  const QString job = jobOf(record);
+  while (statusOf(context, job)
+             .value("analysis")
+             .toObject()
+             .value("estimate")
+             .toObject()
+             .value("strokes")
+             .toInt() < 4096 * 2)
+    require(stepDrawingAnalysis(context, job), "The estimate ended the job");
+  require(
+      statusOf(context, job).value("progress").toObject().value("done") == 0,
+      "A drawing was analysed while the estimate ran");
+  executeJobs(context, "job.cancel", {{"job_id", job}});
+  drain(context, job);
+  context.removeDocument(document.id);
+}
+
+void estimateOverBudgetEndsTheJob(Context& context) {
+  const auto fixture = vectorLevel(context, 100, 1);
+  Document& document = *fixture.document;
+  AnalysisBudget budget;
+  budget.strokes    = 3000;
+  const QString job = jobOf(startDrawingAnalysisUnscheduled(
+      context, document, params(document, fixture.level, "roles"), budget));
+  drain(context, job);
+  const auto ended   = statusOf(context, job);
+  const auto failure = ended.value("failure").toObject();
+  require(ended.value("status") == "failed" &&
+              failure.value("code") == "resource_limit" &&
+              failure.value("phase") == "prepare",
+          "An estimate over budget did not end the job with its refusal");
+  require(ended.value("progress").toObject().value("done") == 0,
+          "A refused job analysed drawings");
+  context.removeDocument(document.id);
+}
+
+void newJobAfterACancelledRebuild(Context& context) {
+  const auto big  = gridLevel(context, 1200);
+  Document& first = *big.document;
+  const QString a = jobOf(startDrawingAnalysisScheduled(
+      context, first, params(first, big.level, "regions"), AnalysisBudget()));
+  pump([&]() { return statusOf(context, a).value("status") == "running"; });
+  executeJobs(context, "job.cancel", {{"job_id", a}});
+  require(statusOf(context, a).value("status") == "canceled",
+          "The cancelled job is not canceled");
+  const auto small = vectorLevel(context, 1, 12);
+  Document& second = *small.document;
+  const QString b  = jobOf(startDrawingAnalysisScheduled(
+      context, second, params(second, small.level, "regions"),
+      AnalysisBudget()));
+  pump([&]() { return statusOf(context, b).value("terminal").toBool(); });
+  const auto ended = statusOf(context, b);
+  require(ended.value("status") == "completed",
+          "The next job did not complete");
+  TVectorImageP expected    = small.simple->getFrame(TFrameId(1), false);
+  const TVectorImageP clone = expected->clone();
+  clone->findRegions();
+  const auto rows = resultOf(context, b).value("rows").toArray();
+  require(rows.size() == 1 && rows[0].toObject().value("regions").toInt() ==
+                                  int(clone->getRegionCount()),
+          "The next job received another job's regions");
+  const auto old = statusOf(context, a);
+  require(old.value("status") == "canceled" &&
+              old.value("outputs").toObject().value("result_rows") == 0,
+          "A cancelled job received a result");
+  context.removeDocument(first.id);
+  context.removeDocument(second.id);
+}
+
 void rowLimit(Context& context) {
   const auto fixture = vectorLevel(context, 3, 4);
   Document& document = *fixture.document;
@@ -534,6 +622,11 @@ void runAutomationDrawingAnalysisTests(Context& context) {
        [&context]() { rebuildLeavesTheApplicationThread(context); }},
       {"cancel during a rebuild",
        [&context]() { cancelDuringRebuild(context); }},
+      {"estimate in slices", [&context]() { estimateInSlices(context); }},
+      {"estimate over budget",
+       [&context]() { estimateOverBudgetEndsTheJob(context); }},
+      {"new job after a cancelled rebuild",
+       [&context]() { newJobAfterACancelledRebuild(context); }},
       {"stroke budget and unreadable",
        [&context]() { strokeBudgetAndUnreadable(context); }},
       {"raster batches and pixel budget",

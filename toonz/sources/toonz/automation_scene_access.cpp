@@ -1,6 +1,7 @@
 #include "automation_files.h"
 #include "automation_scene_host.h"
 #include "automation_jobs.h"
+#include "automation_shutdown.h"
 #include "automation_shared_parse.h"
 
 #include "toonz/toonzscene.h"
@@ -579,16 +580,33 @@ std::unique_ptr<SceneHost> startHost(Context& context,
   return host;
 }
 
-void removeHost(SceneHost& host) {
-  if (host.process && host.process->state() != QProcess::NotRunning) {
-    host.process->closeWriteChannel();
-    if (!host.process->waitForFinished(HostCloseGraceMs)) stopProcess(host);
+void awaitHosts(const std::vector<QProcess*>& processes, int budgetMs) {
+  QElapsedTimer elapsed;
+  elapsed.start();
+  for (QProcess* process : processes) {
+    const int left = budgetMs - int(elapsed.elapsed());
+    if (left <= 0) return;
+    if (process->state() != QProcess::NotRunning)
+      process->waitForFinished(left);
   }
+}
+
+// Drop what the worker holds for an ended host: its lifetime handle and its
+// private copy.
+void releaseHost(SceneHost& host) {
 #ifdef _WIN32
   if (host.lifetime) CloseHandle(host.lifetime);
   host.lifetime = nullptr;
 #endif
   if (!host.directory.isEmpty()) QDir(host.directory).removeRecursively();
+}
+
+void removeHost(SceneHost& host) {
+  if (host.process && host.process->state() != QProcess::NotRunning) {
+    host.process->closeWriteChannel();
+    if (!host.process->waitForFinished(HostCloseGraceMs)) stopProcess(host);
+  }
+  releaseHost(host);
 }
 
 // ---------------------------------------------------------
@@ -1225,12 +1243,21 @@ SceneHost* hostForRequest(Context& context, const QJsonObject& params) {
 
 }  // namespace
 
+// Every host's input is closed first, so all of them end together within one
+// budget; any still running is then killed, again together.
 SceneHostRegistry::~SceneHostRegistry() {
+  std::vector<QProcess*> running;
   for (auto& entry : hosts)
     if (entry.second->process &&
-        entry.second->process->state() != QProcess::NotRunning)
+        entry.second->process->state() != QProcess::NotRunning) {
       entry.second->process->closeWriteChannel();
-  for (auto& entry : hosts) removeHost(*entry.second);
+      running.push_back(entry.second->process.get());
+    }
+  awaitHosts(running, HostCloseBudgetMs);
+  for (QProcess* process : running)
+    if (process->state() != QProcess::NotRunning) process->kill();
+  awaitHosts(running, HostKillBudgetMs);
+  for (auto& entry : hosts) releaseHost(*entry.second);
 }
 
 void refuseReadOnlyEarly(Context& context, const QString& method,

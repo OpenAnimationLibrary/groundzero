@@ -909,12 +909,14 @@ def read_only_hosts_contain_native_failures(case: NativeAcceptance) -> None:
     open, never the worker."""
     scenes = corpus(case)
     _orphan_exits(case, scenes["B"])
+    idle: list[Worker] = []
     for fault, cause, bound in (
         ("crash", "crashed", 30),
         ("memory", "memory", 30),
         ("hang", "timeout", 75),
     ):
         worker = fault_worker(case, fault)
+        idle.append(worker)
         started = time.monotonic()
         params = {"path": str(scenes["B"]), "project_id": "standalone", "operation_id": fault}
         response = _slow_call(worker, "scene.open_read_only", params, bound + 15)
@@ -927,6 +929,30 @@ def read_only_hosts_contain_native_failures(case: NativeAcceptance) -> None:
         case.assertEqual(host_processes(worker), [])
         call(case, worker, "project.list", {"limit": 1})
         case.assertEqual(call(case, worker, "automation.list_documents", {})["documents"], [])
+    _idle_workers_exit_within_the_deadline(case, idle[:2])
+
+
+DEADLINE = 3.0
+# Scheduling slack on a loaded machine, on top of the worker's own deadline.
+SLACK = 1.0
+DEADLINE_EXIT = 3
+
+
+def close_and_time(case: NativeAcceptance, worker: Worker) -> tuple[float, int]:
+    """Close a worker's input and return how long it took to exit, and its exit code."""
+    assert worker.process.stdin is not None
+    worker.process.stdin.close()
+    started = time.monotonic()
+    code = worker.process.wait(timeout=DEADLINE + 10)
+    return time.monotonic() - started, code
+
+
+def _idle_workers_exit_within_the_deadline(case: NativeAcceptance, workers: list[Worker]) -> None:
+    """Workers left idle past macOS's nap threshold still exit within the deadline."""
+    for worker in workers:
+        elapsed, code = close_and_time(case, worker)
+        case.assertEqual(code, 0)
+        case.assertLess(elapsed, DEADLINE + SLACK)
 
 
 def read_only_damaged_scenes_are_refused(case: NativeAcceptance) -> None:

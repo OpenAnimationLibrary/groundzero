@@ -1545,9 +1545,9 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_render_preflight_reports_every_failure",
+    "ci-scripts/mcp_acceptance.py::test_graphics_probe_timeout_is_not_a_verdict",
     "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused",
     "ci-scripts/mcp_acceptance.py::test_preview_reports_effective_output",
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "toonz/sources/toonz/tests/automation_runtime_test.cpp"
    ]
   },
@@ -1611,10 +1611,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_automation_processes_stay_in_the_background",
+    "ci-scripts/mcp_acceptance.py::test_graphics_probe_timeout_is_not_a_verdict",
     "ci-scripts/mcp_acceptance.py::test_job_record_identity_inputs_limits",
-    "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_render_without_worker_gl_marks_graphics_failed",
-    "ci-scripts/mcp_acceptance.py::test_runtime_formats_native_vs_admitted"
+    "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused"
    ]
   },
   "scene.create": {

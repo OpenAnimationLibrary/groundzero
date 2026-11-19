@@ -1,9 +1,12 @@
 #include "automation_jobs.h"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QRegularExpression>
+#include <QTimer>
 
 #include <functional>
+#include <memory>
 #include <iostream>
 #include <stdexcept>
 
@@ -258,6 +261,73 @@ void publishedPolls() {
           "The job's own record did not replace the request view");
 }
 
+// Ends one event-loop turn after it is canceled, as a job whose writers
+// close asynchronously does; a stubborn one never ends.
+class ClosingJob final : public Job {
+public:
+  ClosingJob(QString id, JobLane lane, bool stubborn)
+      : m_id(std::move(id)), m_lane(lane), m_stubborn(stubborn) {}
+  QString id() const override { return m_id; }
+  JobLane lane() const override { return m_lane; }
+  QString documentId() const override { return "document_test"; }
+  bool terminal() const override { return *m_terminal; }
+  qint64 reservedBytes() const override { return 0; }
+  QJsonObject record() const override { return {{"job_id", m_id}}; }
+  void cancel() override {
+    canceled = true;
+    if (cancelMs < 0) cancelMs = interruptMs >= 0 ? interruptMs : 1000;
+    if (m_stubborn) return;
+    const auto terminal = m_terminal;
+    QTimer::singleShot(30, QCoreApplication::instance(),
+                       [terminal]() { *terminal = true; });
+  }
+  void interrupt(qint64 requestedMs) override {
+    if (interruptMs < 0) interruptMs = requestedMs;
+  }
+  QJsonValue result(Context&, const QJsonObject&) override { return {}; }
+  bool canceled      = false;
+  qint64 interruptMs = -1;
+  qint64 cancelMs    = -1;
+
+private:
+  QString m_id;
+  JobLane m_lane;
+  bool m_stubborn;
+  std::shared_ptr<bool> m_terminal = std::make_shared<bool>(false);
+};
+
+void shutdownSettlement(Context& context) {
+  const auto saved      = context.jobs;
+  context.jobs          = std::make_shared<JobRegistry>(instance, 0);
+  JobRegistry& registry = *context.jobs;
+  auto render =
+      std::make_shared<ClosingJob>(registry.newJobId(), JobLane::Render, false);
+  auto analysis = std::make_shared<ClosingJob>(registry.newJobId(),
+                                               JobLane::Analysis, false);
+  registry.add(render);
+  registry.add(analysis);
+  registry.add(
+      std::make_shared<FakeJob>(registry.newJobId(), JobLane::Render, true));
+  registry.publish();
+  require(!registry.answerPoll(render->id(), true).isNull() &&
+              render->interruptMs >= 0,
+          "A poll cancellation did not interrupt the job");
+  require(settleJobs(context, 5000) && render->canceled && analysis->canceled &&
+              render->terminal() && analysis->terminal(),
+          "Shutdown did not end the jobs of both lanes through the registry");
+  require(render->cancelMs == render->interruptMs,
+          "A poll cancellation and the shutdown recorded two cancellations");
+  auto stubborn = std::make_shared<ClosingJob>(registry.newJobId(),
+                                               JobLane::Analysis, true);
+  registry.add(stubborn);
+  QElapsedTimer elapsed;
+  elapsed.start();
+  require(!settleJobs(context, 100) && stubborn->canceled &&
+              elapsed.elapsed() < 2000,
+          "Shutdown waited past its budget for a job that does not end");
+  context.jobs = saved;
+}
+
 void runAutomationJobsTests(Context& context) {
   const std::pair<const char*, std::function<void()>> cases[]{
       {"identifiers", identifiers},
@@ -267,7 +337,8 @@ void runAutomationJobsTests(Context& context) {
       {"order", order},
       {"published polls", publishedPolls},
       {"cancellation and termination",
-       [&context]() { cancellationAndTermination(context); }}};
+       [&context]() { cancellationAndTermination(context); }},
+      {"shutdown settlement", [&context]() { shutdownSettlement(context); }}};
   for (const auto& test : cases) {
     test.second();
     std::cout << "automation-jobs-test: " << test.first << " PASS\n";

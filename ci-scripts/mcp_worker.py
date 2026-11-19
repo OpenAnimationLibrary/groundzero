@@ -11,6 +11,7 @@ from threading import Thread
 from typing import Any, BinaryIO
 
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+SDK_CLIENT = "native-client.mjs"
 
 
 class Worker:
@@ -30,6 +31,9 @@ class Worker:
     ) -> None:
         self.sequence = 0
         self.log_path = log
+        # The native worker ends itself within 3 s of its input ending; the adapter in front
+        # of it signals after 4 s and kills 2 s later, so an SDK client gets longer.
+        self.exit_deadline = 8 if executable.name == SDK_CLIENT else 5
         self.errors = log.open("wb")
         self.responses: Queue[bytes | Exception] = Queue()
         arguments = [
@@ -105,25 +109,47 @@ class Worker:
             raise AssertionError(f"Worker returned an unrelated request id: {response!r}")
         return response
 
+    def _descendants(self) -> list[int]:
+        """The started process and every process under it, parents first."""
+        listing = subprocess.run(
+            ["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, check=False
+        ).stdout
+        children: dict[int, list[int]] = {}
+        for line in listing.splitlines():
+            fields = line.split()
+            if len(fields) == 2:
+                children.setdefault(int(fields[1]), []).append(int(fields[0]))
+        tree, index = [self.process.pid], 0
+        while index < len(tree):
+            tree.extend(children.get(tree[index], []))
+            index += 1
+        return tree
+
     def _record_stalled_exit(self) -> None:
-        """Save a stack sample of a worker that did not exit, where the platform has one."""
+        """Save a stack sample of every process under a worker that did not exit.
+
+        Through the SDK client the started process is the client, so the adapter, its
+        supervisor and the native worker under them are sampled too.
+        """
         sampler = shutil.which("sample")
         if sampler is None:
             return
-        report = self.log_path.with_suffix(".stalled-exit.txt")
-        subprocess.run(
-            [sampler, str(self.process.pid), "2", "-file", str(report)],
-            capture_output=True,
-            check=False,
-            timeout=30,
-        )
+        for pid in self._descendants():
+            suffix = "" if pid == self.process.pid else f".{pid}"
+            report = self.log_path.with_suffix(f".stalled-exit{suffix}.txt")
+            subprocess.run(
+                [sampler, str(pid), "2", "-file", str(report)],
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
 
     def close(self) -> None:
         """Close the transport and reap the original native process."""
         if self.process.stdin is not None:
             self.process.stdin.close()
         try:
-            self.process.wait(timeout=5)
+            self.process.wait(timeout=self.exit_deadline)
         except subprocess.TimeoutExpired:
             self._record_stalled_exit()
             self.process.kill()

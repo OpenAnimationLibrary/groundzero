@@ -165,8 +165,8 @@ public:
   // Test-only: the --test-path-swap arguments, handed on to scene hosts.
   QStringList pathSwap;
   // Test-only render fault: hold-launch, hold-dispatch, hold-publication,
-  // hold-writers, fail-after-final-frame, encoder-failure, stray-callbacks or
-  // gl-context-failure.
+  // hold-writers, fail-after-final-frame, encoder-failure, stray-callbacks,
+  // gl-context-failure or teardown-hang (worker teardown never finishes).
   QString renderFault;
   // Test-only file-writing fault: publish makes the final rename fail.
   QString writeFault;
@@ -208,13 +208,10 @@ QJsonValue executeRender(Context& context, const QString& method,
                          const QJsonObject& params);
 QJsonValue executePersistence(Context& context, const QString& method,
                               const QJsonObject& params);
-// Request cancellation on the application thread without waiting for callbacks.
-void requestRenderCancellation(Context& context);
 // The id of a render job that has not reached a terminal state, or empty.
 QString activeRenderJob(Context& context);
 // The render jobs this process retains.
 int renderJobCount(Context& context);
-void shutdownRender(Context& context);
 // Removes the unfinished job output of workers that exited without finishing
 // it. Completed output and output of a live worker stay.
 void sweepAbandonedRenders(Context& context);
