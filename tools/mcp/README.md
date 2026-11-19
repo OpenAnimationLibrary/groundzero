@@ -427,6 +427,16 @@ the worker checks limits of 256 levels, 4096 drawings, and a separate 256 MiB
 aggregate estimate covering raster and vector frames plus conservative overhead
 for frames, palette pages, styles, and keyframes. This estimate is an admission limit,
 not a bound on process memory.
+The manifest also records the saved sheet: each saved column's kind, name,
+preview and camstand flags, lock, opacity, colour filter, parent and a digest of
+its cell runs; every camera's size, resolution, interest rectangle, parent,
+output and preview roles and a digest of its curves; the output and preview
+settings, background, field guide, markers, ruler guides and colour filters; and
+each level's interpretation settings. The package is reopened before it is
+published and any difference is refused with `invalid_package`, whose details
+name the `section` and the first differing `path`. The native saver writes no
+empty column after the last used one; `trailing_empty_columns_dropped` lists the
+handles of those columns, which the reopened scene does not have.
 Native PLI encoding quantizes stroke coordinates and widths, and PNG encoding
 can change premultiplied RGB values by one code value. These files are editable
 native representations, not bitwise copies of in-memory drawings. Saved raster
