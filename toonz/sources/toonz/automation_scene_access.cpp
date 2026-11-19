@@ -1002,6 +1002,14 @@ const QSet<QString>& decodingTools() {
 
 [[noreturn]] void refuseReadOnly(const QString& method,
                                  const QJsonObject& descriptor) {
+  // A user scene becomes a package only through an editable import.
+  if (method == "scene.save_preflight")
+    throw Error("unsupported_target",
+                "A read-only document is saved as a package only after "
+                "importing it as an editable document.",
+                {{"reason", "read_only_document"},
+                 {"next", "scene.import_plan"},
+                 {"tool", method}});
   // A tool whose declared effect is to start a job reads the document and
   // changes nothing, so a read-only document refuses it as not yet qualified.
   const bool startsJob =

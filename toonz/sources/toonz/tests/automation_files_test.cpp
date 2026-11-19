@@ -1,6 +1,9 @@
 #include "automation.h"
 #include "automation_files.h"
+#include "automation_ownership.h"
+#include "automation_root_publish.h"
 
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -278,6 +281,130 @@ void checkHardLinks(const QString& root) {
 }
 #endif
 
+// Output-root paths: the grammar, and a walk that never follows a link or a
+// case variant of a stored name.
+void checkRootWalk(const QString& workspace) {
+  require(rootPathProblem("renders/shot-01", 1).isEmpty(),
+          "valid path refused");
+  for (const QString& bad :
+       {QString(), QString("/abs"), QString("a/../b"), QString("a/./b"),
+        QString("a\\b"), QString(".groundzero-staging/x"), QString("a//b"),
+        QString(QString("c/").repeated(17))})
+    require(!rootPathProblem(bad, 0).isEmpty(), "invalid root path admitted");
+  require(!rootPathProblem("ok/-dash", 1).isEmpty(),
+          "a new name starting with a dash was admitted");
+  QTemporaryDir directory(workspace + "/root-walk-XXXXXX");
+  const QString root = QFileInfo(directory.path()).canonicalFilePath();
+  require(QDir(root).mkpath("Shots/One"), "cannot create the fixture");
+  const int reached = openRootDirectory(root, "Shots/One");
+  require(reached >= 0, "an existing directory was not reached");
+  ::close(reached);
+  require(openRootDirectory(root, "Shots/Missing") < 0, "a missing one was");
+  require(QFile::link(root + "/Shots", root + "/Linked"), "cannot link");
+  bool refused = false;
+  try {
+    openRootDirectory(root, "Linked/One");
+  } catch (const Error& error) {
+    refused = error.code == "path_denied";
+  }
+  require(refused, "a linked component was followed");
+  refused = false;
+  try {
+    const int variant = openRootDirectory(root, "shots/One");
+    if (variant >= 0) ::close(variant);
+    // A case-sensitive volume has no such name: also not reached.
+    refused = variant < 0;
+  } catch (const Error& error) {
+    refused = error.code == "path_denied";
+  }
+  require(refused, "a case variant of a stored name was reached");
+}
+
+StagedEntry stagedEntry(const QString& tree, const QString& relative) {
+  QFile file(tree + '/' + relative);
+  require(file.open(QIODevice::ReadOnly), "Cannot read a staged fixture");
+  const QByteArray bytes = file.readAll();
+  return {relative, bytes.size(),
+          QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex()};
+}
+
+Error publishError(const std::function<void()>& call) {
+  try {
+    call();
+  } catch (const Error& error) {
+    return error;
+  }
+  return Error("none", "The call was not refused.");
+}
+
+QStringList entriesOf(const QString& directory) {
+  return QDir(directory).entryList(
+      QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
+      QDir::Name);
+}
+
+void checkContainerRecovery(const QString& root) {
+  const QString name      = ".groundzero-staging-0123456789abcdef";
+  const QString container = root + '/' + name;
+  require(QDir().mkpath(container + "/pkg/assets"),
+          "Cannot create a container");
+  write(container + "/pkg/assets/a.png", "a");
+  write(container + "/pkg/extra.txt", "x");
+  const QSet<QString> listed{"assets/a.png"};
+  {
+    OwnershipClaim live;
+    require(live.acquire(container), "Cannot claim the container");
+    const ContainerCleanup held =
+        removeAbandonedContainer(root, QString(), name, "pkg", listed);
+    require(held.held && !held.removed &&
+                QFileInfo::exists(container + "/pkg/assets/a.png"),
+            "a container a live worker holds was touched");
+  }
+  const ContainerCleanup partial =
+      removeAbandonedContainer(root, QString(), name, "pkg", listed);
+  require(!partial.removed && !QFileInfo::exists(container + "/pkg/assets") &&
+              partial.residue == QStringList({"pkg", "pkg/extra.txt"}),
+          "recovery removed an unlisted file or kept a listed one");
+  require(QFile::remove(container + "/pkg/extra.txt"), "Cannot clear residue");
+  require(
+      removeAbandonedContainer(root, QString(), name, "pkg", listed).removed &&
+          !QFileInfo::exists(container),
+      "an abandoned container stayed");
+}
+
+void checkRootPublication(Context& context) {
+  QTemporaryDir directory(context.workspace() + "/root-publish-XXXXXX");
+  const QString root   = sandbox(directory, "root");
+  const QString staged = sandbox(directory, "staged");
+  require(QDir().mkpath(staged + "/assets") && QDir().mkpath(root + "/shots"),
+          "Cannot create the publication fixture");
+  write(staged + "/scene.tnz", "scene");
+  write(staged + "/assets/a.png", QByteArray(3 * 1024 * 1024 + 7, 'a'));
+  const QVector<StagedEntry> entries{stagedEntry(staged, "assets/a.png"),
+                                     stagedEntry(staged, "scene.tnz")};
+  const auto publish = [&](const QString& parent, const QString& name) {
+    return publishError([&] {
+      publishToRoot(context, staged, {"renders", root, parent, name}, entries,
+                    {}, "package_write_failed");
+    });
+  };
+  require(publish("shots", "pkg").code == "none", "publication failed");
+  require(entriesOf(root + "/shots") == QStringList{"pkg"} &&
+              stagedEntry(root + "/shots/pkg", "assets/a.png").sha256 ==
+                  entries.first().sha256,
+          "the published copy differs or its container stayed");
+  require(publish("shots", "pkg").code == "already_exists",
+          "an existing package was not refused");
+  require(publish("absent", "pkg").code == "missing_parent",
+          "a missing parent was not refused");
+  write(staged + "/scene.tnz", "changed");
+  const Error changed = publish("shots", "pkg2");
+  require(changed.details.value("reason") == "staged_changed" &&
+              entriesOf(root + "/shots") == QStringList{"pkg"},
+          "a changed staged file was published or left a container");
+  checkContainerRecovery(root);
+}
+
 }  // namespace
 
 void runAutomationFilesTests(Context& context) {
@@ -289,6 +416,8 @@ void runAutomationFilesTests(Context& context) {
   checkHardLinks(root);
   checkPublicationPrimitives(root);
   checkTreeRemoval(root);
+  checkRootWalk(root);
+  checkRootPublication(context);
 #endif
   std::cerr << "automation-files-test: PASS\n";
 }

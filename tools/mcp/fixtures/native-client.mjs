@@ -17,6 +17,8 @@ const workerGrants = new Set([
   "--media-tools",
   "--shared-root",
   "--shared-write",
+  "--output-root",
+  "--output-modify",
   "--grants",
   "--domains",
 ]);

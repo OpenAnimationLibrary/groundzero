@@ -515,15 +515,23 @@
       "at_seq",
       "by_worker",
       "bytes",
+      "container",
       "current",
+      "entries",
       "first_seq",
+      "input_index",
       "last_seq",
+      "location",
       "name",
       "quarantined_segments",
       "reconciled_jobs",
       "reconciled_operations",
       "registered_packages",
+      "removed_containers",
+      "root",
+      "root_sha256",
       "segment",
+      "staging_residue",
       "started_at_ms",
       "truncated_tail_bytes",
       "worker_instance_id"
@@ -722,10 +730,23 @@
       "evidence",
       "expected_sha256",
       "found",
+      "input_index",
       "kind",
       "outputs_present",
+      "path",
       "reconciled",
+      "root",
+      "root_sha256",
       "target"
+    ]
+  },
+  "package.remove": {
+    "handler": "removePackage",
+    "read": [
+      "input_index",
+      "path",
+      "root",
+      "root_sha256"
     ]
   },
   "palette.clone_style": {
@@ -869,7 +890,11 @@
   },
   "scene.open": {
     "handler": "openPackage",
-    "read": []
+    "read": [
+      "input_index",
+      "root",
+      "root_sha256"
+    ]
   },
   "scene.open_read_only": {
     "handler": "openReadOnly",
@@ -882,7 +907,13 @@
   "scene.package_info": {
     "handler": null,
     "read": [
+      "class",
       "current",
+      "input_index",
+      "path",
+      "reason",
+      "root",
+      "root_sha256",
       "worker_instance_id"
     ]
   },
@@ -892,7 +923,24 @@
   },
   "scene.save_copy": {
     "handler": "saveCopy",
-    "read": []
+    "read": [
+      "input_index",
+      "path",
+      "root",
+      "root_sha256"
+    ]
+  },
+  "scene.save_preflight": {
+    "handler": "savePreflight",
+    "read": [
+      "availability",
+      "coded_path",
+      "owner_id",
+      "owner_kind",
+      "package_path",
+      "role",
+      "source"
+    ]
   },
   "scene.settings": {
     "handler": "updateSettings",

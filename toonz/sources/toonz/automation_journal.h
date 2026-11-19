@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QMap>
 #include <QSet>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -55,8 +56,11 @@ struct JournalOperation final {
   QString writer;
   qint64 admittedSeq  = 0;
   qint64 admittedAtMs = 0;
-  // The intent, outcome and reconcile records; empty when absent.
+  // The stage, intent, outcome and reconcile records; empty when absent.
+  QJsonObject stage;
   QJsonObject intent;
+  // scene.open's pin on the package it copies from.
+  QJsonObject pin;
   QJsonObject outcome;
   QJsonObject reconcile;
   // Set for an operation compacted to a stub: its state then.
@@ -74,6 +78,12 @@ public:
     QString instance;
     QString runtimeName;
     QString authorityDigest;
+    // The canonical input roots, which locations name by digest.
+    QStringList inputRoots;
+    // The granted output roots by name, with their canonical directories.
+    QMap<QString, QString> outputRoots;
+    // The output roots granted --output-modify.
+    QStringList outputModify;
     // The shared build digest (runtime.inspect, the live handshake).
     QString buildDigest;
     JournalLimits limits;
@@ -113,6 +123,9 @@ public:
   // The verdict for an admitted operation without outcome, from its effect
   // class and, for a publication, what is at its target now.
   JournalVerdict verdict(const JournalOperation& operation) const;
+  // The absolute path of a location {root, path} in a root this worker
+  // holds with the same canonical path, or empty.
+  QString locatedPath(const QJsonObject& location) const;
   // The recorded response ({result} or {error}) of a completed or failed
   // operation; throws journal_unavailable when its blob is missing or altered.
   QJsonObject response(const JournalOperation& operation) const;
@@ -126,6 +139,16 @@ public:
   void release(const QString& operationId);
   // Appends and flushes the intent of a publication.
   void intent(const QJsonObject& fields);
+  // Appends and flushes the stage record of a publication into an output
+  // root, before its staging container exists.
+  void stage(const QJsonObject& fields);
+  // Appends and flushes a pin: an operation reading the package at a
+  // location, which package.remove refuses to remove meanwhile.
+  void pin(const QJsonObject& fields);
+  // The live operation of another call that stages, publishes, removes or
+  // reads the package at `location`, or null.
+  const JournalOperation* pinning(const QJsonObject& location,
+                                  const QString& except) const;
   // Appends and flushes the outcome of an admitted operation. On failure the
   // journal becomes unavailable for this worker and false is returned.
   bool outcome(const QString& operationId, const QJsonObject& response,
@@ -179,6 +202,15 @@ private:
   void quarantineSegment(Segment& segment, const std::vector<QByteArray>& good,
                          qint64 firstSeq, qint64 lastSeq);
   void reconcileDead();
+  // Removes the abandoned staging container of an operation, in a root this
+  // worker holds, keeping what its record does not name as residue.
+  void removeStaging(const JournalOperation& operation);
+  // Finishes an interrupted package removal whose trash lies in a root this
+  // worker may modify.
+  void finishRemoval(const JournalOperation& operation);
+  // The canonical directory of a location's root when this worker holds it
+  // (and may modify it, with `modify`), or empty.
+  QString heldRoot(const QJsonObject& location, bool modify) const;
   struct Retention final {
     // operation id -> stub or forget
     QHash<QString, QString> operations;
@@ -218,6 +250,8 @@ private:
   qint64 m_plannedSeq        = 0;
   int m_maintenance          = 0;
   int m_registeredByRecovery = 0;
+  int m_removedContainers    = 0;
+  QJsonArray m_stagingResidue;
   QJsonArray m_damage;
   QJsonArray m_quarantined;
   QJsonObject m_lastRecovery;
@@ -238,6 +272,24 @@ QString journalContentDigest(const QString& path);
 void recordPublicationIntent(Context& context, const QString& staged,
                              const QString& target,
                              const QJsonObject& extra = {});
+// The same for a target named by its location (an output root's).
+void recordPublicationIntentAt(Context& context, const QString& staged,
+                               const QJsonObject& location,
+                               const QJsonObject& extra);
+// Before a staging container is made in an output root: the durable stage
+// record {operation_id, location, container} with `extra`'s fields.
+void recordPublicationStage(Context& context, const QJsonObject& location,
+                            const QString& container, const QJsonObject& extra);
+
+// Where a package or publication lies, with no absolute path:
+// {root: workspace | input | an output root's name, path (root-relative),
+// input_index, root_sha256 (of the canonical input or output root)}.
+QJsonObject packageLocation(const Context& context, const QString& absolute);
+// The location of `relative` in the granted output root `name`, its
+// root_sha256 that of the root's canonical path.
+QJsonObject outputLocation(const Context& context, const QString& name,
+                           const QString& relative);
+bool sameLocation(const QJsonObject& first, const QJsonObject& second);
 
 // The worker's journal, or null outside a worker.
 Journal* workspaceJournal(Context& context);

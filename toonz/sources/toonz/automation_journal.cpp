@@ -3,6 +3,7 @@
 #include "automation.h"
 #include "automation_files.h"
 #include "automation_ownership.h"
+#include "automation_root_publish.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -582,12 +583,16 @@ void Journal::apply(const QJsonObject& record) {
     operation.admittedAtMs    = integer(record, "t");
     if (type == "stub") operation.stubState = record.value("state").toString();
     m_operations.insert(id, operation);
-  } else if (type == "release" || type == "intent" || type == "outcome" ||
-             type == "reconcile") {
+  } else if (type == "release" || type == "stage" || type == "intent" ||
+             type == "pin" || type == "outcome" || type == "reconcile") {
     const auto found = m_operations.find(id);
     if (found == m_operations.end()) return;
     if (type == "release" && found->writer == w && found->outcome.isEmpty())
       m_operations.erase(found);
+    else if (type == "stage" && found->writer == w)
+      found->stage = record;
+    else if (type == "pin" && found->writer == w)
+      found->pin = record;
     else if (type == "intent" && found->writer == w)
       found->intent = record;
     else if (type == "outcome" && found->writer == w)
@@ -734,6 +739,34 @@ void Journal::intent(const QJsonObject& fields) {
     unavailable(m_reason.isEmpty() ? "lock_unavailable" : m_reason);
 }
 
+void Journal::pin(const QJsonObject& fields) {
+  QJsonObject record = fields;
+  record.insert("type", "pin");
+  if (!append({record}, m_start.limits.outcomeLockWaitMs, true))
+    unavailable(m_reason.isEmpty() ? "lock_unavailable" : m_reason);
+}
+
+const JournalOperation* Journal::pinning(const QJsonObject& location,
+                                         const QString& except) const {
+  for (const JournalOperation& operation : m_operations) {
+    if (operation.operationId == except || !operation.outcome.isEmpty() ||
+        !operation.reconcile.isEmpty() || !writerAlive(operation.writer))
+      continue;
+    for (const QJsonObject* record :
+         {&operation.stage, &operation.intent, &operation.pin})
+      if (sameLocation(record->value("location").toObject(), location))
+        return &operation;
+  }
+  return nullptr;
+}
+
+void Journal::stage(const QJsonObject& fields) {
+  QJsonObject record = fields;
+  record.insert("type", "stage");
+  if (!append({record}, m_start.limits.outcomeLockWaitMs, true))
+    unavailable(m_reason.isEmpty() ? "lock_unavailable" : m_reason);
+}
+
 bool Journal::outcome(const QString& operationId, const QJsonObject& response,
                       const QJsonObject& summary) {
   const QByteArray bytes = compact(response);
@@ -826,7 +859,7 @@ JournalVerdict Journal::verdict(const JournalOperation& operation) const {
     verdict.insert("reconciled", true);
     return verdict;
   }
-  QJsonObject evidence{{"target", QJsonValue()},
+  QJsonObject evidence{{"location", QJsonValue()},
                        {"expected_sha256", QJsonValue()},
                        {"found", "not_applicable"},
                        {"job_id", QJsonValue()},
@@ -836,15 +869,39 @@ JournalVerdict Journal::verdict(const JournalOperation& operation) const {
     kind = "job_unknown";
   } else if (operation.effectClass == "publication") {
     kind = "not_published";
+    // Staged but never intended: nothing can be at the target, but only a
+    // worker holding the root may remove the container.
+    if (operation.intent.isEmpty() && !operation.stage.isEmpty()) {
+      const QJsonObject location = operation.stage.value("location").toObject();
+      evidence.insert("location", location);
+      if (locatedPath(location).isEmpty()) {
+        evidence.insert("found", "root_not_granted");
+        return {{"kind", kind}, {"reconciled", false}, {"evidence", evidence}};
+      }
+      evidence.insert("found", "absent");
+    }
     if (!operation.intent.isEmpty()) {
-      const QString target = operation.intent.value("target").toString();
-      const QString expected =
-          operation.intent.value("expected_sha256").toString();
-      const QString absolute = QDir(m_start.workspace).filePath(target);
-      evidence.insert("target", target);
-      evidence.insert("expected_sha256", expected);
+      const QJsonObject location =
+          operation.intent.value("location").toObject();
+      const QString absolute = locatedPath(location);
+      evidence.insert("location", location);
+      evidence.insert("expected_sha256",
+                      operation.intent.value("expected_sha256"));
+      // A location in a root this worker does not hold is not judged here:
+      // a worker that holds it reconciles the operation.
+      if (absolute.isEmpty()) {
+        evidence.insert("found", "root_not_granted");
+        return {{"kind", kind}, {"reconciled", false}, {"evidence", evidence}};
+      }
       const QFileInfo info(absolute);
       const bool present = info.exists() || info.isSymLink();
+      // A removal took effect once its package left the location.
+      if (operation.intent.contains("trash")) {
+        evidence.insert("found", present ? "matches" : "absent");
+        return {{"kind", present ? "not_published" : "published"},
+                {"reconciled", false},
+                {"evidence", evidence}};
+      }
       const bool matches =
           present && contentDigest(absolute) ==
                          operation.intent.value("content_sha256").toString();
@@ -859,7 +916,10 @@ JournalVerdict Journal::verdict(const JournalOperation& operation) const {
 
 JournalVerdict Journal::reconcile(const JournalOperation& operation) {
   JournalVerdict computed = verdict(operation);
-  if (computed.value("reconciled").toBool() || !available()) return computed;
+  if (computed.value("reconciled").toBool() || !available() ||
+      computed.value("evidence").toObject().value("found") ==
+          "root_not_granted")
+    return computed;
   // A package that reached its target is this operation's: registered, so
   // scene.open admits it like any other this workspace published.
   const QJsonObject package = operation.intent.value("package").toObject();
@@ -867,11 +927,13 @@ JournalVerdict Journal::reconcile(const JournalOperation& operation) {
       !m_packages.contains(package.value("package_id").toString())) {
     QJsonObject fields = package;
     fields.insert("operation_id", operation.operationId);
-    fields.insert("path", operation.intent.value("target"));
+    fields.insert("location", operation.intent.value("location"));
     fields.insert("published_by", operation.writer);
     registerPackage(fields);
     ++m_registeredByRecovery;
   }
+  removeStaging(operation);
+  finishRemoval(operation);
   const QString id   = operation.operationId;
   QJsonObject stored = computed;
   stored.remove("reconciled");
@@ -907,6 +969,64 @@ void Journal::reconcileDead() {
   m_lastRecovery.insert("reconciled_operations", operations);
   m_lastRecovery.insert("reconciled_jobs", jobs);
   m_lastRecovery.insert("registered_packages", m_registeredByRecovery);
+  m_lastRecovery.insert("removed_containers", m_removedContainers);
+  m_lastRecovery.insert("staging_residue", m_stagingResidue);
+}
+
+QString Journal::heldRoot(const QJsonObject& location, bool modify) const {
+  const QString name = location.value("root").toString();
+  if (name == "workspace") return m_start.workspace;
+  if (locatedPath(location).isEmpty() || !m_start.outputRoots.contains(name) ||
+      (modify && !m_start.outputModify.contains(name)))
+    return {};
+  return m_start.outputRoots.value(name);
+}
+
+void Journal::finishRemoval(const JournalOperation& operation) {
+  const QJsonObject& intent = operation.intent;
+  if (!intent.contains("trash")) return;
+  const QJsonObject location = intent.value("location").toObject();
+  const QString root         = heldRoot(location, true);
+  if (root.isEmpty()) return;
+  const QByteArray identities =
+      readBlob(intent.value("identities_blob").toString(),
+               integer(intent, "identities_bytes"));
+  const QString relative = location.value("path").toString();
+  const int slash        = relative.lastIndexOf('/');
+  const TrashCleanup cleanup =
+      finishTrash(root, slash < 0 ? QString() : relative.left(slash),
+                  intent.value("trash").toString(),
+                  QJsonDocument::fromJson(identities).object(), nullptr);
+  if (!cleanup.residue.isEmpty() && m_stagingResidue.size() < 16)
+    m_stagingResidue.append(
+        QJsonObject{{"location", location},
+                    {"container", intent.value("trash")},
+                    {"entries", QJsonArray::fromStringList(cleanup.residue)}});
+}
+
+void Journal::removeStaging(const JournalOperation& operation) {
+  const QJsonObject& stage = operation.stage;
+  if (stage.isEmpty()) return;
+  const QJsonObject location = stage.value("location").toObject();
+  if (locatedPath(location).isEmpty()) return;
+  QSet<QString> listed{"manifest.json"};
+  const QByteArray manifest = readBlob(stage.value("manifest_blob").toString(),
+                                       integer(stage, "manifest_bytes"));
+  for (const QJsonValue& entry :
+       QJsonDocument::fromJson(manifest).object().value("files").toArray())
+    listed.insert(entry.toObject().value("path").toString());
+  const QString relative         = location.value("path").toString();
+  const int slash                = relative.lastIndexOf('/');
+  const ContainerCleanup cleanup = removeAbandonedContainer(
+      m_start.outputRoots.value(location.value("root").toString()),
+      slash < 0 ? QString() : relative.left(slash),
+      stage.value("container").toString(), relative.mid(slash + 1), listed);
+  if (cleanup.removed) ++m_removedContainers;
+  if (!cleanup.residue.isEmpty() && m_stagingResidue.size() < 16)
+    m_stagingResidue.append(QJsonObject{
+        {"location", location},
+        {"container", stage.value("container")},
+        {"entries", QJsonArray::fromStringList(cleanup.residue.mid(0, 64))}});
 }
 
 QJsonObject Journal::jobLoss(const QJsonObject& record) const {
@@ -1291,24 +1411,111 @@ QString journalContentDigest(const QString& path) {
 
 void recordPublicationIntent(Context& context, const QString& staged,
                              const QString& target, const QJsonObject& extra) {
+  recordPublicationIntentAt(context, staged, packageLocation(context, target),
+                            extra);
+}
+
+void recordPublicationStage(Context& context, const QJsonObject& location,
+                            const QString& container,
+                            const QJsonObject& extra) {
   Journal* journal = workspaceJournal(context);
   if (!journal || context.writeOperation.isEmpty()) return;
-  const QString content   = contentDigest(staged);
-  const QString manifest  = QFileInfo(staged).isDir()
-                                ? contentDigest(staged + "/manifest.json")
-                                : QString();
-  const QString workspace = context.workspace();
-  const QString relative  = target.startsWith(workspace + '/')
-                                ? target.mid(workspace.size() + 1)
-                                : target;
-  QJsonObject fields      = extra;
+  QJsonObject fields = extra;
   fields.insert("operation_id", context.writeOperation);
-  fields.insert("target", relative);
+  fields.insert("location", location);
+  fields.insert("container", container);
+  journal->stage(fields);
+}
+
+void recordPublicationIntentAt(Context& context, const QString& staged,
+                               const QJsonObject& location,
+                               const QJsonObject& extra) {
+  Journal* journal = workspaceJournal(context);
+  if (!journal || context.writeOperation.isEmpty()) return;
+  const QString content  = contentDigest(staged);
+  const QString manifest = QFileInfo(staged).isDir()
+                               ? contentDigest(staged + "/manifest.json")
+                               : QString();
+  QJsonObject fields     = extra;
+  fields.insert("operation_id", context.writeOperation);
+  fields.insert("location", location);
   fields.insert("expected_sha256", manifest.isEmpty() ? content : manifest);
   fields.insert("content_sha256", content);
   fields.insert("manifest_sha256", optional(manifest));
   journal->intent(fields);
   writeFaultFires(context, "journal:intent");
+}
+
+namespace {
+
+QString rootDigest(const QString& root) {
+  return QString::fromLatin1(sha256Hex(root.toUtf8()));
+}
+
+QJsonObject location(const QString& root, const QString& path,
+                     const QJsonValue& index, const QJsonValue& digest) {
+  return {{"root", root},
+          {"path", path},
+          {"input_index", index},
+          {"root_sha256", digest}};
+}
+
+QString beneath(const QString& path, const QString& root) {
+  return path.startsWith(root + '/') ? path.mid(root.size() + 1) : QString();
+}
+
+}  // namespace
+
+QJsonObject packageLocation(const Context& context, const QString& absolute) {
+  const QString inWorkspace = beneath(absolute, context.workspace());
+  if (!inWorkspace.isEmpty())
+    return location("workspace", inWorkspace, QJsonValue(), QJsonValue());
+  const QStringList inputs = context.inputRoots();
+  for (int index = 0; index < inputs.size(); ++index) {
+    const QString inInput = beneath(absolute, inputs.at(index));
+    if (!inInput.isEmpty())
+      return location("input", inInput, index, rootDigest(inputs.at(index)));
+  }
+  for (auto it = context.outputRoots.constBegin();
+       it != context.outputRoots.constEnd(); ++it) {
+    const QString inOutput = beneath(absolute, it.value().path);
+    if (!inOutput.isEmpty())
+      return location(it.key(), inOutput, QJsonValue(),
+                      rootDigest(it.value().path));
+  }
+  throw Error("internal_error",
+              "A package path lies outside every root of this worker.");
+}
+
+QJsonObject outputLocation(const Context& context, const QString& name,
+                           const QString& relative) {
+  return location(name, relative, QJsonValue(),
+                  rootDigest(context.outputRoots.value(name).path));
+}
+
+bool sameLocation(const QJsonObject& first, const QJsonObject& second) {
+  return first.value("root") == second.value("root") &&
+         first.value("path") == second.value("path") &&
+         first.value("root_sha256") == second.value("root_sha256");
+}
+
+QString Journal::locatedPath(const QJsonObject& where) const {
+  const QString path = where.value("path").toString();
+  if (path.isEmpty() || path.startsWith('/') || path.contains("..")) return {};
+  if (where.value("root") == "workspace")
+    return QDir(m_start.workspace).filePath(path);
+  const QString name = where.value("root").toString();
+  if (m_start.outputRoots.contains(name)) {
+    const QString root = m_start.outputRoots.value(name);
+    return rootDigest(root) == where.value("root_sha256").toString()
+               ? QDir(root).filePath(path)
+               : QString();
+  }
+  if (name != "input") return {};
+  for (const QString& root : m_start.inputRoots)
+    if (rootDigest(root) == where.value("root_sha256").toString())
+      return QDir(root).filePath(path);
+  return {};
 }
 
 QJsonObject Journal::absentStatus() {

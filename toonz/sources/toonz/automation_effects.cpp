@@ -299,6 +299,17 @@ const QHash<QString, Declaration>& declarations() {
       {"offset_layer.create", {kAdd, {"name_conflict", "unsupported_target"}}},
       {"offset_layer.delete", {kEdit, {}}},
       {"offset_layer.update", {kEdit, {"name_conflict"}}},
+      {"package.remove",
+       {ToolEffects{"output_write",
+                    "none",
+                    {"writes_caller_path", "writes_output_roots"},
+                    "none",
+                    {},
+                    true},
+        {"in_use", "invalid_package", "modify_not_granted", "not_found",
+         "package_read_failed", "package_write_failed",
+         "publication_unsupported", "root_unavailable",
+         "unregistered_package"}}},
       {"palette.clone_style", {kAdd, {}}},
       {"palette.create_style", {kAdd, {}}},
       {"palette.inspect", {kInspect, {"unsupported_type"}}},
@@ -414,13 +425,14 @@ const QHash<QString, Declaration>& declarations() {
       {"scene.open",
        {ToolEffects{"document_lifecycle",
                     "creates",
-                    {"reads_roots", "reads_private", "writes_private"},
+                    {"reads_roots", "reads_private", "writes_private",
+                     "reads_output_roots"},
                     "none",
                     {},
                     false},
         {"invalid_package", "missing_drawing", "package_limit",
-         "package_read_failed", "reader_unavailable", "unregistered_package",
-         "unsupported_level"}}},
+         "package_read_failed", "reader_unavailable", "root_unavailable",
+         "unregistered_package", "unsupported_level"}}},
       {"scene.open_read_only",
        {ToolEffects{"document_lifecycle",
                     "opens_read_only",
@@ -434,22 +446,36 @@ const QHash<QString, Declaration>& declarations() {
       {"scene.package_info",
        {ToolEffects{"read",
                     "none",
-                    {"reads_roots", "reads_private"},
+                    {"reads_roots", "reads_private", "reads_output_roots"},
                     "none",
                     {},
                     false},
         {"invalid_package", "package_limit", "package_read_failed",
-         "unregistered_package"}}},
+         "root_unavailable", "unregistered_package"}}},
       {"scene.guides.set", {kEdit, {}}},
       {"scene.output.set", {kEdit, {}}},
       {"scene.properties.inspect", {kInspect, {"stale_revision"}}},
+      {"scene.save_preflight",
+       {ToolEffects{"read",
+                    "reads",
+                    {"reads_roots", "reads_private", "reads_output_roots"},
+                    "none",
+                    {},
+                    false},
+        {"invalid_path", "path_denied", "root_unavailable", "stale_revision",
+         "unsupported_target"}}},
       {"scene.save_copy",
-       {kExport,
+       {ToolEffects{"document_write",
+                    "reads",
+                    {"writes_caller_path", "writes_output_roots"},
+                    "none",
+                    {},
+                    false},
         {"already_exists", "empty_level", "invalid_package", "missing_drawing",
          "missing_level", "missing_parent", "package_limit",
          "package_write_failed", "publication_unsupported",
-         "reader_unavailable", "scene_limit", "unsupported_column",
-         "unsupported_level", "writer_unavailable"}}},
+         "reader_unavailable", "root_unavailable", "scene_limit",
+         "unsupported_column", "unsupported_level", "writer_unavailable"}}},
       {"scene.settings", {kEdit, {"timing_conflict"}}},
       {"scene.source_status",
        {ToolEffects{"read", "reads", {"reads_roots"}, "none", {}, false},
@@ -535,7 +561,8 @@ QJsonArray grants(const ToolEffects& effects) {
   static const QSet<QString> drafting{"writes", "creates", "discards"};
   if (drafting.contains(effects.document)) result.append("draft");
   if (effects.files.contains("writes_caller_path") ||
-      effects.files.contains("writes_shared_roots"))
+      effects.files.contains("writes_shared_roots") ||
+      effects.files.contains("writes_output_roots"))
     result.append("file");
   if (effects.job == "starts" || effects.job == "controls")
     result.append("job");
@@ -767,20 +794,21 @@ QJsonObject strictObject(const QJsonObject& properties) {
 }
 
 QJsonObject effectsSchema() {
-  const QStringList files{"reads_roots",        "reads_shared_roots",
-                          "reads_application",  "reads_private",
-                          "writes_private",     "writes_caller_path",
-                          "writes_shared_roots"};
+  const QStringList files{
+      "reads_roots",         "reads_shared_roots", "reads_application",
+      "reads_private",       "writes_private",     "writes_caller_path",
+      "writes_shared_roots", "reads_output_roots", "writes_output_roots"};
   const QStringList processes{"parse_helper", "media_tools", "neural_helper",
                               "scene_host"};
   const QStringList grants{"inspect", "draft",        "file",
                            "job",     "live_inspect", "live_edit"};
   return strictObject(
-      {{"class", enumSchema({"read", "document_write", "document_lifecycle",
-                             "job_start", "job_control", "session"})},
+      {{"class",
+        enumSchema({"read", "document_write", "document_lifecycle", "job_start",
+                    "job_control", "session", "output_write"})},
        {"document", enumSchema({"none", "reads", "writes", "creates",
                                 "opens_read_only", "discards"})},
-       {"files", arraySchema(enumSchema(files), 0, 7)},
+       {"files", arraySchema(enumSchema(files), 0, 9)},
        {"job", enumSchema({"none", "starts", "controls", "reads"})},
        {"processes", arraySchema(enumSchema(processes), 0, 4)},
        {"overwrites", QJsonObject{{"type", "boolean"}}},
@@ -850,6 +878,16 @@ QJsonObject authoritySchema() {
        {"workspace", path},
        {"input_roots", arraySchema(path, 0, 16)},
        {"shared_roots", arraySchema(sharedRoot, 0, 3)},
+       {"output_roots",
+        arraySchema(
+            strictObject(
+                {{"name", QJsonObject{{"type", "string"},
+                                      {"minLength", 1},
+                                      {"maxLength", 32},
+                                      {"pattern", "^[a-z][a-z0-9_-]{0,31}$"}}},
+                 {"path", path},
+                 {"modify", QJsonObject{{"type", "boolean"}}}}),
+            0, 8)},
        {"media_tools",
         QJsonObject{
             {"oneOf", QJsonArray{path, QJsonObject{{"type", "null"}}}}}},

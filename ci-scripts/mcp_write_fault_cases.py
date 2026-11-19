@@ -3,6 +3,7 @@ step, and check that nothing is published, left behind or claimed."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -10,6 +11,7 @@ from mcp_case import acceptance_case
 from mcp_failure_cases import _fault_worker, _second_worker
 from mcp_file_publish_cases import staging_left
 from mcp_file_tools import PATH_TOOLS
+from mcp_journal_cases import restart, status
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -251,3 +253,48 @@ def a_cell_write_refused_after_another_landed_says_what_landed(case: NativeAccep
     case.assertNotEqual(summary["revision"], revision)
     case.assertEqual(_rows_of(case, document, columns[0]), [True] * 3)
     case.assertEqual(_rows_of(case, document, columns[1]), [False] * 3)
+
+
+def _staging(root: Path) -> list[str]:
+    return [name for name in os.listdir(root) if name.startswith(".groundzero-staging-")]
+
+
+@acceptance_case(worker_only=FAULT_FLAG)
+def output_root_publication_crash_windows(case: NativeAcceptance) -> None:
+    """A worker killed at each step of a save into an output root leaves its staging
+    container; a successor without that root leaves it and reports root_not_granted, and
+    one holding the root removes it and reconciles the save."""
+    expected = {
+        "publish:staged-container": ("not_published", False),
+        "publish:copied": ("not_published", False),
+        "publish:renamed": ("published", True),
+    }
+    for point, (kind, present) in expected.items():
+        with case.subTest(point=point):
+            name = point.replace(":", "-")
+            root = case.directory / f"out-{name}"
+            root.mkdir()
+            granted = ("--output-root", f"deliveries={root.resolve()}")
+            restart(case, name, *granted, "--test-write-fault", f"{point}:crash")
+            document, _level, _column = case.populated_scene()
+            request = case.write_params(document, {"directory": "pkg", "root": "deliveries"})
+            with case.assertRaises(RuntimeError):
+                case.worker.call("scene.save_copy", request)
+            case.assertEqual(case.worker.process.wait(timeout=30), CRASH_EXIT_CODE)
+            case.assertEqual(len(_staging(root)), 1)
+            restart(case, name + "-without")
+            answer = status(case, request["operation_id"])
+            case.assertEqual(answer["verdict"]["evidence"]["found"], "root_not_granted")
+            case.assertEqual(len(_staging(root)), 1)
+            restart(case, name + "-with", *granted)
+            answer = status(case, request["operation_id"])
+            case.assertEqual(
+                (answer["verdict"]["kind"], answer["verdict"]["reconciled"]), (kind, True)
+            )
+            case.assertEqual(_staging(root), [])
+            case.assertEqual((root / "pkg").exists(), present)
+            recovery = case.success("journal.status", {})["last_recovery"]
+            case.assertGreaterEqual(recovery["removed_containers"], 1)
+            if present:
+                opened = case.mutate("scene.open", None, path="pkg", root="deliveries")
+                case.assertEqual(opened["admission"], "workspace_registry")

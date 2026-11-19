@@ -404,7 +404,43 @@ def _package(f: Fixture) -> list[Call]:
         Call("saved package", {"path": str(f.package)}),
         # Admitted by registered content wherever it lies in a read root.
         Call("copy under an input root", {"path": str(f.input_package)}),
+        Call("in an output root", {"path": "saved", "root": "renders"}),
+        Call("root not granted", {"path": "saved", "root": "archive"}, "root_unavailable"),
         Call("outside every root", {"path": "/etc"}, "path_denied"),
+    ]
+
+
+def _save_preflight(f: Fixture) -> list[Call]:
+    planned = str(f.case.workspace / "planned")
+    return [
+        Call("new package", _pinned(f, directory=planned)),
+        Call("existing destination", _pinned(f, directory=str(f.package))),
+        Call("reopened", _pinned(f, f.reopened, directory=planned, offset=1, limit=1)),
+        Call("without content", _pinned(f, f.bare, directory=planned)),
+        Call("output root", _pinned(f, directory="planned", root="renders")),
+        Call("stale", _stale(f, directory=planned), "stale_revision"),
+        Call("outside every root", _pinned(f, directory="/etc/planned"), "path_denied"),
+        Call("root not granted", _pinned(f, directory="x", root="archive"), "root_unavailable"),
+        Call(
+            "reserved name",
+            _pinned(f, directory=".groundzero-x", root="renders"),
+            "invalid_path",
+            "reserved",
+        ),
+        Call("past the items", _pinned(f, directory=planned, offset=4096), "invalid_params"),
+    ]
+
+
+def _ro_save_preflight(_f: Fixture, document: str) -> list[Call]:
+    params = {"document_id": document, "expected_revision": "0", "directory": "planned"}
+    return [
+        Call(
+            "refused",
+            params,
+            "unsupported_target",
+            "read_only_document",
+            "save a read-only document after scene.import_plan",
+        )
     ]
 
 
@@ -758,6 +794,7 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "raster.read_pixels": _ro_pixels,
     "job.list": _ro_jobs,
     "render.preflight": _ro_preflight,
+    "scene.save_preflight": _ro_save_preflight,
 }
 ROUTED_WRITES = frozenset(
     {
@@ -812,6 +849,7 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "journal.status": _journal,
     "operation.list": _operations,
     "scene.package_info": _package,
+    "scene.save_preflight": _save_preflight,
     "cast.list": _pinned_with("stale_revision"),
     "camera.list": _pinned_with("stale_revision"),
     "scene.properties.inspect": _pinned_with("stale_revision"),

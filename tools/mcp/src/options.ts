@@ -9,12 +9,21 @@ export interface SharedRoot {
   writable: boolean;
 }
 
+/** A granted output root: a named directory outside every other root. */
+export interface OutputRoot {
+  name: string;
+  path: string;
+  /** Whether packages and deliveries in it may be removed or replaced. */
+  modify: boolean;
+}
+
 export interface WorkerOptions {
   executable: string;
   workspace: string;
   inputRoots: string[];
   mediaToolsDirectory?: string;
   sharedRoots?: SharedRoot[];
+  outputRoots?: OutputRoot[];
   /** Grant classes, always with inspect. */
   grants: string[];
   /** Granted toolsets, or ["all"]. */
@@ -24,6 +33,9 @@ export interface WorkerOptions {
 const SHARED_ROLES = new Set(["studio_palettes", "project_palettes", "library"]);
 const GRANT_CLASSES = new Set(["inspect", "draft", "file", "job"]);
 const TOOLSET_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+const OUTPUT_ROOT_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
+const RESERVED_ROOT_NAMES = new Set(["workspace", "input"]);
+const MAX_OUTPUT_ROOTS = 8;
 /** Today's full authority: what a session may do unless --grants narrows it. */
 export const DEFAULT_GRANTS = "inspect,draft,file,job";
 
@@ -75,6 +87,8 @@ const LAUNCH_OPTIONS = {
   "media-tools": { type: "string" },
   "shared-root": { type: "string", multiple: true },
   "shared-write": { type: "string", multiple: true },
+  "output-root": { type: "string", multiple: true },
+  "output-modify": { type: "string", multiple: true },
   "live-session": { type: "string" },
   toolsets: { type: "string" },
   grants: { type: "string" },
@@ -130,6 +144,8 @@ const DETACHED_ONLY = [
   "media-tools",
   "shared-root",
   "shared-write",
+  "output-root",
+  "output-modify",
   "toolsets",
   "grants",
   "domains",
@@ -139,7 +155,7 @@ function liveOptions(executable: string, values: LaunchArguments): LiveOptions {
   if (DETACHED_ONLY.some((name) => values[name] !== undefined)) {
     throw new Error(
       "--live-session cannot be combined with workspace, input-root, media-tools, " +
-        "shared-root, shared-write, toolsets, grants, or domains",
+        "shared-root, shared-write, output-root, output-modify, toolsets, grants, or domains",
     );
   }
   const liveSession = values["live-session"];
@@ -254,6 +270,51 @@ async function sharedRoots(
   return [...roots].map(([role, path]) => ({ role, path, writable: writes.includes(role) }));
 }
 
+async function outputRootGrants(values: LaunchArguments): Promise<Map<string, string>> {
+  const roots = new Map<string, string>();
+  const grants = values["output-root"] ?? [];
+  if (grants.length > MAX_OUTPUT_ROOTS) {
+    throw new Error(`Specify at most ${MAX_OUTPUT_ROOTS} --output-root options`);
+  }
+  for (const grant of grants) {
+    const separator = grant.indexOf("=");
+    const name = grant.slice(0, Math.max(separator, 0));
+    if (!OUTPUT_ROOT_NAME.test(name) || RESERVED_ROOT_NAMES.has(name)) {
+      throw new Error(
+        "--output-root requires NAME=ABSOLUTE_DIR with NAME of lowercase letters, digits, " +
+          "_ or -, starting with a letter, and not workspace or input",
+      );
+    }
+    if (roots.has(name)) throw new Error(`Specify --output-root ${name} at most once`);
+    roots.set(name, await granted(`--output-root ${name}`, directory(grant.slice(separator + 1))));
+  }
+  return roots;
+}
+
+/** Output roots: separate from the workspace, input and shared roots and from each other. */
+async function outputRoots(
+  values: LaunchArguments,
+  others: string[],
+): Promise<OutputRoot[] | undefined> {
+  const roots = await outputRootGrants(values);
+  const modify = values["output-modify"] ?? [];
+  if (new Set(modify).size !== modify.length || modify.some((name) => !roots.has(name))) {
+    throw new Error("--output-modify must name a configured --output-root at most once");
+  }
+  const paths = [...roots.values()];
+  for (const [index, path] of paths.entries()) {
+    const rest = [...others, ...paths.slice(index + 1)];
+    if (rest.some((other) => overlapping(path, other))) {
+      throw new Error(
+        "--output-root must not overlap the workspace, an input root, a shared root " +
+          "or another output root",
+      );
+    }
+  }
+  if (roots.size === 0) return undefined;
+  return [...roots].map(([name, path]) => ({ name, path, modify: modify.includes(name) }));
+}
+
 async function detachedOptions(
   executable: string,
   values: LaunchArguments,
@@ -282,6 +343,9 @@ async function detachedOptions(
   }
   const shared = await sharedRoots(values, workspace);
   if (shared !== undefined) options.sharedRoots = shared;
+  const others = [workspace, ...inputRoots, ...(shared ?? []).map((root) => root.path)];
+  const output = await outputRoots(values, others);
+  if (output !== undefined) options.outputRoots = output;
   return options;
 }
 

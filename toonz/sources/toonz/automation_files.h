@@ -72,6 +72,12 @@ void publishStaged(Context& context, const QString& staged, const QString& path,
                    const QString& failureCode, const QString& failureMessage,
                    const QJsonObject& intent = {});
 
+// Whether a publication into the volume with device number `volume` was
+// refused as publication_unsupported earlier in this process.
+bool exclusivePublicationRefused(qint64 volume);
+// Remember that the volume refused a publication as publication_unsupported.
+void noteExclusivePublicationRefused(qint64 volume);
+
 // An error of a staged write: details.stage names the step that failed,
 // details.file the staged file (relative to the staged folder) or null, and
 // details.published whether anything appeared at the destination.
@@ -174,6 +180,61 @@ private:
   QTemporaryDir m_directory;
   bool m_remove = true;
 };
+
+// Why a path relative to an output root breaks the grammar, or empty: at most
+// 1,024 characters and 16 components, forward slashes, no "." or "..", and a
+// component to be created matching [A-Za-z0-9][A-Za-z0-9._-]{0,127} and not
+// starting with ".groundzero-". `creating` is the number of trailing
+// components that will be created.
+QString rootPathProblem(const QString& relative, int creating);
+
+// The directory at a root-relative path, opened component by component from
+// the root's own descriptor without following any link, each existing
+// component named exactly as stored. Returns an open descriptor, or -1 when a
+// component is missing or not a directory.
+//
+// Throws:
+//   Error: path_denied when a component is a link or a case or normalization
+//   variant of the stored name; root_unavailable when the root cannot be
+//   opened as the granted canonical directory.
+int openRootDirectory(const QString& root, const QString& relative);
+
+// The path below `root` of the directory at `relative` as the file system
+// stores its names (which may differ from `relative` in Unicode
+// normalization), reached as openRootDirectory reaches it; empty when it is
+// missing. Throws as openRootDirectory.
+QString storedPathBelow(const QString& root, const QString& relative);
+
+#ifndef _WIN32
+// The path below `root` of the directory open at `descriptor`, in its stored
+// spelling; empty for the root itself or a directory outside it.
+QString storedRelativePath(const QString& root, int descriptor);
+
+// What an entry is, read without following a link: device, inode, link
+// count, size, modification time and kind.
+struct FileIdentity final {
+  qint64 device   = 0;
+  qint64 inode    = 0;
+  qint64 links    = 0;
+  qint64 size     = 0;
+  qint64 modified = 0;  // nanoseconds since the epoch
+  bool regular    = false;
+  bool directory  = false;
+};
+// False when `name` is absent from the directory (or cannot be read).
+bool identityAt(int directory, const QString& name, FileIdentity* identity);
+// A new file under a directory descriptor, never an existing name or a link:
+// an open write descriptor, or -1 with errno.
+int createExclusive(int directory, const QString& name);
+// A new directory under a directory descriptor, opened: a descriptor, or -1.
+int makeDirectoryAt(int directory, const QString& name);
+// Rename between two pinned directories without ever replacing: Exists when
+// the name is taken, Unsupported when the file system has no such rename.
+PublishResult renameBetween(int fromDirectory, const QString& from,
+                            int toDirectory, const QString& to);
+// Flush a file or directory descriptor to the device (F_FULLFSYNC on macOS).
+bool fullSync(int descriptor);
+#endif
 
 enum class ListResult { Listed, Failed, TooMany };
 

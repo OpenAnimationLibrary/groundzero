@@ -442,3 +442,73 @@ test("leaves other unknown options and a value with spaces to the usual errors",
     parseOptions(["--executable", process.execPath, "--workspace", `${path} extra`]),
   ).rejects.toThrow("Invalid --workspace directory");
 });
+
+test("output roots are validated like shared roots", async () => {
+  const path = await workspace();
+  const renders = await workspace();
+  const archive = await workspace();
+  const options = await parseOptions([
+    "--executable",
+    process.execPath,
+    "--workspace",
+    path,
+    "--output-root",
+    `renders=${renders}`,
+    "--output-root",
+    `archive=${archive}`,
+    "--output-modify",
+    "archive",
+  ]);
+  assert(!("liveSession" in options));
+  expect(options.outputRoots).toEqual([
+    { name: "renders", path: renders, modify: false },
+    { name: "archive", path: archive, modify: true },
+  ]);
+  expect(workerArguments(options).slice(-6)).toEqual([
+    "--output-root",
+    `renders=${renders}`,
+    "--output-root",
+    `archive=${archive}`,
+    "--output-modify",
+    "archive",
+  ]);
+  const inside = join(path, "inside");
+  await mkdir(inside);
+  directories.push(inside);
+  const alias = join(renders, "alias");
+  await symlink(archive, alias);
+  links.push(alias);
+  const base = ["--executable", process.execPath, "--workspace", path];
+  const refused: [string[], string][] = [
+    [["--output-root", renders], "NAME=ABSOLUTE_DIR"],
+    [["--output-root", `workspace=${renders}`], "not workspace or input"],
+    [["--output-root", `input=${renders}`], "not workspace or input"],
+    [["--output-root", `Renders=${renders}`], "NAME=ABSOLUTE_DIR"],
+    [["--output-root", "renders=relative"], "Invalid --output-root renders directory"],
+    [["--output-root", `renders=${alias}`], "symlink"],
+    [["--output-root", `renders=${inside}`], "overlap"],
+    [["--output-root", `renders=${path}`], "overlap"],
+    [["--output-root", `a=${renders}`, "--output-root", `b=${renders}`], "overlap"],
+    [
+      ["--output-root", `renders=${renders}`, "--output-root", `renders=${archive}`],
+      "at most once",
+    ],
+    [["--output-modify", "renders"], "configured --output-root"],
+    [["--input-root", renders, "--output-root", `renders=${renders}`], "overlap"],
+  ];
+  for (const [args, message] of refused) {
+    await expect(parseOptions([...base, ...args])).rejects.toThrow(message);
+  }
+  const many = Array.from({ length: 9 }, (_, index) => ["--output-root", `r${index}=${renders}`]);
+  await expect(parseOptions([...base, ...many.flat()])).rejects.toThrow("at most 8");
+  await expect(
+    parseOptions([
+      "--executable",
+      process.execPath,
+      "--live-session",
+      join(path, "session"),
+      "--output-root",
+      `renders=${renders}`,
+    ]),
+  ).rejects.toThrow("output-root");
+});

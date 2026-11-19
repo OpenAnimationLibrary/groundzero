@@ -114,6 +114,12 @@ QJsonObject authorityReport(const Context& context) {
     shared.append(QJsonObject{{"role", it.key()},
                               {"path", it.value().path},
                               {"writable", it.value().writable}});
+  QJsonArray outputs;
+  for (auto it = context.outputRoots.constBegin();
+       it != context.outputRoots.constEnd(); ++it)
+    outputs.append(QJsonObject{{"name", it.key()},
+                               {"path", it.value().path},
+                               {"modify", it.value().modify}});
   const QString media = context.mediaToolsDirectory;
   QJsonObject report{
       {"grants", QJsonArray::fromStringList(grantedClasses(context))},
@@ -121,6 +127,7 @@ QJsonObject authorityReport(const Context& context) {
       {"workspace", context.workspace()},
       {"input_roots", QJsonArray::fromStringList(inputs)},
       {"shared_roots", shared},
+      {"output_roots", outputs},
       {"media_tools", media.isEmpty() ? QJsonValue() : QJsonValue(media)}};
   const QByteArray digest = QCryptographicHash::hash(
       QJsonDocument(report).toJson(QJsonDocument::Compact),

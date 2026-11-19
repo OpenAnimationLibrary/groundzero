@@ -93,11 +93,43 @@ bool OwnershipClaim::acquire(const QString& directory) {
   return true;
 }
 
+bool OwnershipClaim::acquireAt(int directory) {
+  release();
+  const char* temporary = ".owner.lock.new";
+  const int descriptor =
+      ::openat(directory, temporary,
+               O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (descriptor < 0) return false;
+  if (::flock(descriptor, LOCK_EX | LOCK_NB) != 0 ||
+      ::renameat(directory, temporary, directory, MarkerName + 1) != 0) {
+    ::close(descriptor);
+    ::unlinkat(directory, temporary, 0);
+    return false;
+  }
+  m_descriptor = descriptor;
+  m_directory  = ::dup(directory);
+  return true;
+}
+
+bool OwnershipClaim::abandonedAt(int directory) {
+  const int descriptor =
+      ::openat(directory, MarkerName + 1, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (descriptor < 0) return false;
+  const bool free = ::flock(descriptor, LOCK_EX | LOCK_NB) == 0;
+  ::close(descriptor);
+  return free;
+}
+
 void OwnershipClaim::release() {
   if (m_descriptor < 0) return;
-  if (!m_keepMarker) ::unlink(QFile::encodeName(m_marker).constData());
+  if (!m_keepMarker && m_directory >= 0)
+    ::unlinkat(m_directory, MarkerName + 1, 0);
+  else if (!m_keepMarker)
+    ::unlink(QFile::encodeName(m_marker).constData());
   ::close(m_descriptor);
+  if (m_directory >= 0) ::close(m_directory);
   m_descriptor = -1;
+  m_directory  = -1;
   m_marker.clear();
 }
 

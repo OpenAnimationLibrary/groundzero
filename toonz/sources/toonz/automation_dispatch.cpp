@@ -229,7 +229,8 @@ QString effectClass(const QJsonObject& descriptor) {
   const QJsonObject effects = descriptor.value("effects").toObject();
   const QJsonArray files    = effects.value("files").toArray();
   if (files.contains("writes_caller_path") ||
-      files.contains("writes_shared_roots"))
+      files.contains("writes_shared_roots") ||
+      files.contains("writes_output_roots"))
     return "publication";
   return effects.value("job") == "starts" ? "job" : "memory";
 }

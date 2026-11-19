@@ -81,7 +81,8 @@
    "cells": {
     "inspect": {
      "tools": [
-      "scene.package_info"
+      "scene.package_info",
+      "scene.save_preflight"
      ]
     },
     "create": {
@@ -103,8 +104,10 @@
      "reason": "a package has no order"
     },
     "remove": {
-     "disposition": "restricted",
-     "reason": "no tool deletes a published package: publication never replaces and cleanup of files is an operator task"
+     "tools": [
+      "package.remove"
+     ],
+     "evidence": "mcp_cleanup_cases.py"
     },
     "persist": {
      "tools": [

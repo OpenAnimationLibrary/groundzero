@@ -7,6 +7,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonObject>
+#include <QRegularExpression>
+#include <QSet>
 
 #include <chrono>
 #include <cstdlib>
@@ -146,7 +148,7 @@ void raceDestination(int directory, const QByteArray& name) {
 
 // The kernel call that renames without ever replacing: renameatx_np with
 // RENAME_EXCL on macOS, renameat2 with RENAME_NOREPLACE on Linux.
-int exclusiveRename(const QByteArray& from, int directory,
+int exclusiveRename(int source, const QByteArray& from, int directory,
                     const QByteArray& name) {
 #ifdef BUILD_UI_PORT_TESTS
   if (publishFaults().exclusiveRenameRefused) {
@@ -156,12 +158,13 @@ int exclusiveRename(const QByteArray& from, int directory,
   raceDestination(directory, name);
 #endif
 #ifdef __APPLE__
-  return renameatx_np(AT_FDCWD, from.constData(), directory, name.constData(),
+  return renameatx_np(source, from.constData(), directory, name.constData(),
                       RENAME_EXCL);
 #elif defined(__linux__)
-  return int(syscall(SYS_renameat2, AT_FDCWD, from.constData(), directory,
+  return int(syscall(SYS_renameat2, source, from.constData(), directory,
                      name.constData(), 1u));
 #else
+  Q_UNUSED(source);
   Q_UNUSED(from);
   Q_UNUSED(directory);
   Q_UNUSED(name);
@@ -201,7 +204,7 @@ PublishResult exclusivePublish(const QString& staged, int directory,
   struct stat source{};
   const bool folder =
       lstat(from.constData(), &source) == 0 && S_ISDIR(source.st_mode);
-  if (exclusiveRename(from, directory, name) == 0)
+  if (exclusiveRename(AT_FDCWD, from, directory, name) == 0)
     return PublishResult::Published;
   if (errno == EEXIST) return PublishResult::Exists;
   if (!refusedForLackOfSupport(errno)) return PublishResult::Failed;
@@ -684,6 +687,136 @@ bool flushDirectory(const QString& directory) {
 
 #endif
 
+QString rootPathProblem(const QString& relative, int creating) {
+  static const QRegularExpression created("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$");
+  if (relative.isEmpty() || relative.size() > 1024) return "length";
+  if (relative.contains('\\') || relative.startsWith('/') ||
+      relative.contains(QChar::Null))
+    return "separator";
+  const QStringList parts = relative.split('/');
+  if (parts.size() > 16) return "components";
+  for (int index = 0; index < parts.size(); ++index) {
+    const QString& part = parts.at(index);
+    if (part.isEmpty() || part == "." || part == "..") return "component";
+    if (part.startsWith(".groundzero-")) return "reserved";
+    if (index >= parts.size() - creating && !created.match(part).hasMatch())
+      return "name";
+  }
+  return {};
+}
+
+#ifdef _WIN32
+
+int openRootDirectory(const QString&, const QString&) {
+  throw Error("root_unavailable",
+              "Output roots are not available on this platform yet.");
+}
+
+QString storedPathBelow(const QString& root, const QString& relative) {
+  openRootDirectory(root, relative);
+  return {};
+}
+
+#else
+
+int openRootDirectory(const QString& root, const QString& relative) {
+  int current = ::open(QFile::encodeName(root).constData(),
+                       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (current < 0 || !sameDirectory(descriptorPath(current), root)) {
+    if (current >= 0) ::close(current);
+    throw Error("root_unavailable",
+                "The output root is not the granted directory.");
+  }
+  QString reached = QDir::cleanPath(root);
+  for (const QString& part : relative.split('/', Qt::SkipEmptyParts)) {
+    const QByteArray name = QFile::encodeName(part);
+    const int next = ::openat(current, name.constData(),
+                              O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    struct stat status{};
+    const bool link =
+        next < 0 &&
+        fstatat(current, name.constData(), &status, AT_SYMLINK_NOFOLLOW) == 0 &&
+        S_ISLNK(status.st_mode);
+    ::close(current);
+    if (link) redirected();
+    if (next < 0) return -1;
+    reached += '/' + part;
+    // A case-insensitive volume opens a variant spelling: refuse it.
+    if (!sameDirectory(descriptorPath(next), reached)) {
+      ::close(next);
+      redirected();
+    }
+    current = next;
+  }
+  return current;
+}
+
+QString storedRelativePath(const QString& root, int descriptor) {
+  const QStringList parts = descriptorPath(descriptor).split('/');
+  const QStringList above = QDir::cleanPath(root).split('/');
+  if (parts.size() <= above.size()) return {};
+  const auto form = QString::NormalizationForm_C;
+  for (int index = 0; index < above.size(); ++index)
+    if (parts.at(index).normalized(form) != above.at(index).normalized(form))
+      return {};
+  return parts.mid(above.size()).join('/');
+}
+
+QString storedPathBelow(const QString& root, const QString& relative) {
+  const int directory = openRootDirectory(root, relative);
+  if (directory < 0) return {};
+  const QString stored = storedRelativePath(root, directory);
+  ::close(directory);
+  return stored;
+}
+
+bool identityAt(int directory, const QString& name, FileIdentity* identity) {
+  struct stat status{};
+  if (::fstatat(directory, QFile::encodeName(name).constData(), &status,
+                AT_SYMLINK_NOFOLLOW) != 0)
+    return false;
+  identity->device = qint64(status.st_dev);
+  identity->inode  = qint64(status.st_ino);
+  identity->links  = qint64(status.st_nlink);
+  identity->size   = qint64(status.st_size);
+#ifdef __APPLE__
+  identity->modified = qint64(status.st_mtimespec.tv_sec) * 1000000000 +
+                       status.st_mtimespec.tv_nsec;
+#else
+  identity->modified =
+      qint64(status.st_mtim.tv_sec) * 1000000000 + status.st_mtim.tv_nsec;
+#endif
+  identity->regular   = S_ISREG(status.st_mode);
+  identity->directory = S_ISDIR(status.st_mode);
+  return true;
+}
+
+int createExclusive(int directory, const QString& name) {
+  return ::openat(directory, QFile::encodeName(name).constData(),
+                  O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+}
+
+int makeDirectoryAt(int directory, const QString& name) {
+  const QByteArray encoded = QFile::encodeName(name);
+  if (::mkdirat(directory, encoded.constData(), 0755) != 0) return -1;
+  return ::openat(directory, encoded.constData(),
+                  O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+}
+
+PublishResult renameBetween(int fromDirectory, const QString& from,
+                            int toDirectory, const QString& to) {
+  if (exclusiveRename(fromDirectory, QFile::encodeName(from), toDirectory,
+                      QFile::encodeName(to)) == 0)
+    return PublishResult::Published;
+  if (errno == EEXIST) return PublishResult::Exists;
+  return refusedForLackOfSupport(errno) ? PublishResult::Unsupported
+                                        : PublishResult::Failed;
+}
+
+bool fullSync(int descriptor) { return flushDescriptor(descriptor, true); }
+
+#endif
+
 PrivateDirectory::~PrivateDirectory() {
   if (m_remove && m_directory.isValid()) removeApprovedTree(m_directory.path());
 }
@@ -711,6 +844,34 @@ bool writeFaultFires(const Context& context, const char* point) {
 #endif
 }
 
+namespace {
+
+QSet<qint64>& refusedVolumes() {
+  static QSet<qint64> volumes;
+  return volumes;
+}
+
+qint64 volumeOf(const QString& directory) {
+#ifdef _WIN32
+  Q_UNUSED(directory);
+  return -1;
+#else
+  struct stat info{};
+  if (::stat(QFile::encodeName(directory).constData(), &info) != 0) return -1;
+  return qint64(info.st_dev);
+#endif
+}
+
+}  // namespace
+
+bool exclusivePublicationRefused(qint64 volume) {
+  return refusedVolumes().contains(volume);
+}
+
+void noteExclusivePublicationRefused(qint64 volume) {
+  refusedVolumes().insert(volume);
+}
+
 void publishStaged(Context& context, const QString& staged, const QString& path,
                    const QString& failureCode, const QString& failureMessage,
                    const QJsonObject& intent) {
@@ -732,6 +893,9 @@ void publishStaged(Context& context, const QString& staged, const QString& path,
     break;
   case PublishResult::Unsupported:
     context.resetMutationStarted();
+    if (const qint64 volume = volumeOf(QFileInfo(path).absolutePath());
+        volume >= 0)
+      refusedVolumes().insert(volume);
     throw Error("publication_unsupported",
                 "This file system can neither create a name exclusively nor "
                 "hard-link a finished file to it, so the output would risk "

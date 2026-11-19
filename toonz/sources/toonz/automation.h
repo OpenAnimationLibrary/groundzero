@@ -59,6 +59,14 @@ struct SharedRootGrant final {
   bool writable = false;
 };
 
+// One granted output root: a named directory outside the workspace, the input
+// roots, the shared roots and every other output root, reached only through
+// pinned descriptors. modify grants removal and replacement in it.
+struct OutputRootGrant final {
+  QString path;
+  bool modify = false;
+};
+
 // The shared root roles in their reporting order.
 const QStringList& sharedRootRoles();
 
@@ -177,6 +185,8 @@ public:
   int renderDeadlineMs = 600000;
   // Set once from validated startup configuration, keyed by shared root role.
   QMap<QString, SharedRootGrant> sharedRoots;
+  // Set once from validated startup configuration, keyed by output root name.
+  QMap<QString, OutputRootGrant> outputRoots;
   // The private per-process runtime directory inside the workspace.
   QString runtimeDirectory;
   // Set by the dispatcher while a write runs: the effect class of its tool

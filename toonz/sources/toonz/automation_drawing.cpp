@@ -2912,10 +2912,7 @@ qint64 sceneAssetBytes(TLevelSet* levels) {
       bytes += automationSoundBytes(*sound);
       continue;
     }
-    auto* level = budgetLevel(levels, index);
-    bytes += paletteAssetBytes(level->getPalette());
-    for (const auto& frame : level->getFids())
-      bytes += automationImageBytes(imageFor(level, frame));
+    bytes += automationLevelBytes(*budgetLevel(levels, index));
   }
   return bytes;
 }
@@ -2941,6 +2938,13 @@ qint64 automationImageBytes(const TImageP& image) {
              1024 +
              qint64(vector->getStroke(index)->getOpacityProfile().size()) *
                  sizeof(TPointD);
+  return bytes;
+}
+
+qint64 automationLevelBytes(TXshSimpleLevel& level) {
+  qint64 bytes = paletteAssetBytes(level.getPalette());
+  for (const auto& frame : level.getFids())
+    bytes += automationImageBytes(imageFor(&level, frame));
   return bytes;
 }
 

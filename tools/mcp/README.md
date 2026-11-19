@@ -151,6 +151,67 @@ grant for a configured role; the current tools only read. The worker never uses
 the editor's own STUDIOPALETTE or LIBRARY folders. Without a grant, the tools
 stay listed and return `root_unavailable`.
 
+Output roots are named directories outside the workspace where finished work may
+be published: `--output-root NAME=DIR`, at most 8. `NAME` is lowercase letters,
+digits, `_` or `-`, starting with a letter, and not `workspace` or `input`; `DIR`
+is a canonical directory, not a symlink, that neither equals, contains nor lies
+inside the workspace, an input root, a shared root or another output root.
+`--output-modify NAME` additionally grants removal and replacement in that root.
+`automation.capabilities` lists them under `authority` as `output_roots`, each
+`{name, path, modify}`, and the authority digest covers them, so a write recorded under one set
+of output roots is `operation_conflict` (`grant_changed`) when retried under
+another. An output root is reached only through descriptors pinned to it, one
+component at a time, never through a link or a case or normalization variant of a
+stored name; no path tool reaches it by an absolute path.
+
+`scene.save_copy`, `scene.open` and `scene.package_info` take an optional `root`;
+their path is then relative to that output root, with at most 1,024 characters and
+16 components, forward slashes, no `.` or `..`, and a new last component of letters,
+digits, `.`, `_` or `-` that does not start with `.groundzero-` (otherwise
+`invalid_path` with `details.reason` `grammar` or `reserved`). A root not granted is
+`root_unavailable`. The package is written and verified in private storage as
+always, then copied into a staging container `.groundzero-staging-<16 hex>` in the
+destination's parent, which carries an ownership claim: each file is created
+exclusively, hashed while written against the manifest (a staged file that changed is
+refused with `details.reason: staged_changed`), flushed to the disk, reopened without
+following links and hashed again; then the package directory is renamed to its name
+without replacing anything and the empty container removed. A name that exists or
+appears is refused; a volume without a no-replace rename is `publication_unsupported`.
+The journal records the container before it is made and the intent before the rename;
+a later worker that holds the same root removes a container whose claim no live
+worker holds (only the files the manifest names, its marker and the folders they
+leave empty; anything else stays and is listed in `journal.status.last_recovery
+.staging_residue`), and a worker without the root reports `found: root_not_granted`.
+Results name the package by `location` only, its `path` spelled as the file system
+stores the names (read from the published directory itself, so a parent moved during
+the save is named where the package went): `package_directory`, `scene_path` and
+`manifest_path` are null in an output root. Every save also reports
+`manifest_sha256`, `files`, `bytes`, `save_mode` and `staging` (`private_rename` in
+the workspace, `private_then_copy` in an output root), and every manifest states
+`save_mode: self_contained` and `not_contained`, the fixed list of what a package
+never holds (reference images, cast collections, FX external resources, models,
+fonts, plugins, project settings and editor view state, each with its reason).
+
+`package.remove` (`directory`, optional `root`, `expected_package_id`, `operation_id`)
+removes a package only when its `manifest.json` hashes to `expected_package_id`, that id
+is registered and the directory holds exactly the registered manifest's files: each
+present, regular, with one link, unchanged in size and SHA-256, nothing else and no
+link (otherwise `unregistered_package` or `invalid_package` with `details.reason`
+`missing_file`, `changed_file`, `unlisted_entry`, `link` or `hard_link`). In an output
+root it needs `--output-modify` for that root (`modify_not_granted`). It is refused
+`in_use` while a running worker saves, opens (`scene.open` records which package it
+copies from) or removes the package at that location. The journal records the intent
+with each file's identity (device, inode, size, modification time); the directory is
+then renamed beside itself to `.groundzero-trash-<16 hex>` without replacing, so it
+disappears at once, and only files whose identity is unchanged are deleted. Whatever
+else is there afterwards stays: the result lists it as `residue` (at most 64 names,
+`residue_count`) and names the remaining `trash` location, else `trash` is null. The
+result also gives `files_removed` and `bytes_freed`. A removal interrupted after the
+rename is finished by the next worker that holds the root (with modify there), by the
+same rule; its `operation.status` verdict is `published` once the package left its
+place and `not_published` while it is still there. Removal keeps the registration, so
+a copy of the same bytes elsewhere still opens.
+
 What a session may do is fixed at launch, with no prompts and no tool that changes
 it. `--grants LIST` names grant classes, comma-separated:
 
@@ -248,7 +309,9 @@ refused with `path_denied`, `details.reason` `reserved`.
   never run again: a retry is `operation_interrupted` with a `verdict`:
   `lost_with_worker` (its change lived in that worker's memory), `not_published` or
   `published`/`published_changed` (a file publication, checked against the digest
-  its intent recorded before the final rename), or `job_unknown`.
+  its intent recorded before the final rename), or `job_unknown`. A publication
+  whose `location` lies in a root this worker does not hold is reported with
+  `found: "root_not_granted"` and left for a worker that holds it.
 - `operation.status {operation_id}` reports what the journal holds for one ID and
   what a retry would do; `operation.list` lists operations newest first (default:
   unresolved, meaning in progress or interrupted), paged with `before_seq`;
@@ -777,6 +840,31 @@ native representations, not bitwise copies of in-memory drawings. Saved raster
 levels use explicit custom DPI to preserve authored physical size, including
 fractional DPI that PNG metadata alone cannot represent exactly.
 
+`scene.save_preflight` plans the same save without writing anything. It takes
+`document_id`, `expected_revision`, `directory` (a workspace path, or a path relative
+to an output root named by `root`) and `offset`/`limit` (default 64, at most 128) for
+the dependency page. All ten checks run, in order, each `{name, state: pass | fail |
+unknown, code, detail}`: `document` (the save's scene validation), `root`, `path` (no
+link or case variant on the way), `parent` (exists, is a directory, writable),
+`collision` (the destination is absent now), `filesystem` (whether the volume renames
+without replacing: `unknown` when not known in advance, a failure after a refused
+publication on that volume, and a failure for a workspace destination on another
+volume), `space` (free bytes at least the upper bound plus 64 MiB), `size` (at most
+8,192 files; `unknown` when only the upper bound exceeds 256 MiB), `journal` (the package
+will be registered) and `external_paths` (no dependency keeps a path outside the
+package). A failing check is a result: `ready` is false and `first_failure` names it.
+`plan` gives the `location`, `staging` (`private_rename` in the workspace,
+`private_then_copy` in an output root), `save_mode: self_contained`, `files_estimate`,
+`bytes_estimate {upper_bound, known_bytes, encoded_bytes_bound}`, `free_bytes` and
+`same_volume_as_workspace`. The bound adds the copied sound files' sizes to the native
+drawing estimate plus 4 KiB per file and allowances for the scene file, hooks and
+manifest; it is never below what the save writes. `items` lists each dependency with
+its `package_path` and `source` (`memory`, `private_copy` or `not_packaged`), and
+`not_contained` the fixed list of what a package never holds. The preflight does not
+reserve the destination: the save checks the revision and refuses a destination that
+appeared since. A read-only document is refused as `unsupported_target`
+(`details.reason: read_only_document`, `details.next: scene.import_plan`).
+
 The `shared-library` toolset reads granted shared roots and never writes to them.
 `shared.roots` reports each role's grant, availability and native layout.
 `studio_palette.list` pages one folder (at most 8192 entries, 256 per page):
@@ -950,10 +1038,16 @@ of its exact `manifest.json` (`package_id: "package:<hex>"`, `registered`). `sce
 and `scene.package_info` admit a package by that registered content, wherever it
 now lies inside the workspace or an input root and whichever worker of the
 workspace saved it: the manifest must hash to a registered id, and every file must
-match the registered manifest. `scene.open` copies the files into the worker's
-private storage, checking each while copying, and loads the copy, which goes with
-the document. The result says how it was admitted (`admission`: `this_worker` or
-`workspace_registry`), `package_id`, `relocated` (moved since it was saved),
+match the registered manifest. There is no other admission and no per-worker
+package count. `scene.open` copies the files into the worker's private storage,
+checking each while copying, and loads only the copy, which goes with the
+document; this holds for a package the same worker just saved. Results and the
+journal name a package's place as `location {root, path, input_index,
+root_sha256}`: `root` is `workspace` or `input` (with the input root's index and
+the SHA-256 of its canonical path), `path` is relative to it, and no absolute path
+is recorded. The result says how it was admitted (`admission`: `this_worker`, saved
+by this worker, or `workspace_registry`), `location`, `package_id`, `relocated`
+(moved since it was saved),
 `published_by {worker_instance_id, current}` and `provenance`. Editing the
 manifest cannot authorize a changed scene. Refusals are `unregistered_package`
 with `details.reason` `not_registered` (another workspace, or never saved),
@@ -1335,7 +1429,8 @@ node /opt/groundzero-mcp/dist/cli.js \
 The adapter starts a non-GUI connector to the selected editor. Native code checks
 the session-file security and operating-system peer identity before authenticating.
 Live attachment excludes `--workspace`, `--input-root`, `--media-tools`,
-`--shared-root`, `--shared-write`, `--toolsets`, `--grants` and `--domains`; the
+`--shared-root`, `--shared-write`, `--output-root`, `--output-modify`, `--toolsets`,
+`--grants` and `--domains`; the
 editor's own `inspect` or `edit` mode is the live grant.
 
 The editor and the connector must be the same build. The session file, the
@@ -1399,7 +1494,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (124):
+- `core` toolset (126):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1415,20 +1510,21 @@ the adapter and the live editor bridge add the rest.
   `level.create`, `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
   `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
   `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
-  `object.path.detach`, `operation.list`, `operation.status`, `palette.clone_style`,
-  `palette.create_style`, `palette.inspect`, `palette.page.create`, `palette.page.move`,
-  `palette.page.remove`, `palette.page.rename`, `palette.pages`, `palette.rename_style`,
-  `palette.style.move`, `palette.update_style`, `project.create`, `project.duplicate`,
-  `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`,
-  `raster.patch`, `raster.read_pixels`, `render.capabilities`, `render.preflight`,
-  `render.preview`, `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
-  `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
-  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
-  `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
-  `vector.edit`, `vector.export_svg`, `vector.fill`, `vector.group.create`,
-  `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
-  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
-  `vector.structure`, `vector.text.create`, `vector.transform`
+  `object.path.detach`, `operation.list`, `operation.status`, `package.remove`,
+  `palette.clone_style`, `palette.create_style`, `palette.inspect`, `palette.page.create`,
+  `palette.page.move`, `palette.page.remove`, `palette.page.rename`, `palette.pages`,
+  `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.create`,
+  `project.duplicate`, `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`,
+  `raster.import_png`, `raster.patch`, `raster.read_pixels`, `render.capabilities`,
+  `render.preflight`, `render.preview`, `render.submit`, `runtime.inspect`,
+  `scene.check.submit`, `scene.create`, `scene.dependencies`, `scene.discard`,
+  `scene.inventory`, `scene.open`, `scene.open_read_only`, `scene.package_info`,
+  `scene.save_copy`, `scene.save_preflight`, `scene.settings`, `scene.source_status`,
+  `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`, `vector.edit`,
+  `vector.export_svg`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
+  `vector.inspect`, `vector.opacity.inspect`, `vector.opacity.profile.set`,
+  `vector.opacity.set`, `vector.order.move`, `vector.select`, `vector.structure`,
+  `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

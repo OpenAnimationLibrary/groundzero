@@ -1219,6 +1219,21 @@
      }
     }
    ]
+  },
+  "removable_pkg": {
+   "extends": "level",
+   "steps": [
+    {
+     "tool": "scene.save_copy",
+     "args": {
+      "directory": "${workspace}/package-for-removal"
+     },
+     "save": {
+      "removable": "package_directory",
+      "removable_id": "package_id"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -8014,6 +8029,38 @@
    ],
    "effect": {
     "file": "${workspace}/export.svg"
+   }
+  },
+  "package.remove": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "removable_pkg",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "removes a package directory this workspace registered",
+   "bumps": "none; a package is a file, not document content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "directory": "$removable",
+     "expected_package_id": "$removable_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "directory": "/nonexistent-root/package",
+      "expected_package_id": "$removable_id"
+     },
+     "code": "path_denied"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/package-for-removal/scene.tnz"
    }
   }
  },

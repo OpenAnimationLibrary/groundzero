@@ -18148,6 +18148,90 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "removed_containers": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "staging_residue": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "container": {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "entries": {
+                      "items": {
+                        "maxLength": 1024,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 64,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "location": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "input_index": {
+                          "oneOf": [
+                            {
+                              "maximum": 15,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "path": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "root": {
+                          "maxLength": 32,
+                          "minLength": 1,
+                          "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+                          "type": "string"
+                        },
+                        "root_sha256": {
+                          "oneOf": [
+                            {
+                              "maxLength": 64,
+                              "minLength": 1,
+                              "pattern": "^[0-9a-f]{64}$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "root",
+                        "path",
+                        "input_index",
+                        "root_sha256"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "location",
+                    "container",
+                    "entries"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 16,
+                "minItems": 0,
+                "type": "array"
+              },
               "truncated_tail_bytes": {
                 "maximum": 65536,
                 "minimum": 0,
@@ -18161,7 +18245,9 @@
               "quarantined_segments",
               "reconciled_operations",
               "reconciled_jobs",
-              "registered_packages"
+              "registered_packages",
+              "removed_containers",
+              "staging_residue"
             ],
             "type": "object"
           },
@@ -24644,7 +24730,8 @@
                       "absent",
                       "matches",
                       "differs",
-                      "not_applicable"
+                      "not_applicable",
+                      "root_not_granted"
                     ],
                     "type": "string"
                   },
@@ -24660,6 +24747,61 @@
                       }
                     ]
                   },
+                  "location": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "input_index": {
+                            "oneOf": [
+                              {
+                                "maximum": 15,
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "path": {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "root": {
+                            "maxLength": 32,
+                            "minLength": 1,
+                            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+                            "type": "string"
+                          },
+                          "root_sha256": {
+                            "oneOf": [
+                              {
+                                "maxLength": 64,
+                                "minLength": 1,
+                                "pattern": "^[0-9a-f]{64}$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "root",
+                          "path",
+                          "input_index",
+                          "root_sha256"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "outputs_present": {
                     "oneOf": [
                       {
@@ -24669,25 +24811,13 @@
                         "type": "null"
                       }
                     ]
-                  },
-                  "target": {
-                    "oneOf": [
-                      {
-                        "maxLength": 4096,
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
                   }
                 },
                 "required": [
-                  "target",
                   "expected_sha256",
                   "found",
                   "job_id",
+                  "location",
                   "outputs_present"
                 ],
                 "type": "object"
@@ -24733,6 +24863,165 @@
       "verdict",
       "retry",
       "journal"
+    ],
+    "type": "object"
+  },
+  "package.remove": {
+    "additionalProperties": false,
+    "properties": {
+      "bytes_freed": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "files_removed": {
+        "maximum": 8192,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "location": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "oneOf": [
+              {
+                "maximum": 15,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "root_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "input_index",
+          "root_sha256"
+        ],
+        "type": "object"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "package_id": {
+        "maxLength": 72,
+        "minLength": 1,
+        "pattern": "^package:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "removed": {
+        "const": true
+      },
+      "residue": {
+        "items": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "residue_count": {
+        "maximum": 8192,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "trash": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "input_index": {
+                "oneOf": [
+                  {
+                    "maximum": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "path": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              "root": {
+                "maxLength": 32,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+                "type": "string"
+              },
+              "root_sha256": {
+                "oneOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "root",
+              "path",
+              "input_index",
+              "root_sha256"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "removed",
+      "package_id",
+      "location",
+      "files_removed",
+      "bytes_freed",
+      "residue",
+      "residue_count",
+      "trash",
+      "operation_id"
     ],
     "type": "object"
   },
@@ -32479,15 +32768,70 @@
         "minLength": 0,
         "type": "string"
       },
+      "location": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "oneOf": [
+              {
+                "maximum": 15,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "root_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "input_index",
+          "root_sha256"
+        ],
+        "type": "object"
+      },
       "operation_id": {
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
       },
       "package_directory": {
-        "maxLength": 65536,
-        "minLength": 0,
-        "type": "string"
+        "oneOf": [
+          {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
       },
       "package_id": {
         "maxLength": 72,
@@ -32542,6 +32886,7 @@
     "required": [
       "admission",
       "document_id",
+      "location",
       "operation_id",
       "package_directory",
       "package_id",
@@ -34012,6 +34357,95 @@
         "minItems": 0,
         "type": "array"
       },
+      "location": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "oneOf": [
+              {
+                "maximum": 15,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "root_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "input_index",
+          "root_sha256"
+        ],
+        "type": "object"
+      },
+      "not_contained": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "class": {
+              "enum": [
+                "reference_images",
+                "cast_collections",
+                "fx_external_resources",
+                "models",
+                "fonts",
+                "plugins",
+                "project_settings",
+                "editor_view_state"
+              ],
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "not_admitted_in_editable_profile",
+                "conversion_production_c1",
+                "not_admitted",
+                "never_packaged",
+                "not_used_by_worker_scenes",
+                "builtin_only",
+                "private_worker_project",
+                "user_state"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "class",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "maxItems": 8,
+        "minItems": 8,
+        "type": "array"
+      },
       "package_id": {
         "maxLength": 72,
         "minLength": 1,
@@ -34060,6 +34494,12 @@
       },
       "relocated": {
         "type": "boolean"
+      },
+      "save_mode": {
+        "enum": [
+          "self_contained"
+        ],
+        "type": "string"
       },
       "scene_file": {
         "maxLength": 65536,
@@ -35154,14 +35594,85 @@
   "scene.save_copy": {
     "additionalProperties": false,
     "properties": {
+      "bytes": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
       "document_id": {
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
       },
+      "files": {
+        "maximum": 8193,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "location": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "oneOf": [
+              {
+                "maximum": 15,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "root_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "input_index",
+          "root_sha256"
+        ],
+        "type": "object"
+      },
       "manifest_path": {
-        "maxLength": 65536,
-        "minLength": 0,
+        "oneOf": [
+          {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "manifest_sha256": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
         "type": "string"
       },
       "operation_id": {
@@ -35170,9 +35681,16 @@
         "type": "string"
       },
       "package_directory": {
-        "maxLength": 65536,
-        "minLength": 0,
-        "type": "string"
+        "oneOf": [
+          {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
       },
       "package_id": {
         "maxLength": 72,
@@ -35188,9 +35706,29 @@
         "minLength": 0,
         "type": "string"
       },
+      "save_mode": {
+        "enum": [
+          "self_contained"
+        ],
+        "type": "string"
+      },
       "scene_path": {
-        "maxLength": 65536,
-        "minLength": 0,
+        "oneOf": [
+          {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "staging": {
+        "enum": [
+          "private_rename",
+          "private_then_copy"
+        ],
         "type": "string"
       },
       "trailing_empty_columns_dropped": {
@@ -35210,16 +35748,441 @@
       }
     },
     "required": [
+      "bytes",
       "document_id",
+      "files",
+      "location",
       "manifest_path",
+      "manifest_sha256",
       "operation_id",
       "package_directory",
       "package_id",
       "registered",
       "revision",
+      "save_mode",
       "scene_path",
+      "staging",
       "trailing_empty_columns_dropped",
       "verified_drawings"
+    ],
+    "type": "object"
+  },
+  "scene.save_preflight": {
+    "additionalProperties": false,
+    "properties": {
+      "checks": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "oneOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "detail": {
+              "oneOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
+              "enum": [
+                "document",
+                "root",
+                "path",
+                "parent",
+                "collision",
+                "filesystem",
+                "space",
+                "size",
+                "journal",
+                "external_paths"
+              ],
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "pass",
+                "fail",
+                "unknown"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "state",
+            "code",
+            "detail"
+          ],
+          "type": "object"
+        },
+        "maxItems": 10,
+        "minItems": 10,
+        "type": "array"
+      },
+      "document_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "first_failure": {
+        "oneOf": [
+          {
+            "enum": [
+              "document",
+              "root",
+              "path",
+              "parent",
+              "collision",
+              "filesystem",
+              "space",
+              "size",
+              "journal",
+              "external_paths"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "items": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "availability": {
+              "enum": [
+                "present",
+                "unsaved",
+                "missing",
+                "unsupported"
+              ],
+              "type": "string"
+            },
+            "coded_path": {
+              "oneOf": [
+                {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
+              "oneOf": [
+                {
+                  "maxLength": 4096,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "owner_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "owner_kind": {
+              "enum": [
+                "level",
+                "fx",
+                "scene"
+              ],
+              "type": "string"
+            },
+            "package_path": {
+              "oneOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "role": {
+              "enum": [
+                "primary",
+                "palette",
+                "hook_sidecar",
+                "sound",
+                "scan",
+                "reference_image",
+                "texture",
+                "raster_drawing_palette",
+                "fx_file_resource",
+                "fx_resource"
+              ],
+              "type": "string"
+            },
+            "size_bytes": {
+              "oneOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "source": {
+              "enum": [
+                "memory",
+                "private_copy",
+                "not_packaged"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "owner_kind",
+            "owner_id",
+            "name",
+            "coded_path",
+            "package_path",
+            "source",
+            "availability",
+            "size_bytes"
+          ],
+          "type": "object"
+        },
+        "maxItems": 128,
+        "minItems": 0,
+        "type": "array"
+      },
+      "items_total": {
+        "maximum": 4096,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "next_offset": {
+        "oneOf": [
+          {
+            "maximum": 4096,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "not_contained": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "class": {
+              "enum": [
+                "reference_images",
+                "cast_collections",
+                "fx_external_resources",
+                "models",
+                "fonts",
+                "plugins",
+                "project_settings",
+                "editor_view_state"
+              ],
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "not_admitted_in_editable_profile",
+                "conversion_production_c1",
+                "not_admitted",
+                "never_packaged",
+                "not_used_by_worker_scenes",
+                "builtin_only",
+                "private_worker_project",
+                "user_state"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "class",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "maxItems": 8,
+        "minItems": 8,
+        "type": "array"
+      },
+      "plan": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes_estimate": {
+            "additionalProperties": false,
+            "properties": {
+              "encoded_bytes_bound": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "known_bytes": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "upper_bound": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "upper_bound",
+              "known_bytes",
+              "encoded_bytes_bound"
+            ],
+            "type": "object"
+          },
+          "files_estimate": {
+            "maximum": 8192,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "free_bytes": {
+            "oneOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location": {
+            "additionalProperties": false,
+            "properties": {
+              "input_index": {
+                "oneOf": [
+                  {
+                    "maximum": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "path": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              "root": {
+                "maxLength": 32,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+                "type": "string"
+              },
+              "root_sha256": {
+                "oneOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "root",
+              "path",
+              "input_index",
+              "root_sha256"
+            ],
+            "type": "object"
+          },
+          "same_volume_as_workspace": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "save_mode": {
+            "enum": [
+              "self_contained"
+            ],
+            "type": "string"
+          },
+          "staging": {
+            "enum": [
+              "private_rename",
+              "private_then_copy"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "location",
+          "staging",
+          "save_mode",
+          "files_estimate",
+          "bytes_estimate",
+          "free_bytes",
+          "same_volume_as_workspace"
+        ],
+        "type": "object"
+      },
+      "ready": {
+        "type": "boolean"
+      },
+      "revision": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "document_id",
+      "revision",
+      "ready",
+      "first_failure",
+      "checks",
+      "plan",
+      "items",
+      "items_total",
+      "next_offset",
+      "not_contained"
     ],
     "type": "object"
   },

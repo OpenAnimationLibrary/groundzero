@@ -219,7 +219,9 @@ set(HEADERS
     automation_containment.h
     automation_ownership.h
     automation_files.h
+    automation_package.h
     automation_production.h
+    automation_root_publish.h
     automation_scene_check.h
     automation_assistance.h
     automation_neural.h
@@ -358,6 +360,8 @@ set(SOURCES
     automation_runtime.cpp
     automation_shutdown.cpp
     automation_persistence.cpp
+    automation_preflight.cpp
+    automation_root_publish.cpp
     automation_production.cpp
     automation_scene_check.cpp
     automation_assistance.cpp
@@ -1232,7 +1236,8 @@ if(BUILD_UI_PORT_TESTS)
     add_executable(mcp_path_test
         automation_context.cpp automation_error.cpp automation_path.cpp
         automation_journal.cpp automation_files.cpp automation_ownership.cpp
-        automation_animation.cpp tests/automation_path_test.cpp)
+        automation_root_publish.cpp automation_animation.cpp
+        tests/automation_path_test.cpp)
     target_include_directories(mcp_path_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     set_target_properties(mcp_path_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
