@@ -726,7 +726,7 @@ def _layer_targets(case: NativeAcceptance, document: str, peg: str) -> None:
         case.mutate("offset_layer.create", document, object_id=peg, name=f"Layer {index}")
     _refused(case, "offset_layer.create", document, "resource_limit", object_id=peg, name="Extra")
     _refused(
-        case, "offset_layer.create", document, "invalid_params", object_id=peg, name="Bad\nname"
+        case, "offset_layer.create", document, case.schema_code(), object_id=peg, name="Bad\nname"
     )
 
 

@@ -91,6 +91,9 @@ def columns_insert_and_move_keep_their_identity(case: NativeAcceptance) -> None:
         placement_policy="preserve_local",
     )
     blur = _blur(case, document, second)
+    layer = case.mutate("offset_layer.create", document, object_id=objects[first], name="Sway")[
+        "layer"
+    ]["layer_id"]
     inserted = case.mutate("column.create", document, name="Z", position=0)
     case.assertEqual(inserted["position"], 0)
     case.assertEqual(_names(case, document), ["Z", "A", "B", "C"])
@@ -109,6 +112,11 @@ def columns_insert_and_move_keep_their_identity(case: NativeAcceptance) -> None:
     objects_now = {o["object_id"]: o for o in _summary(case, document)["objects"]}
     case.assertEqual(objects_now[objects[first]]["parent_id"], peg)
     case.assertEqual(_sources(case, document, blur), [_column_fx(case, document, second)])
+    channels = case.success(
+        "animation.channels",
+        {"document_id": document, "object_id": objects[first], "layer_id": layer},
+    )
+    case.assertEqual(channels["object_id"], objects[first])
     revision = case.revisions[document]
     case.mutate("column.move", document, column_ids=[first, second], before_position=4)
     case.assertEqual(case.revisions[document], revision)
@@ -221,6 +229,14 @@ def column_duplicates_share_levels_and_copy_curves(case: NativeAcceptance) -> No
         ],
     )
     blur = _blur(case, document, source)
+    case.mutate(
+        "column.update",
+        document,
+        column_id=source,
+        opacity=0.5,
+        camstand_visible=False,
+        color_filter_id=2,
+    )
     result = case.mutate(
         "column.duplicate",
         document,
@@ -231,6 +247,10 @@ def column_duplicates_share_levels_and_copy_curves(case: NativeAcceptance) -> No
     )
     copy = result["column"]
     case.assertEqual((copy["position"], copy["name"]), (1, "Copy"))
+    flags = ("opacity", "preview_visible", "camstand_visible", "locked", "color_filter_id")
+    source_row = _summary(case, document)["columns"][0]
+    case.assertEqual({k: copy[k] for k in flags}, {k: source_row[k] for k in flags})
+    case.assertEqual((copy["opacity"], copy["camstand_visible"]), (128 / 255, False))
     case.assertEqual(result["shared_levels"], [level])
     case.assertEqual(result["fx_map"][0]["source_fx_id"], blur)
     clone = result["fx_map"][0]["fx_id"]

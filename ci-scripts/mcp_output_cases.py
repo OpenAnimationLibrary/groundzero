@@ -193,3 +193,18 @@ def render_aspect_export_is_explicit_per_job(case: NativeAcceptance) -> None:
     case.assertEqual(_rendered_size(case, document, crop), expected)
     letterbox = {"mode": "letterbox", "ratio": 1, "color": {"r": 0, "g": 0, "b": 0, "a": 255}}
     case.assertEqual(_rendered_size(case, document, letterbox), (64, 32))
+    movie = case.success(
+        "render.preflight",
+        {
+            "document_id": document,
+            "expected_revision": case.revisions[document],
+            "kind": "sequence",
+            "start_frame": 0,
+            "end_frame": 1,
+            "format": "mp4",
+            "width": 64,
+            "height": 36,
+            "aspect_export": {"mode": "crop", "ratio": 1.5},
+        },
+    )["effective"]["aspect_export"]
+    case.assertEqual((movie["output_width"] % 2, movie["output_height"] % 2), (0, 0))

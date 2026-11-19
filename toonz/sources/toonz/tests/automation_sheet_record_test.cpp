@@ -170,6 +170,34 @@ void testCameraCompaction(Context& context) {
           "the record lists packed cameras");
 }
 
+// camera.duplicate refuses a copy past 1024 offset layers per scene; the
+// layers are built natively rather than through 1024 tool calls.
+void testCameraLayerLimit(Context& context) {
+  Document& document        = context.addDocument(fixture(context));
+  const QString id          = document.id;
+  TStageObjectTree* objects = document.scene->getXsheet()->getStageObjectTree();
+  TStageObject* peg = objects->getStageObject(TStageObjectId::PegbarId(0));
+  for (int index = 0; index < 1024; ++index)
+    peg->insertOffsetLayer(
+        -1, peg->createOffsetLayer(L"L" + std::to_wstring(index)));
+  TStageObject* camera = objects->getStageObject(TStageObjectId::CameraId(0));
+  camera->insertOffsetLayer(-1, camera->createOffsetLayer(L"Shake"));
+  const QJsonObject params{{"document_id", id},
+                           {"camera_id", document.idForObject(camera)},
+                           {"name", "Copy"},
+                           {"parent_policy", "none"}};
+  QString code;
+  try {
+    executeScene(context, "camera.duplicate", params);
+  } catch (const Error& error) {
+    code = error.code;
+  }
+  const int cameras = objects->getCameraCount();
+  context.removeDocument(id);
+  require(code == "resource_limit", "the offset-layer limit was not refused");
+  require(cameras == 1, "a refused duplicate left a camera behind");
+}
+
 }  // namespace
 
 void runAutomationSheetRecordTests(Context& context) {
@@ -177,6 +205,7 @@ void runAutomationSheetRecordTests(Context& context) {
   testDifferencePath(context);
   testRefusals(context);
   testCameraCompaction(context);
+  testCameraLayerLimit(context);
 }
 
 }  // namespace GroundzeroAutomation

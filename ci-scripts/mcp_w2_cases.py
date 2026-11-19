@@ -762,6 +762,8 @@ def a_discarded_draft_keeps_its_job_alive_and_loses_its_private_copies(
 @acceptance_case
 def a_killed_workers_render_snapshot_is_swept_by_the_next_worker(case: NativeAcceptance) -> None:
     """Kill a worker while its job renders a discarded draft; the next worker removes it all."""
+    # Through the SDK client the first call starts the adapter and its worker.
+    case.success("automation.list_documents", {})
     alive = _native_pids(case.workspace)
     victim = _second_worker(case, "victim")
     primary, case.worker = case.worker, victim
@@ -775,7 +777,7 @@ def a_killed_workers_render_snapshot_is_swept_by_the_next_worker(case: NativeAcc
     case.assertTrue(folder.is_dir())
     victim.process.kill()
     victim.process.wait(timeout=10)
-    _wait_dead(case, _native_pids(case.workspace) - alive - {primary.process.pid})
+    _wait_dead(case, _native_pids(case.workspace) - alive)
     successor = _second_worker(case, "successor")
     case.assertEqual(successor.call("automation.list_documents", {})["result"]["documents"], [])
     case.assertFalse(folder.exists(), "the dead worker's job folder was not swept")
