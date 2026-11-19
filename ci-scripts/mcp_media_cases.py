@@ -8,6 +8,8 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mcp_worker import FULL_AUTHORITY
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
@@ -27,7 +29,8 @@ def _pair(case: NativeAcceptance, name: str) -> Path:
 
 
 def _arguments(case: NativeAcceptance) -> list[str]:
-    return [str(case.executable), "--automation-worker", "--workspace", str(case.workspace)]
+    workspace = ["--workspace", str(case.workspace)]
+    return [str(case.executable), "--automation-worker", *workspace, *FULL_AUTHORITY]
 
 
 def _reject(case: NativeAcceptance, name: str, options: list[str]) -> None:

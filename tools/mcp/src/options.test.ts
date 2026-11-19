@@ -15,6 +15,8 @@ import { afterEach, expect, test } from "vitest";
 import { parseOptions } from "#mcp/options";
 import { workerArguments } from "#mcp/worker";
 
+const FULL_AUTHORITY = ["--grants", "draft,file,inspect,job", "--domains", "all"];
+
 const directories: string[] = [];
 const links: string[] = [];
 const files: string[] = [];
@@ -137,6 +139,8 @@ test("canonicalizes executable and deduplicates explicit input roots", async () 
     executable: await realpath(process.execPath),
     workspace: path,
     inputRoots: [path],
+    grants: ["draft", "file", "inspect", "job"],
+    domains: ["all"],
     toolsets: ["core"],
     strictResults: false,
   });
@@ -270,6 +274,7 @@ test("grants explicit shared roots read-only unless a write role is named", asyn
     "--automation-worker",
     "--workspace",
     path,
+    ...FULL_AUTHORITY,
     "--shared-root",
     `studio_palettes=${studio}`,
     "--shared-root",
@@ -284,7 +289,83 @@ test("passes no shared roots unless they are granted", async () => {
   const options = await parseOptions(["--executable", process.execPath, "--workspace", path]);
   assert(!("liveSession" in options));
   expect(options.sharedRoots).toBeUndefined();
-  expect(workerArguments(options)).toEqual(["--automation-worker", "--workspace", path]);
+  expect(workerArguments(options)).toEqual([
+    "--automation-worker",
+    "--workspace",
+    path,
+    ...FULL_AUTHORITY,
+  ]);
+});
+
+test("defaults to today's full authority and passes narrowed grants to the worker", async () => {
+  const path = await workspace();
+  const base = ["--executable", process.execPath, "--workspace", path];
+  const defaults = await parseOptions(base);
+  assert(!("liveSession" in defaults));
+  expect(workerArguments(defaults)).toEqual([
+    "--automation-worker",
+    "--workspace",
+    path,
+    ...FULL_AUTHORITY,
+  ]);
+  const narrowed = await parseOptions([
+    ...base,
+    "--grants",
+    "job,inspect",
+    "--domains",
+    "audio,core",
+  ]);
+  assert(!("liveSession" in narrowed));
+  expect(workerArguments(narrowed)).toEqual([
+    "--automation-worker",
+    "--workspace",
+    path,
+    "--grants",
+    "inspect,job",
+    "--domains",
+    "audio,core",
+  ]);
+});
+
+test.each([
+  ["--grants", ""],
+  ["--grants", "draft"],
+  ["--grants", "inspect,inspect"],
+  ["--grants", "inspect,live"],
+  ["--grants", "inspect,"],
+  ["--domains", ""],
+  ["--domains", "all,core"],
+  ["--domains", "core,core"],
+  ["--domains", "Audio"],
+])("rejects %s %j", async (flag, value) => {
+  const path = await workspace();
+  const args = ["--executable", process.execPath, "--workspace", path, flag, value];
+  await expect(parseOptions(args)).rejects.toThrow(flag);
+});
+
+test("refuses repeated grant options and grant options for the live editor", async () => {
+  const path = await workspace();
+  const base = ["--executable", process.execPath, "--workspace", path];
+  for (const flag of ["--grants", "--domains"]) {
+    const value = flag === "--grants" ? "inspect" : "core";
+    await expect(parseOptions([...base, flag, value, flag, value])).rejects.toThrow(flag);
+    const live = ["--executable", process.execPath, "--live-session", join(path, "session")];
+    await expect(parseOptions([...live, flag, value])).rejects.toThrow("domains");
+  }
+});
+
+test("options require granted toolsets", async () => {
+  const path = await workspace();
+  const base = ["--executable", process.execPath, "--workspace", path];
+  await expect(parseOptions([...base, "--domains", "core", "--toolsets", "audio"])).rejects.toThrow(
+    "--toolsets names toolsets outside --domains: audio",
+  );
+  const granted = await parseOptions([...base, "--domains", "audio", "--toolsets", "core,audio"]);
+  assert(!("liveSession" in granted));
+  expect(granted.toolsets).toEqual(["core", "audio"]);
+  const all = await parseOptions([...base, "--domains", "core", "--toolsets", "all"]);
+  assert(!("liveSession" in all));
+  expect(all.toolsets).toEqual(["all"]);
 });
 
 test("rejects unsafe, overlapping and ambiguous shared root grants", async () => {

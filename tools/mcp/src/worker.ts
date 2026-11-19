@@ -233,10 +233,12 @@ function requirePipes(child: ChildProcess): asserts child is ChildProcessWithout
  * Args:
  *   options: Validated canonical workspace, input, media and shared-root grants.
  * Returns:
- *   Arguments after the executable, read-only shared roots unless granted for writing.
+ *   Arguments after the executable: the launch authority, always explicit, then the roots,
+ *   read-only shared roots unless granted for writing.
  */
 export function workerArguments(options: WorkerOptions): string[] {
   const args = ["--automation-worker", "--workspace", options.workspace];
+  args.push("--grants", options.grants.join(","), "--domains", options.domains.join(","));
   for (const root of options.inputRoots) args.push("--input-root", root);
   if (options.mediaToolsDirectory) args.push("--media-tools", options.mediaToolsDirectory);
   for (const root of options.sharedRoots ?? []) {

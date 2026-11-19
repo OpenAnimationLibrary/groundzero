@@ -16,16 +16,21 @@ public:
 private:
 #ifdef BUILD_UI_PORT_TESTS
   friend void runAutomationDispatcherTests(Context& context);
+  friend struct DispatcherProbe;
 #endif
   using Handler = QJsonValue (*)(Context&, const QString&, const QJsonObject&);
   struct Entry {
     QJsonObject descriptor;
     Handler handler;
   };
+  // fingerprint covers the request, the launch authority and the worker
+  // instance; request covers the request and the instance alone.
   struct Receipt {
     QByteArray fingerprint;
+    QByteArray request;
     QJsonObject response;
   };
+  Receipt receiptKey(const QString& method, const QJsonObject& params) const;
   void add(const QJsonArray& operations, Handler handler,
            const QString& toolset);
   void addWorkerOperation(QJsonObject descriptor);
@@ -33,8 +38,7 @@ private:
   void checkReceiptCapacity(bool control) const;
   void rememberReceipt(const QString& operationId, const Receipt& receipt,
                        const QString& controlJob);
-  QJsonObject replayReceipt(const Receipt& receipt,
-                            const QByteArray& fingerprint) const;
+  QJsonObject replayReceipt(const Receipt& receipt, const Receipt& key) const;
   quint64 checkRevision(const QJsonObject& params) const;
   QJsonValue execute(const QString& method, const QJsonObject& params);
   QJsonValue invoke(const Entry& entry, const QString& method,
@@ -46,6 +50,8 @@ private:
   void finishRevision(QJsonObject& result, const QString& documentId,
                       quint64 revision);
   Context& m_context;
+  QString m_authorityDigest;
+  QString m_instance;
   QHash<QString, Entry> m_entries;
   QHash<QString, Receipt> m_receipts;
   QSet<QString> m_controlJobs;
@@ -55,6 +61,8 @@ private:
   bool m_busy = false;
 };
 
+// The toolsets of this binary, sorted by name.
+QStringList toolsetNames();
 QJsonObject errorObject(const Error& error);
 // Throw invalid_result when a result, without its image, is outside the
 // success shape of the tool's outputSchema. Test builds check every result.

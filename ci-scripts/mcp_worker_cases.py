@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO
 
 from mcp_png import decode_png, write_fixture
-from mcp_worker import Worker
+from mcp_worker import FULL_AUTHORITY, Worker
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -36,6 +36,7 @@ def _launch(test: NativeAcceptance, log: BinaryIO, stdin: int) -> subprocess.Pop
             str(workspace),
             "--input-root",
             str(test.inputs),
+            *FULL_AUTHORITY,
         ],
         stdin=stdin,
         stdout=subprocess.PIPE,
@@ -132,6 +133,7 @@ def _reject_relative_roots(test: NativeAcceptance, launch: Path, before: set[Pat
                 workspace,
                 "--input-root",
                 inputs,
+                *FULL_AUTHORITY,
             ],
             cwd=launch,
             capture_output=True,
@@ -182,6 +184,7 @@ def private_bootstrap_ignores_launch_configuration(test: NativeAcceptance) -> No
                 str(test.workspace),
                 "--input-root",
                 str(test.inputs),
+                *FULL_AUTHORITY,
             ],
             input="".join(json.dumps(request) + "\n" for request in requests),
             cwd=launch,

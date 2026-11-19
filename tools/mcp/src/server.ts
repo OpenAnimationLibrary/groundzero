@@ -68,13 +68,17 @@ function descriptorSchema(declared: boolean): Parameters<typeof fromJsonSchema>[
 
 const MAX_CATALOG_TOOLS = 1024;
 
-async function discover(worker: NativeApi, requested: string[]): Promise<ToolsetState> {
+async function discover(
+  worker: NativeApi,
+  requested: string[],
+  domains: string[],
+): Promise<ToolsetState> {
   const result = await worker.request("automation.capabilities");
   if (!isObject(result) || result["protocol_version"] !== 3) {
     throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 3");
   }
   const tools = await catalog(result["tools"], true);
-  return new ToolsetState(parseToolsets(result["toolsets"], tools), tools, requested);
+  return new ToolsetState(parseToolsets(result["toolsets"], tools), tools, requested, domains);
 }
 
 function forwarded(tool: NativeTool): Tool {
@@ -120,6 +124,8 @@ async function catalog(entries: unknown, declared: boolean): Promise<Tool[]> {
  *   worker: A private worker whose lifetime ends when the MCP connection closes.
  *   toolsets: Toolsets enabled at start in addition to core; "all" enables every toolset.
  *   unavailable: Told once when the catalog cannot be read, for the adapter's diagnostics.
+ *   strict: Refuse results outside their output schema.
+ *   domains: The toolsets the launch grants, or ["all"]; no other toolset can be enabled.
  * Returns:
  *   A new MCP server ready for one connection's protocol negotiation.
  */
@@ -128,10 +134,11 @@ export function createServer(
   toolsets: string[] = ["core"],
   unavailable: (error: WorkerError) => void = () => {},
   strict = false,
+  domains: string[] = ["all"],
 ): Server {
   let loading: Promise<Catalog> | undefined;
   const load = () =>
-    (loading ??= discover(worker, toolsets)
+    (loading ??= discover(worker, toolsets, domains)
       .then((state) => compile(state.all(), state))
       .catch((error: unknown) => {
         const failure = catalogFailure(error);

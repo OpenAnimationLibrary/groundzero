@@ -386,7 +386,8 @@
     "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
     "ci-scripts/mcp_acceptance.py::test_audio_import_inspect_and_bounded_parser",
     "ci-scripts/mcp_acceptance.py::test_audio_mixdown_rejections_and_receipts",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
    ]
   },
   "audio.mixdown": {
@@ -399,7 +400,8 @@
     "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
     "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp"
+    "toonz/sources/toonz/tests/automation_audio_test.cpp",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
    ]
   },
   "automation.capabilities": {
@@ -407,10 +409,10 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_grants_authority_reports_the_launch",
     "ci-scripts/mcp_acceptance.py::test_integers_beyond_exact_precision_are_refused",
     "ci-scripts/mcp_acceptance.py::test_live_worker_and_host_files_survive_another_workers_start",
     "ci-scripts/mcp_acceptance.py::test_private_bootstrap_ignores_launch_configuration",
-    "ci-scripts/mcp_acceptance.py::test_protocol_rejects_malformed_and_oversize_requests",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
     "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp"
    ]
@@ -422,8 +424,8 @@
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_errors_are_declared",
     "ci-scripts/mcp_acceptance.py::test_finished_render_folder_is_swept_once_its_worker_is_gone",
-    "ci-scripts/mcp_acceptance.py::test_dead_workers_directories_are_swept_and_live_ones_are_not",
-    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
+    "ci-scripts/mcp_acceptance.py::test_grants_draft_grant_gates_documents",
+    "ci-scripts/mcp_acceptance.py::test_grants_file_grant_gates_caller_paths",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
    ]
   },
@@ -1671,6 +1673,7 @@
     "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
     "ci-scripts/mcp_acceptance.py::test_document_ids_do_not_alias_after_close_and_reopen",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
     "toonz/sources/toonz/tests/automation_scene_host_test.cpp",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
@@ -1734,7 +1737,7 @@
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
     "ci-scripts/mcp_shot.py"
    ]
   },
@@ -1914,6 +1917,7 @@
    "toolset": "adapter",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_grants_domain_grant_gates_toolsets",
     "ci-scripts/mcp_acceptance.py::test_runtime_states_distinguish_layers",
     "tools/mcp/src/toolsets.test.ts"
    ]
@@ -1923,6 +1927,7 @@
    "toolset": "adapter",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_grants_domain_grant_gates_toolsets",
     "tools/mcp/src/toolsets.test.ts"
    ]
   },

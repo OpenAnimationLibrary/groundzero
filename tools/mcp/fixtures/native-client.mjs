@@ -17,6 +17,8 @@ const workerGrants = new Set([
   "--media-tools",
   "--shared-root",
   "--shared-write",
+  "--grants",
+  "--domains",
 ]);
 
 function object(value) {
@@ -143,12 +145,12 @@ export function bridgeResult(method, response) {
 /** Turn the worker command line this fixture stands in for into the adapter's.
  *
  * Args:
- *   argv: Worker arguments: --automation-worker, then filesystem grants.
+ *   argv: Worker arguments: --automation-worker, then filesystem grants and launch authority.
  *   executable: The absolute native executable the adapter launches.
  *   cli: The adapter entry point.
  * Returns:
- *   Adapter arguments enabling every toolset and strict result checks, with the grants
- *   passed on unchanged so the adapter alone validates them.
+ *   Adapter arguments enabling every granted toolset and strict result checks, with the
+ *   grants passed on unchanged so the adapter alone validates them.
  */
 export function adapterArguments(argv, executable, cli) {
   const [mode, ...grants] = argv;

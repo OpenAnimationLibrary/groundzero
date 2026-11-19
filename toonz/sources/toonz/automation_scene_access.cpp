@@ -509,6 +509,8 @@ QStringList hostArguments(const Context& context, const QString& directory,
       jobs.instance(),       "--worker-epoch", QString::number(jobs.epochMs())};
   for (const QString& root : readRoots(context))
     arguments << "--input-root" << root;
+  arguments << "--grants" << context.authority.grants.join(',') << "--domains"
+            << context.authority.domains.join(',');
 #ifdef BUILD_UI_PORT_TESTS
   if (!context.childFault.isEmpty())
     arguments << "--test-child-fault" << context.childFault;

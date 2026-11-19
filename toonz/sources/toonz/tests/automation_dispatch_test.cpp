@@ -1,14 +1,38 @@
 #include "automation_dispatch.h"
 #include "automation_drawing.h"
 #include "automation_effects.h"
+#include "automation_grants.h"
 #include "automation_jobs.h"
 
+#include <QCryptographicHash>
 #include <QJsonDocument>
 
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 
 namespace GroundzeroAutomation {
+
+// Test access to the receipts and receipt keys of a dispatcher.
+struct DispatcherProbe {
+  static QHash<QString, Dispatcher::Receipt>& receipts(Dispatcher& dispatcher) {
+    return dispatcher.m_receipts;
+  }
+  static Dispatcher::Receipt key(const Dispatcher& dispatcher,
+                                 const QString& method,
+                                 const QJsonObject& params) {
+    return dispatcher.receiptKey(method, params);
+  }
+  static void add(Dispatcher& dispatcher, const QJsonArray& operations,
+                  Dispatcher::Handler handler, const QString& toolset) {
+    dispatcher.add(operations, handler, toolset);
+  }
+  static void setAuthorityDigest(Dispatcher& dispatcher,
+                                 const QString& digest) {
+    dispatcher.m_authorityDigest = digest;
+  }
+};
+
 namespace {
 
 void require(bool condition, const char* message) {
@@ -561,9 +585,178 @@ void outputSchemas(Dispatcher& dispatcher) {
       "An error message exceeded the envelope or split a character");
 }
 
+QJsonObject refusal(Dispatcher& dispatcher, const QString& method,
+                    const QJsonObject& params) {
+  return call(dispatcher, method, params).value("error").toObject();
+}
+
+void requireDenied(Dispatcher& dispatcher, const QString& method,
+                   const QJsonObject& params, const QStringList& missing,
+                   const QString& domain) {
+  const QJsonObject error   = refusal(dispatcher, method, params);
+  const QJsonObject details = error.value("details").toObject();
+  require(error.value("code") == "grant_denied" &&
+              details.value("tool") == method &&
+              details.value("missing") == QJsonArray::fromStringList(missing) &&
+              details.value("domain") == domain,
+          "A call outside the session's grants was not refused with "
+          "grant_denied naming the missing grant and the tool's domain");
+}
+
+QJsonValue echoWrite(Context&, const QString&, const QJsonObject&) {
+  return QJsonObject{};
+}
+
+QJsonArray grantFixtureOperations() {
+  return {declaredTool(
+      operation("fixture.grant", "Private receipt binding",
+                {{"value", QJsonObject{{"type", "integer"}}}}, {}, true),
+      fixtureWrite)};
+}
+
+void grantOrder(Context& context) {
+  const Authority launched = context.authority;
+  context.authority        = {{"inspect"}, {"core"}};
+  Dispatcher dispatcher(context);
+  const QJsonArray documents = context.documents();
+  rejected(dispatcher, "no.such.tool", {}, "method_not_found");
+  requireDenied(dispatcher, "scene.create", {{"operation_id", "denied"}},
+                {"draft"}, "core");
+  requireDenied(dispatcher, "scene.save_copy", {}, {"file"}, "core");
+  requireDenied(dispatcher, "render.submit", {{"stray", true}}, {"job"},
+                "core");
+  requireDenied(dispatcher, "audio.inspect", {}, {}, "audio");
+  auto& receipts    = DispatcherProbe::receipts(dispatcher);
+  auto replayed     = DispatcherProbe::key(dispatcher, "scene.create",
+                                           {{"operation_id", "replayed"}});
+  replayed.response = {{"result", QJsonObject{{"document_id", "replayed"}}}};
+  receipts.insert("replayed", replayed);
+  requireDenied(dispatcher, "scene.create", {{"operation_id", "replayed"}},
+                {"draft"}, "core");
+  requireDenied(dispatcher, "scene.create", {{"operation_id", "denied"}},
+                {"draft"}, "core");
+  require(receipts.size() == 1 && !receipts.contains("denied") &&
+              context.documents() == documents,
+          "A denied call recorded a receipt or changed a document");
+  context.authority = {{"draft", "inspect"}, {"core"}};
+  const QString document =
+      result(dispatcher, "scene.create",
+             {{"name", "Granted"}, {"operation_id", "denied"}})
+          .value("document_id")
+          .toString();
+  context.authority = {{"inspect"}, {"core"}};
+  requireDenied(dispatcher, "scene.discard",
+                {{"document_id", document}, {"operation_id", "discard"}},
+                {"draft"}, "core");
+  context.authority = launched;
+  context.removeDocument(document);
+  std::cout << "automation-dispatch-test: grant order PASS" << std::endl;
+}
+
+void receiptBindsAuthority(Context& context) {
+  Dispatcher first(context);
+  Dispatcher second(context);
+  DispatcherProbe::add(first, grantFixtureOperations(), echoWrite, "core");
+  DispatcherProbe::add(second, grantFixtureOperations(), echoWrite, "core");
+  DispatcherProbe::setAuthorityDigest(second, QString(64, QChar('0')));
+  const QJsonObject params{{"operation_id", "bound"}, {"value", 1}};
+  const auto key   = DispatcherProbe::key(first, "fixture.grant", params);
+  const auto other = DispatcherProbe::key(second, "fixture.grant", params);
+  require(key.fingerprint != other.fingerprint && key.request == other.request,
+          "The receipt fingerprint does not bind the launch authority");
+  const QJsonObject original = result(first, "fixture.grant", params);
+  require(result(first, "fixture.grant", params) == original,
+          "A replay under the same authority did not return its receipt");
+  DispatcherProbe::receipts(second).insert(
+      "bound", DispatcherProbe::receipts(first).value("bound"));
+  const QJsonObject changed = refusal(second, "fixture.grant", params);
+  require(changed.value("code") == "operation_conflict" &&
+              changed.value("details").toObject().value("reason") ==
+                  "grant_changed",
+          "A receipt replayed under another authority was not refused as "
+          "grant_changed");
+  QJsonObject different = params;
+  different.insert("value", 2);
+  const QJsonObject conflict = refusal(second, "fixture.grant", different);
+  require(conflict.value("code") == "operation_conflict" &&
+              !conflict.value("details").toObject().contains("reason"),
+          "A different request was reported as a changed grant");
+  std::cout << "automation-dispatch-test: receipt binds authority PASS"
+            << std::endl;
+}
+
+bool refusedLaunch(const std::function<void()>& parse) {
+  try {
+    parse();
+  } catch (const Error& error) {
+    return error.code == "invalid_argument";
+  }
+  return false;
+}
+
+QString digestOf(Context& context, const Authority& authority) {
+  const Authority launched = context.authority;
+  context.authority        = authority;
+  QJsonObject report       = authorityReport(context);
+  context.authority        = launched;
+  const QString digest     = report.take("digest").toString();
+  require(digest == QString::fromLatin1(
+                        QCryptographicHash::hash(QJsonDocument(report).toJson(
+                                                     QJsonDocument::Compact),
+                                                 QCryptographicHash::Sha256)
+                            .toHex()),
+          "The authority digest is not the SHA-256 of its compact JSON");
+  return digest;
+}
+
+void authorityDigestIsCanonical(Context& context) {
+  const QStringList names = toolsetNames();
+  const Authority forward{parseGrants("inspect,draft,job"),
+                          parseDomains("core,audio", names)};
+  const Authority backward{parseGrants("job,draft,inspect"),
+                           parseDomains("audio", names)};
+  require(digestOf(context, forward) == digestOf(context, backward),
+          "Option order or the implied core toolset changed the digest");
+  require(digestOf(context, {parseGrants("inspect"), forward.domains}) !=
+              digestOf(context, forward),
+          "Different grants produced the same authority digest");
+  require(parseDomains("all", names) == parseDomains(names.join(','), names),
+          "--domains all does not name every toolset");
+  for (const QString& value :
+       {QString("draft"), QString("inspect,inspect"), QString("inspect,live"),
+        QString("inspect,"), QString()})
+    require(refusedLaunch([&] { parseGrants(value); }),
+            "An invalid --grants value was accepted");
+  for (const QString& value : {QString("all,core"), QString("core,core"),
+                               QString("core,sound"), QString()})
+    require(refusedLaunch([&] { parseDomains(value, names); }),
+            "An invalid --domains value was accepted");
+  std::cout << "automation-dispatch-test: authority digest PASS" << std::endl;
+}
+
+void effectsCannotBeRedeclared(Context& context) {
+  Dispatcher dispatcher(context);
+  bool refused = false;
+  try {
+    DispatcherProbe::add(
+        dispatcher,
+        {declaredTool(operation("audio.mixdown", "Private", {}, {}, true),
+                      fixtureWrite)},
+        echoWrite, "audio");
+  } catch (const Error& error) {
+    refused = error.code == "internal_error" &&
+              error.message.contains("brings its own effects");
+  }
+  require(refused, "A declared tool was registered with weaker effects");
+}
+
 }  // namespace
 
 void runAutomationDispatcherTests(Context& context) {
+  grantOrder(context);
+  receiptBindsAuthority(context);
+  authorityDigestIsCanonical(context);
+  effectsCannotBeRedeclared(context);
   documentLimit(context);
   toolsetCatalog(context);
   effectDeclarations(context);

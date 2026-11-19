@@ -59,8 +59,14 @@ async function main(): Promise<void> {
           ...("loss" in worker ? { loss: () => worker.loss?.() } : {}),
         };
         if (live) return await createLiveServer(api, await live.ready, options.strictResults);
-        const toolsets = "toolsets" in options ? options.toolsets : ["core"];
-        return createServer(api, toolsets, reportUnavailable, options.strictResults);
+        const detached = options as DetachedOptions;
+        return createServer(
+          api,
+          detached.toolsets,
+          reportUnavailable,
+          options.strictResults,
+          detached.domains,
+        );
       } catch (error) {
         close();
         throw error;
