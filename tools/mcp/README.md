@@ -401,9 +401,20 @@ reports their previous values. `object.pivot.set` sets the stored center in inch
 either preserves stage placement at one frame or keeps the offset; center and offset
 are canonicalized like hooks. Both return `world_changes` for up to 64 `report_frames`,
 where `preserved` means within 1e-6 inch and 1e-9 in the linear terms. `object.parent`
-requires `placement_policy: "preserve_local"`: local keys are kept, so the object may
-move. It accepts an optional `parent_handle` and `report_frames`, and refuses a hook
-handle under a parent that is not a column.
+requires a `placement_policy`. `preserve_local` keeps local keys, so the object may
+move. `preserve_world` keeps the object where it is by rewriting its own channels: when
+everything between the old and new parent and their common ancestor is static and the
+change is a translation, or a rotation and uniform scale of a static position, it adds
+constants to the curves (and scales the global scale curve), which is exact at every
+frame (`world_preservation.method: "exact_rewrite"`). Otherwise it is refused with
+`unsupported_target`, a `reason`, and a `bake_proposal` you can send back as
+`world_policy: {kind: "bake", start_frame, end_frame, new_key_interpolation}` to key x,
+y, rotation and scale (and z or stacking order where they change) at every frame of
+that range of at most 10,000 frames; a bake is exact at those integer frames only, keeps
+keys outside the range, and refuses objects with offset layers, shear or tilt. Both
+verify the result and report the measured deviation. `object.parent` also accepts an
+optional `parent_handle` and `report_frames`, and refuses a hook handle under a parent
+that is not a column.
 
 `object.duplicate` copies a pegbar (`scope: "object"`), or a pegbar or level column
 with everything below it (`scope: "subtree"` with `level_sharing: "shared"`), as the

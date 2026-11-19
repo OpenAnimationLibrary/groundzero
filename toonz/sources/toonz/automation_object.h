@@ -5,6 +5,10 @@
 #include <QJsonValue>
 #include <QString>
 
+#include <string>
+
+class TStageObject;
+
 namespace GroundzeroAutomation {
 class Context;
 struct Document;
@@ -27,4 +31,26 @@ QJsonArray objectOperations();
 QJsonValue executeObject(Context& context, const QString& method,
                          const QJsonObject& params);
 
+// Input schema of object.parent's optional world_policy.
+QJsonObject automationWorldPolicySchema();
+
+// Reparent an object under its preflighted parent and handle with the
+// requested placement_policy.
+//
+// Args:
+//   context: Marks the start of native mutation.
+//   document: Owner of both objects.
+//   object: The reparented child, already checked for cycles and depth.
+//   parent: Its new parent.
+//   handle: The validated parent handle string on the new parent.
+//   params: object.parent arguments: placement_policy and world_policy.
+// Returns:
+//   world_preservation for preserve_world; empty for preserve_local.
+// Throws:
+//   Error: world_policy without preserve_world, or a world placement that
+//   cannot be kept exactly (with a bake proposal) or baked.
+QJsonObject automationApplyParent(Context& context, Document& document,
+                                  TStageObject& object, TStageObject& parent,
+                                  const std::string& handle,
+                                  const QJsonObject& params);
 }  // namespace GroundzeroAutomation

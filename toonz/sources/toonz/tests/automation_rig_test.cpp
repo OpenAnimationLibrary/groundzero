@@ -1060,6 +1060,101 @@ void schematicGroups(Context& context) {
   context.removeDocument(document.id);
 }
 
+TAffine placementOf(Document& document, const QString& object, int frame) {
+  auto* native = document.object(object);
+  for (int index = 0; index < stageOf(document).getStageObjectCount(); ++index)
+    stageOf(document).getStageObject(index)->invalidate();
+  return native->getPlacement(frame);
+}
+
+void samePlacement(const TAffine& left, const TAffine& right,
+                   const char* message) {
+  near(left.a11, right.a11, message, 1e-9);
+  near(left.a12, right.a12, message, 1e-9);
+  near(left.a21, right.a21, message, 1e-9);
+  near(left.a22, right.a22, message, 1e-9);
+  near(left.a13 / Stage::inch, right.a13 / Stage::inch, message, 1e-6);
+  near(left.a23 / Stage::inch, right.a23 / Stage::inch, message, 1e-6);
+}
+
+QJsonObject worldParams(const QString& child, const QString& parent) {
+  auto params = parentParams(child, parent);
+  params.insert("placement_policy", "preserve_world");
+  return params;
+}
+
+void preserveWorldPlacement(Context& context) {
+  Dispatcher dispatcher(context);
+  auto& document     = createDocument(context, dispatcher);
+  const QString from = createPeg(dispatcher, document, "From");
+  const QString to   = createPeg(dispatcher, document, "To");
+  const QString tilt = createPeg(dispatcher, document, "Tilted");
+  const QString walk = createPeg(dispatcher, document, "Walking");
+  const QString item = createPeg(dispatcher, document, "Item");
+  setKeys(dispatcher, document, from, "x", "inch", {{0, 1}});
+  setKeys(dispatcher, document, to, "y", "inch", {{0, -0.5}});
+  setKeys(dispatcher, document, tilt, "rotation", "degree", {{0, 30}});
+  setKeys(dispatcher, document, tilt, "scale", "scalar", {{0, 2}});
+  setKeys(dispatcher, document, walk, "x", "inch", {{0, 0}, {8, 3}});
+  result(dispatcher, "object.parent", at(document, parentParams(item, from)));
+  setKeys(dispatcher, document, item, "x", "inch", {{0, 0}, {4, 1}});
+  setKeys(dispatcher, document, item, "rotation", "degree", {{0, 0}, {4, 90}});
+  QList<TAffine> before;
+  for (int frame = 0; frame <= 8; ++frame)
+    before.append(placementOf(document, item, frame));
+  const auto shifted =
+      result(dispatcher, "object.parent", at(document, worldParams(item, to)));
+  require(shifted.value("world_preservation").toObject().value("method") ==
+              "exact_rewrite",
+          "A static new parent was not preserved exactly");
+  for (int frame = 0; frame <= 8; ++frame)
+    samePlacement(placementOf(document, item, frame), before[frame],
+                  "Preserve-world moved the object");
+  const auto refused = request(dispatcher, "object.parent",
+                               at(document, worldParams(item, tilt)));
+  require(errorCode(refused) == "unsupported_target" &&
+              errorDetails(refused).value("reason") ==
+                  "animated_position_in_rotated_frame" &&
+              errorDetails(refused).contains("bake_proposal"),
+          "A rotated frame with animated position was not refused with a "
+          "bake proposal");
+  const auto still =
+      result(dispatcher, "object.create",
+             at(document, {{"name", "Still"}, {"kind", "pegbar"}}))
+          .value("object_id")
+          .toString();
+  setKeys(dispatcher, document, still, "x", "inch", {{0, 0.25}});
+  const TAffine stillBefore = placementOf(document, still, 3);
+  result(dispatcher, "object.parent", at(document, worldParams(still, tilt)));
+  samePlacement(placementOf(document, still, 3), stillBefore,
+                "A rotated and scaled static parent moved the object");
+  const auto animated = request(dispatcher, "object.parent",
+                                at(document, worldParams(item, walk)));
+  const auto proposal =
+      errorDetails(animated).value("bake_proposal").toObject();
+  require(errorCode(animated) == "unsupported_target" &&
+              proposal.value("end_frame").toInt() == 8,
+          "An animated new parent was not refused with a bake proposal");
+  QJsonObject bake = worldParams(item, walk);
+  bake.insert("world_policy",
+              QJsonObject{{"kind", "bake"},
+                          {"start_frame", proposal.value("start_frame")},
+                          {"end_frame", proposal.value("end_frame")},
+                          {"new_key_interpolation", "linear"}});
+  const auto baked = result(dispatcher, "object.parent", at(document, bake));
+  require(
+      baked.value("world_preservation").toObject().value("method") == "baked",
+      "The explicit bake was not applied");
+  for (int frame = 0; frame <= 8; ++frame)
+    samePlacement(placementOf(document, item, frame), before[frame],
+                  "The bake moved the object at an integer frame");
+  QJsonObject local = parentParams(item, from);
+  local.insert("world_policy", QJsonObject{{"kind", "exact_or_reject"}});
+  rejected(dispatcher, document, "object.parent", at(document, local),
+           "invalid_params");
+  context.removeDocument(document.id);
+}
+
 }  // namespace
 
 void runAutomationRigTests(Context& context) {
@@ -1079,8 +1174,9 @@ void runAutomationRigTests(Context& context) {
   renameAndDeleteObjects(context);
   dependentsOfHooksAndLayers(context);
   schematicGroups(context);
+  preserveWorldPlacement(context);
   std::cout << "automation-rig-test: hooks, handles, pivots, layers, object "
-               "lifecycle, groups and admission PASS\n";
+               "lifecycle, groups, preserve-world and admission PASS\n";
 }
 
 }  // namespace GroundzeroAutomation

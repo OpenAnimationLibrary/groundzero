@@ -317,6 +317,7 @@ set(SOURCES
     automation_audio_format.cpp
     automation_rig.cpp
     automation_object.cpp
+    automation_world.cpp
     automation_hook.cpp
     automation_storyboard.cpp
     automation_lipsync.cpp

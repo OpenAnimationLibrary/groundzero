@@ -4,6 +4,7 @@
 #include "automation_path.h"
 #include "automation_drawing.h"
 #include "automation_files.h"
+#include "automation_object.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
 
@@ -772,14 +773,11 @@ QJsonValue parentObject(Context& context, const QJsonObject& params) {
       document, *object, *parent, params.value("parent_handle"));
   const auto frames = automationReportFrames(params);
   const auto before = automationPlacements(*document.scene, *object, frames);
-  if (object->getParent() != parent->getId() ||
-      object->getParentHandle() != handle) {
-    context.markMutationStarted();
-    object->setParent(parent->getId());
-    object->setParentHandle(handle);
-  }
+  const QJsonObject world = automationApplyParent(context, document, *object,
+                                                  *parent, handle, params);
   QJsonObject result = describeObject(document, object);
   result.insert("parent_handle", automationHandleRecord(handle));
+  if (!world.isEmpty()) result.insert("world_preservation", world);
   insertAutomationWorldChanges(
       result, frames, before,
       automationPlacements(*document.scene, *object, frames));
@@ -1332,14 +1330,19 @@ void addAnimationOperations(QJsonArray& catalog) {
       {"document_id", "name", "kind"}, true));
   catalog.append(operation(
       "object.parent",
-      "Reparent an object and optionally set its parent handle. Local keys "
-      "are kept, so stage placement may move; report_frames returns the "
-      "world changes.",
-      merge(object,
-            {{"parent_id", textSchema()},
-             {"placement_policy", QJsonObject{{"const", "preserve_local"}}},
-             {"parent_handle", automationHandleInputSchema()},
-             {"report_frames", automationReportFramesSchema()}}),
+      "Reparent an object and optionally set its parent handle. "
+      "preserve_local keeps local keys, so stage placement may move; "
+      "preserve_world rewrites the object's own channels so it stays put, "
+      "exactly or by an explicit world_policy bake, and refuses with a bake "
+      "proposal otherwise. report_frames returns the world changes.",
+      merge(object, {{"parent_id", textSchema()},
+                     {"placement_policy",
+                      QJsonObject{{"type", "string"},
+                                  {"enum", QJsonArray{"preserve_local",
+                                                      "preserve_world"}}}},
+                     {"world_policy", automationWorldPolicySchema()},
+                     {"parent_handle", automationHandleInputSchema()},
+                     {"report_frames", automationReportFramesSchema()}}),
       {"document_id", "object_id", "parent_id", "placement_policy"}, true));
   const QJsonObject layer{
       {"type", "string"}, {"minLength", 1}, {"maxLength", 128}};

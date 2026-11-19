@@ -15670,6 +15670,75 @@
       },
       "world_placement_preserved": {
         "type": "boolean"
+      },
+      "world_preservation": {
+        "additionalProperties": false,
+        "properties": {
+          "channels_rewritten": {
+            "items": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "maxItems": 1048576,
+            "minItems": 0,
+            "type": "array"
+          },
+          "exact_at": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "keys_rewritten": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "max_linear_deviation": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "max_translation_deviation_inch": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "max_z_deviation": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          },
+          "method": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          },
+          "range": {
+            "additionalProperties": false,
+            "properties": {
+              "end_frame": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "start_frame": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "verified_frames": {
+            "maximum": 1.7976931348623157e+308,
+            "minimum": -1.7976931348623157e+308,
+            "type": "number"
+          }
+        },
+        "required": [],
+        "type": "object"
       }
     },
     "required": [

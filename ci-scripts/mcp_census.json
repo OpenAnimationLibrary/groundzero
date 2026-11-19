@@ -1722,7 +1722,7 @@
   {
    "id": "stage.reparent",
    "domain": "Stage, camera and animation",
-   "outcome": "Attach an object to a parent and optional parent handle, keeping local keys.",
+   "outcome": "Attach an object to a parent and optional parent handle, keeping local keys or keeping world placement exactly, or by an explicit bake when exactness is impossible.",
    "classification": "exposed",
    "tools": [
     "object.parent"

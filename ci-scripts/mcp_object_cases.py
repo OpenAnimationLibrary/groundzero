@@ -147,11 +147,75 @@ def object_hierarchy_rename_group_round_trip(case: NativeAcceptance) -> None:
     case.assertEqual(_groups(case, reopened), _groups(case, document))
     case.assertEqual(
         _groups(case, reopened),
-        [("Hero group", ["Héros ✓", "Hero peg"]), ("Shot", ["Background", "Héros ✓", "Hero peg"])],
+        [("Hero group", ["Hero peg", "Héros ✓"]), ("Shot", ["Background", "Hero peg", "Héros ✓"])],
     )
     hero = _by_name(case, reopened)["Héros ✓"]["object_id"]
     _same_placements(case, _placements(case, reopened, [hero]), before)
     _same_renders(case, reopened, renders)
+
+
+def _moving_art(case: NativeAcceptance) -> tuple[str, str, str]:
+    document = _scene(case, "Reparent")
+    start = _peg(case, document, "Start")
+    _keys(case, document, start, "x", "inch", f0=-0.25)
+    art = _art(case, document, "Mover")["object_id"]
+    _link(case, document, art, start, "preserve_local")
+    _keys(case, document, art, "x", "inch", f0=0, f4=0.5)
+    _keys(case, document, art, "rotation", "degree", f0=0, f4=45)
+    return document, start, art
+
+
+@acceptance_case
+def object_reparent_preserve_local_and_world(case: NativeAcceptance) -> None:
+    """Reparent a moving column under preserve_local and preserve_world, exactly or by a bake."""
+    document, start, art = _moving_art(case)
+    still = _peg(case, document, "Still")
+    _keys(case, document, still, "y", "inch", f0=0.25)
+    before = _placements(case, document, [art])
+    renders = _renders(case, document)
+    local = _link(case, document, art, still, "preserve_local", report_frames=list(FRAMES))
+    case.assertFalse(local["world_placement_preserved"])
+    case.assertNotIn("world_preservation", local)
+    _link(case, document, art, start, "preserve_local")
+    _same_placements(case, _placements(case, document, [art]), before)
+    world = _link(case, document, art, still, "preserve_world", report_frames=list(FRAMES))
+    case.assertTrue(world["world_placement_preserved"])
+    preservation = world["world_preservation"]
+    case.assertEqual(
+        (preservation["method"], preservation["exact_at"]), ("exact_rewrite", "all_frames")
+    )
+    case.assertEqual(preservation["channels_rewritten"], ["x", "y"])
+    _same_placements(case, _placements(case, document, [art]), before)
+    _same_renders(case, document, renders)
+    walker = _peg(case, document, "Walker")
+    _keys(case, document, walker, "x", "inch", f0=0, f4=0.25)
+    error = _refused(
+        case,
+        "object.parent",
+        document,
+        "unsupported_target",
+        object_id=art,
+        parent_id=walker,
+        placement_policy="preserve_world",
+    )
+    proposal = error["details"]["bake_proposal"]
+    case.assertEqual(error["details"]["reason"], "parent_branch_moves")
+    case.assertEqual((proposal["start_frame"], proposal["end_frame"]), (0, 4))
+    case.assertTrue(proposal["covers_all_animation"])
+    policy = {key: proposal[key] for key in ("kind", "start_frame", "end_frame")}
+    baked = _link(
+        case,
+        document,
+        art,
+        walker,
+        "preserve_world",
+        world_policy={**policy, "new_key_interpolation": "linear"},
+    )["world_preservation"]
+    case.assertEqual((baked["method"], baked["exact_at"]), ("baked", "integer_frames_in_range"))
+    case.assertLessEqual(baked["max_translation_deviation_inch"], 1e-6)
+    _same_placements(case, _placements(case, document, [art]), before)
+    _same_renders(case, document, renders)
+    _same_renders(case, _reopen(case, document, "reparent"), renders)
 
 
 @acceptance_case
