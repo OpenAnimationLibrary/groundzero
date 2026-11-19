@@ -93,6 +93,7 @@ class Scene:
     levels: dict[str, set[Drawing]] = field(default_factory=dict)
     columns: list[Column] = field(default_factory=list)
     pegs: list[str] = field(default_factory=list)
+    effects: list[str] = field(default_factory=list)
     curves: dict[tuple[str, str], dict[int, Key]] = field(default_factory=dict)
     cycles: set[tuple[str, str]] = field(default_factory=set)
     reopens: int = 0
@@ -368,7 +369,11 @@ def _keys_effect(scene: Scene, step: Step) -> str | None:
 
 
 def _delete_keys_choice(rng: random.Random, scene: Scene) -> Step:
-    plain = [name for name, keys in scene.curves.items() if keys and not is_rich(keys)]
+    plain = [
+        name
+        for name, keys in scene.curves.items()
+        if keys and not is_rich(keys) and name[0] in scene.pegs
+    ]
     peg, channel = _pick(rng, plain)
     frames = sorted(scene.curves[(peg, channel)])
     return {
@@ -715,7 +720,10 @@ def _replace_request(step: Step, handles: Handles) -> Request:
 
 
 def _chosen_pegs(scene: Scene) -> bool:
-    return any(keys and not is_rich(keys) for keys in scene.curves.values())
+    return any(
+        keys and not is_rich(keys) and owner in scene.pegs
+        for (owner, _channel), keys in scene.curves.items()
+    )
 
 
 def _empty_curves(scene: Scene) -> list[tuple[str, str]]:
@@ -728,7 +736,11 @@ def _empty_curves(scene: Scene) -> list[tuple[str, str]]:
 
 
 def _keyed_curves(scene: Scene, minimum: int = 1) -> list[tuple[str, str]]:
-    return [name for name, keys in scene.curves.items() if len(keys) >= minimum]
+    return [
+        name
+        for name, keys in scene.curves.items()
+        if len(keys) >= minimum and name[0] in scene.pegs
+    ]
 
 
 def _rich_choice(rng: random.Random, scene: Scene) -> Step:

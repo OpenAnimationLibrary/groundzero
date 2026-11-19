@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 from mcp_case import acceptance_case
 from mcp_known_violations import settle
 from mcp_property_curves import Key, key_record, sample
+from mcp_property_effects import EFFECT_OPERATIONS, FX_CHANNEL, FX_TYPE, FX_UNIT, generate_effects
 from mcp_property_model import (
     CELL_HORIZON,
     CHANNEL_UNITS,
@@ -46,6 +47,9 @@ if TYPE_CHECKING:
 # and every refusal it answers, every retime kind and replace mapping, and a reopened scene that
 # holds cells. A test keeps the cover.
 DEFAULT_SEEDS = (87, 10, 56, 271, 94, 16, 245, 34, 399, 237, 276, 9, 21, 154, 157)
+# The same for effect-channel sequences: every effect operation, an OUT_OF_RANGE refusal, a
+# refusal of the curve rules and a reopened scene that holds effect keys.
+EFFECT_SEEDS = (13, 45, 183, 121, 90)
 DEFAULT_LENGTH = 24
 TOLERANCE = 1e-9
 LOG_NAME = "property-sequences.ndjson"
@@ -162,7 +166,7 @@ class Session:
         self.case = case
         self.root = Path(tempfile.mkdtemp(prefix="run-", dir=case.workspace))
         self.model: Scene = new_scene()
-        self.handles: Handles = {"level": {}, "column": {}, "peg": {}}
+        self.handles: Handles = {"level": {}, "column": {}, "peg": {}, "fx": {}}
         self.document = self._call_create()
 
     def _call_create(self) -> str:
@@ -209,8 +213,28 @@ class Session:
             },
             "columns": [self._column(item, names) for item in summary["columns"]],
             "pegs": sorted(item["name"] for item in pegs),
-            "curves": self._curves(pegs),
+            "curves": {**self._curves(pegs), **self._effect_curves()},
         }
+
+    def _effects(self) -> dict[str, str]:
+        """The modelled effects of the scene, by name, with their handles."""
+        graph = self.read("fx.graph", {})
+        return {item["name"]: item["fx_id"] for item in graph["effects"] if item["type"] == FX_TYPE}
+
+    def _effect_curves(self) -> dict[str, Any]:
+        curves = {}
+        for name, effect in self._effects().items():
+            target = {"fx_id": effect, "channel": FX_CHANNEL, "unit": FX_UNIT}
+            record = self.read("animation.keys", target)
+            if not record["keys"]:
+                continue
+            values = self.read("animation.sample", {**target, "frames": SAMPLE_FRAMES})
+            curves[f"{name}/{FX_CHANNEL}"] = {
+                "keys": [observed_row(key) for key in record["keys"]],
+                "cycle": record["cycle"],
+                "samples": [item["value"] for item in values["values"]],
+            }
+        return curves
 
     def _column(self, item: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
         cells = self.read(
@@ -249,7 +273,7 @@ class Session:
 
     def step(self, index: int, step: dict[str, Any]) -> Failure | None:
         """Apply one step to the model and the worker, then compare everything."""
-        operation = OPERATIONS[step["op"]]
+        operation = ALL_OPERATIONS[step["op"]]
         before = self.case.revisions[self.document]
         error = operation.effect(self.model, step["args"])
         tool, params = operation.request(step["args"], self.handles)
@@ -286,7 +310,7 @@ class Session:
         result = response["result"]
         if "revision" in result and result.get("document_id") == self.document:
             self.case.revisions[self.document] = result["revision"]
-        OPERATIONS[step["op"]].learn(step["args"], result, self.handles)
+        ALL_OPERATIONS[step["op"]].learn(step["args"], result, self.handles)
         return []
 
     def _reopen(self, saved: dict[str, Any]) -> None:
@@ -301,6 +325,10 @@ class Session:
             for item in summary["objects"]
             if item["kind"] == "pegbar"
         }
+        self.handles["fx"] = self._effects()
+
+
+ALL_OPERATIONS = {**OPERATIONS, **EFFECT_OPERATIONS}
 
 
 def replay(case: NativeAcceptance, steps: list[dict[str, Any]]) -> Failure | None:
@@ -386,6 +414,21 @@ def generated_sequences_match_the_independent_model(case: NativeAcceptance) -> N
     for seed in seeds_to_run():
         with case.subTest(seed=seed):
             check_sequence(case, seed, generate(seed, length_to_run()))
+
+
+@acceptance_case
+def generated_effect_key_sequences_match_the_independent_model(case: NativeAcceptance) -> None:
+    """Replay seeded sequences of key edits on effect channels and compare with the model.
+
+    The animation key tools write a blur's value channel as they write a stage channel; after
+    every step its keys and samples must equal what the model computed, and every write the
+    model finds outside the admitted range must be refused as OUT_OF_RANGE with nothing
+    changed. `GZ_PROPERTY_SEEDS` and `GZ_PROPERTY_LENGTH` choose the sequences here too.
+    """
+    seeds = seeds_to_run() if os.environ.get("GZ_PROPERTY_SEEDS") else list(EFFECT_SEEDS)
+    for seed in seeds:
+        with case.subTest(seed=seed):
+            check_sequence(case, seed, generate_effects(seed, length_to_run()))
 
 
 def _seeded(case: NativeAcceptance, kind: str) -> list[tuple[int, random.Random]]:
