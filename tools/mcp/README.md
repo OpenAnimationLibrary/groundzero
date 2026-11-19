@@ -467,6 +467,29 @@ effect parameter with `fx.parameter.set_key`; remap curves have no edit tool. A 
 expression, file or similar-shape keys is listed with its keys marked unsupported, without
 their text, and `animation.sample` refuses it with `unsupported_interpolation`.
 
+The cell tools edit up to 64 level columns per call, all or nothing; rows are
+zero-based frames valid at the call's `expected_revision`. `cells.set` writes explicit
+runs of drawings and blanks without shifting (`overwrite: false` refuses occupied rows
+with `occupied_cells`). `cells.clear` blanks an interval and keeps later frame numbers;
+`cells.remove` deletes the interval and moves later cells up; `cells.insert` adds blank
+rows and moves later cells down, leaving a column with nothing at or after the frame
+unchanged. `cells.copy` copies exposure references (never drawings) to as many
+destination columns, inserting or replacing, and `source_after: "clear"` makes it a move.
+`cells.retime` applies one native timing function to the same interval of each column
+(reverse, swing, step, each, reframe, increase, decrease or reset step, repeat, roll up or
+down, time stretch); later cells of a column move with it. `cells.replace` swaps one level
+for another, or explicit drawing pairs, inside an interval without changing timing. Rows
+0 to 999999 are admitted everywhere, the native sheet's 1,000,000 rows: `column.expose`,
+`column.cells` and the cell tools refuse a later row with `invalid_params` and
+`details.reason: "frame_range"`, and a package saves any exposure inside it. Each call checks every column first: a locked, sound,
+generator or sub-xsheet column, a missing drawing, a cell past frame 999999 or more than
+1,000,000 stored cells refuses the whole call. The worker computes the result with its
+own cell model, applies it natively, and compares every touched column with the model; a
+difference is `partially_applied`. Results list each column's `cells_changed`,
+`rows_delta` and cell range before and after. A non-empty `sheet_path` is refused with
+`unsupported_target` until nested sheets become editable. `column.expose` uses the same
+service.
+
 `scene.save_copy` writes a new package directory containing `scene.tnz`, its
 artwork, and a hash manifest. It checks every saved drawing through the native
 reader and compares palette styles, pages, and keys before publishing. Existing
@@ -476,6 +499,18 @@ the worker checks limits of 256 levels, 4096 drawings, and a separate 256 MiB
 aggregate estimate covering raster and vector frames plus conservative overhead
 for frames, palette pages, styles, and keyframes. This estimate is an admission limit,
 not a bound on process memory.
+The manifest also records the saved sheet: each saved column's kind, name,
+preview and camstand flags, lock, opacity, colour filter, parent and a digest of
+its cell runs; every camera's size, resolution, interest rectangle, parent,
+output and preview roles and a digest of its curves; the output and preview
+settings, background, field guide, markers, ruler guides and colour filters; and
+each level's interpretation settings. The package is reopened before it is
+published and any difference is refused with `invalid_package`, whose details
+name the `section` and the first differing `path`. The native saver writes no
+empty column after the last used one; `trailing_empty_columns_dropped` lists the
+handles of those columns, which the reopened scene does not have. Camera sizes in
+inches are written at full double precision, so a size set through `scene.settings` or
+`camera.update` reads back exactly after a reopen.
 Native PLI encoding quantizes stroke coordinates and widths, and PNG encoding
 can change premultiplied RGB values by one code value. These files are editable
 native representations, not bitwise copies of in-memory drawings. Saved raster

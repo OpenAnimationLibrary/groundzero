@@ -10,6 +10,8 @@
 #include "automation_live_protocol.h"
 #include "automation_ownership.h"
 #include "automation_scene_check.h"
+#include "automation_sheet_record.h"
+#include "automation_cells.h"
 #include "automation_scene_host.h"
 #include "automation_runtime.h"
 #include "automation_shared_parse.h"
@@ -664,6 +666,8 @@ int domainTestResult(Context& context) {
     runAutomationRuntimeTests(context);
     runAutomationJobsTests(context);
     runAutomationSceneCheckTests(context);
+    runAutomationSheetRecordTests(context);
+    runAutomationCellsTests(context);
     // Last: its retention case fills the analysis lane of this shared worker.
     runAutomationDrawingAnalysisTests(context);
     return 0;

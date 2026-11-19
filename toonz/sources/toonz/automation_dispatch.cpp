@@ -283,7 +283,10 @@ const QMap<QString, QString>& toolsetDescriptions() {
        "each panel shows."},
       {"lipsync",
        "Lip-sync timing import from Papagayo and Rhubarb files and exact "
-       "application to drawing columns."}};
+       "application to drawing columns."},
+      {"sheet",
+       "Cell ranges of level columns: set, clear, remove, insert, copy, "
+       "retime and replace exposures."}};
   return descriptions;
 }
 
@@ -409,6 +412,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
           {"names"}),
       toolDescriptionResultSchema(maximumDescribedTools)));
   add(sceneOperations(), executeScene, "core");
+  add(sheetOperations(), executeSheet, "sheet");
   add(sceneAccessOperations(), executeSceneAccess, "core");
   add(sceneInventoryOperations(), executeSceneInventory, "core");
   add(fxOperations(), executeFx, "core");

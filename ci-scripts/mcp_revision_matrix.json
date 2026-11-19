@@ -1129,6 +1129,32 @@
      "repeat": 31
     }
    ]
+  },
+  "exposed_two_levels": {
+   "extends": "exposed",
+   "steps": [
+    {
+     "tool": "level.create",
+     "args": {
+      "name": "R",
+      "format": "vector"
+     },
+     "save": {
+      "rlevel": "level_id"
+     }
+    },
+    {
+     "tool": "drawing.create",
+     "args": {
+      "level_id": "$rlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "format": "vector"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -6601,6 +6627,476 @@
      "code": "resource_limit"
     }
    ]
+  },
+  "cells.clear": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "cells of an interval become empty; no shift",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 999999,
+      "length": 2
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 5
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.copy": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "destination cells (and cleared source cells for a move)",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "source": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 2
+     },
+     "destination": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 10
+     },
+     "placement": "replace",
+     "source_after": "keep"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "source": {
+       "column_ids": [
+        "$column"
+       ],
+       "start_frame": 0,
+       "length": 2
+      },
+      "destination": {
+       "column_ids": [
+        "$column"
+       ],
+       "start_frame": 10
+      },
+      "placement": "insert",
+      "source_after": "clear"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "source": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 2
+     },
+     "destination": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 10
+     },
+     "placement": "replace",
+     "source_after": "keep"
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.insert": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "blank rows inserted with shift in the target columns",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 999999,
+      "length": 2
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 5
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.remove": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "rows removed with shift in the target columns",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 999999,
+      "length": 2
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 5
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.replace": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed_two_levels",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "level and drawing references of exposures in an interval",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 8,
+     "mapping": {
+      "kind": "level",
+      "from_level_id": "$level",
+      "to_level_id": "$rlevel"
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 8,
+      "mapping": {
+       "kind": "level",
+       "from_level_id": "$level",
+       "to_level_id": "$level"
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 8,
+     "mapping": {
+      "kind": "level",
+      "from_level_id": "$level",
+      "to_level_id": "$rlevel"
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "column",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "cells of up to 64 level columns over explicit intervals",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "columns": [
+      {
+       "column_id": "$column",
+       "start_frame": 0,
+       "runs": [
+        {
+         "level_id": "$level",
+         "drawing_id": {
+          "number": 1,
+          "suffix": ""
+         },
+         "length": 3
+        }
+       ]
+      }
+     ],
+     "overwrite": false
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "columns": [
+       {
+        "column_id": "$column",
+        "start_frame": 0,
+        "runs": [
+         {
+          "level_id": "$level",
+          "drawing_id": {
+           "number": 9,
+           "suffix": ""
+          },
+          "length": 3
+         }
+        ]
+       }
+      ],
+      "overwrite": false
+     },
+     "code": "missing_drawing"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "columns": [
+      {
+       "column_id": "$column",
+       "start_frame": 0,
+       "runs": [
+        {
+         "level_id": "$level",
+         "drawing_id": {
+          "number": 1,
+          "suffix": ""
+         },
+         "length": 3
+        }
+       ]
+      }
+     ],
+     "overwrite": true
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.retime": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "cell timing of the interval in each target column, with shift",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2,
+     "operation": {
+      "kind": "step",
+      "factor": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 2,
+      "operation": {
+       "kind": "repeat",
+       "until_frame": 1
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 2,
+     "operation": {
+      "kind": "reverse"
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
   }
  },
  "known_violations": []

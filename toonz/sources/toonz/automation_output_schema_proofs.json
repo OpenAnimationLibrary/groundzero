@@ -119,6 +119,83 @@
     "handler": null,
     "read": []
   },
+  "cells.clear": {
+    "handler": "clearCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.copy": {
+    "handler": "copyCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.insert": {
+    "handler": "insertCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.remove": {
+    "handler": "removeCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.replace": {
+    "handler": "replaceCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.retime": {
+    "handler": "retimeCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.set": {
+    "handler": "setCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
   "column.cells": {
     "handler": "inspectCells",
     "read": []
