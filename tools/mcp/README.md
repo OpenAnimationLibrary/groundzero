@@ -625,10 +625,17 @@ for an id this document never issued). `vector.opacity.set` and
 style), `regions` or `roles`. The record's `analysis` reports the `estimate`, the running
 `cost`, the `budget` and `complete` with its `reasons`; `job.result` pages the rows (up
 to 256 per page, 65,536 per job) with `next_offset` null on the last page. Regions are
-built on detached clones, one drawing per slice, so the document is never touched. A write
+built on detached clones, copied and built on a worker thread, so the document is never
+changed and the application thread keeps answering: its slices (one drawing's style count,
+a batch of at most two million raster pixels, or some milliseconds of the size estimate)
+stay under 50 ms apart from image loading. Submit estimates at most 32 drawings; the job
+estimates the rest first and ends `failed` with `resource_limit` if the whole estimate is
+over budget. A cancellation ends the job at once and a rebuild in flight is abandoned; the
+worker does not wait for it at exit. A write
 to the document ends the job `failed` with `revision_changed`; `job.cancel` ends it
 `canceled` with the rows gathered so far. A second analysis while one runs is refused with
-`analysis_busy`. Read-only documents refuse `drawing.analysis.submit`.
+`analysis_busy`. A read-only document refuses `drawing.analysis.submit` with
+`read_only_document` and `details.reason` `not_qualified`.
 
 `scene.check.submit` starts one scene check as an analysis job (`kind` `scene_check`,
 `lane` `analysis`). `check: "unused_styles"` lists the palette styles that no drawing of

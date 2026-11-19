@@ -1009,10 +1009,16 @@ const QSet<QString>& decodingTools() {
 
 [[noreturn]] void refuseReadOnly(const QString& method,
                                  const QJsonObject& descriptor) {
+  // A tool whose declared effect is to start a job reads the document and
+  // changes nothing, so a read-only document refuses it as not yet qualified.
+  const bool startsJob =
+      descriptor.value("effects").toObject().value("job").toString() ==
+      "starts";
   const bool write = !descriptor.value("annotations")
                           .toObject()
                           .value("readOnlyHint")
-                          .toBool();
+                          .toBool() &&
+                     !startsJob;
   if (write)
     throw Error("read_only_document",
                 "The document is read-only; this tool changes a document.",

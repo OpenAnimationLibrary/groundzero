@@ -14,6 +14,10 @@
 #include "toonz/toonzscene.h"
 #include "toonz/txshsimplelevel.h"
 
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QThread>
+
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -323,6 +327,239 @@ void cancelAndDeadline(Context& context) {
   context.removeDocument(document.id);
 }
 
+Fixture gridLevel(Context& context, int strokes, bool computed = false) {
+  auto& document      = context.addDocument(std::make_unique<ToonzScene>());
+  const QString level = createLevel(context, document, "vector");
+  auto* simple        = document.level(level)->getSimpleLevel();
+  TVectorImageP image = new TVectorImage();
+  for (int index = 0; index < strokes; ++index) {
+    const double x = (index % 40) * 30, y = (index / 40) * 30;
+    std::vector<TThickPoint> points{
+        {x, y, 1},           {x + 20, y, 1},      {x + 40, y, 1},
+        {x + 40, y + 20, 1}, {x + 40, y + 40, 1}, {x + 20, y + 40, 1},
+        {x, y + 40, 1},      {x, y + 20, 1},      {x, y, 1}};
+    auto* stroke = new TStroke(points);
+    stroke->setSelfLoop(true);
+    stroke->setStyle(1 + index % 2);
+    image->addStroke(stroke);
+  }
+  image->setPalette(simple->getPalette());
+  if (computed) {
+    image->findRegions();
+    image->getRegion(0)->setStyle(3);
+  }
+  simple->setFrame(TFrameId(1), TImageP(image.getPointer()));
+  return {&document, level, simple};
+}
+
+// Runs the event loop in short turns until `done`, returning the longest time
+// one turn kept the application thread away from it.
+qint64 pump(const std::function<bool()>& done, int timeoutMs = 60000) {
+  QElapsedTimer total, turn;
+  total.start();
+  qint64 longest = 0;
+  while (!done() && total.elapsed() < timeoutMs) {
+    turn.start();
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+    longest = std::max<qint64>(longest, turn.elapsed());
+    QThread::msleep(1);
+  }
+  return longest;
+}
+
+void rebuildLeavesTheApplicationThread(Context& context) {
+  const auto fixture    = gridLevel(context, 1200, true);
+  Document& document    = *fixture.document;
+  JobRegistry& registry = jobRegistry(context);
+  const QString job     = jobOf(startDrawingAnalysisScheduled(
+      context, document, params(document, fixture.level, "regions"),
+      AnalysisBudget()));
+  pump([&]() { return statusOf(context, job).value("status") == "running"; });
+  registry.publish();
+  const auto polled = registry.answerPoll(job, false).toObject();
+  require(polled.value("status") == "running" &&
+              polled.value("progress").toObject().value("done").toInt() == 0,
+          "A poll during the rebuild did not show the running job");
+  const qint64 gap =
+      pump([&]() { return statusOf(context, job).value("terminal").toBool(); });
+  const auto ended = statusOf(context, job);
+  require(ended.value("status") == "completed",
+          "The threaded rebuild did not complete");
+  require(gap < 100, "The application thread was held by the rebuild");
+  const TVectorImageP source    = fixture.simple->getFrame(TFrameId(1), false);
+  const TVectorImageP reference = source->clone();
+  int painted                   = 0;
+  for (UINT index = 0; index < reference->getRegionCount(); ++index)
+    painted += reference->getRegion(index)->getStyle() != 0;
+  const auto row = resultOf(context, job).value("rows").toArray()[0].toObject();
+  require(row.value("regions").toInt() == int(reference->getRegionCount()) &&
+              row.value("painted").toInt() == painted && painted > 0,
+          "The rebuild differs from the document's own regions");
+  require(drawingAnalysisLongestSliceMs(context, job) < 50,
+          "A slice exceeded its bound");
+  require(ended.value("analysis")
+                  .toObject()
+                  .value("cost")
+                  .toObject()
+                  .value("regions_built")
+                  .toInt() > 0,
+          "The rebuild built no regions");
+  context.removeDocument(document.id);
+}
+
+void cancelDuringRebuild(Context& context) {
+  const auto fixture    = gridLevel(context, 1200, true);
+  Document& document    = *fixture.document;
+  JobRegistry& registry = jobRegistry(context);
+  const QString job     = jobOf(startDrawingAnalysisScheduled(
+      context, document, params(document, fixture.level, "regions"),
+      AnalysisBudget()));
+  pump([&]() { return statusOf(context, job).value("status") == "running"; });
+  registry.publish();
+  const auto asked = registry.answerPoll(job, true).toObject();
+  require(
+      asked.value("status") == "cancellation_requested" &&
+          asked.value("cancellation").toObject().value("requested").toBool(),
+      "A cancellation poll did not show the request at once");
+  QElapsedTimer timer;
+  timer.start();
+  pump([&]() { return statusOf(context, job).value("terminal").toBool(); });
+  require(timer.elapsed() < 200, "The cancellation waited for the rebuild");
+  const auto ended = statusOf(context, job);
+  require(ended.value("status") == "canceled" &&
+              ended.value("cancellation").toObject().value("requested_ms") ==
+                  asked.value("cancellation").toObject().value("requested_ms"),
+          "The cancellation was not recorded as asked");
+  QThread::msleep(50);
+  pump([]() { return false; }, 1500);
+  context.removeDocument(document.id);
+}
+
+void strokeBudgetAndUnreadable(Context& context) {
+  const auto fixture = vectorLevel(context, 2, 3);
+  Document& document = *fixture.document;
+  AnalysisBudget budget;
+  budget.strokes             = 8;
+  const QString job          = jobOf(startDrawingAnalysisUnscheduled(
+      context, document, params(document, fixture.level, "roles"), budget));
+  const TVectorImageP second = fixture.simple->getFrame(TFrameId(2), false);
+  TVectorImageP grown        = square(0, 0, 1, 20);
+  grown->setPalette(fixture.simple->getPalette());
+  fixture.simple->setFrame(TFrameId(2), TImageP(grown.getPointer()));
+  drain(context, job);
+  const auto ended = statusOf(context, job);
+  require(ended.value("status") == "completed" &&
+              ended.value("analysis").toObject().value("reasons") ==
+                  QJsonArray{"stroke_budget"} &&
+              ended.value("analysis").toObject().value("complete") == false,
+          "The stroke budget did not end the job");
+  TVectorImageP huge = square(0, 0, 1, 4097);
+  huge->setPalette(fixture.simple->getPalette());
+  fixture.simple->setFrame(TFrameId(1), TImageP(huge.getPointer()));
+  const QString other = jobOf(startDrawingAnalysisUnscheduled(
+      context, document,
+      [&]() {
+        auto request = params(document, fixture.level, "roles");
+        request.insert("drawing_ids", QJsonArray{drawingId(1)});
+        return request;
+      }(),
+      AnalysisBudget()));
+  drain(context, other);
+  const auto unreadable = statusOf(context, other);
+  require(unreadable.value("analysis").toObject().value("reasons") ==
+              QJsonArray{"unreadable"},
+          "An oversized drawing was not reported unreadable");
+  context.removeDocument(document.id);
+}
+
+void estimateInSlices(Context& context) {
+  auto& document      = context.addDocument(std::make_unique<ToonzScene>());
+  const QString level = createLevel(context, document, "vector", "Many");
+  auto* simple        = document.level(level)->getSimpleLevel();
+  for (int number = 1; number <= 4096; ++number) {
+    TVectorImageP image = square(0, 0, 1, 2);
+    image->setPalette(simple->getPalette());
+    simple->setFrame(TFrameId(number), TImageP(image.getPointer()));
+  }
+  QElapsedTimer timer;
+  timer.start();
+  const auto record = startDrawingAnalysisUnscheduled(
+      context, document, params(document, level, "roles"), AnalysisBudget());
+  require(timer.elapsed() < 500, "Submit waited for the whole estimate");
+  const auto estimate =
+      record.value("analysis").toObject().value("estimate").toObject();
+  require(estimate.value("drawings").toInt() == 4096 &&
+              estimate.value("strokes").toInt() == 64,
+          "Submit estimated more than its stated drawings");
+  const QString job = jobOf(record);
+  while (statusOf(context, job)
+             .value("analysis")
+             .toObject()
+             .value("estimate")
+             .toObject()
+             .value("strokes")
+             .toInt() < 4096 * 2)
+    require(stepDrawingAnalysis(context, job), "The estimate ended the job");
+  require(
+      statusOf(context, job).value("progress").toObject().value("done") == 0,
+      "A drawing was analysed while the estimate ran");
+  executeJobs(context, "job.cancel", {{"job_id", job}});
+  drain(context, job);
+  context.removeDocument(document.id);
+}
+
+void estimateOverBudgetEndsTheJob(Context& context) {
+  const auto fixture = vectorLevel(context, 100, 1);
+  Document& document = *fixture.document;
+  AnalysisBudget budget;
+  budget.strokes    = 3000;
+  const QString job = jobOf(startDrawingAnalysisUnscheduled(
+      context, document, params(document, fixture.level, "roles"), budget));
+  drain(context, job);
+  const auto ended   = statusOf(context, job);
+  const auto failure = ended.value("failure").toObject();
+  require(ended.value("status") == "failed" &&
+              failure.value("code") == "resource_limit" &&
+              failure.value("phase") == "prepare",
+          "An estimate over budget did not end the job with its refusal");
+  require(ended.value("progress").toObject().value("done") == 0,
+          "A refused job analysed drawings");
+  context.removeDocument(document.id);
+}
+
+void newJobAfterACancelledRebuild(Context& context) {
+  const auto big  = gridLevel(context, 1200, true);
+  Document& first = *big.document;
+  const QString a = jobOf(startDrawingAnalysisScheduled(
+      context, first, params(first, big.level, "regions"), AnalysisBudget()));
+  pump([&]() { return statusOf(context, a).value("status") == "running"; });
+  executeJobs(context, "job.cancel", {{"job_id", a}});
+  require(statusOf(context, a).value("status") == "canceled",
+          "The cancelled job is not canceled");
+  const auto small = vectorLevel(context, 1, 12);
+  Document& second = *small.document;
+  const QString b  = jobOf(startDrawingAnalysisScheduled(
+      context, second, params(second, small.level, "regions"),
+      AnalysisBudget()));
+  pump([&]() { return statusOf(context, b).value("terminal").toBool(); });
+  const auto ended = statusOf(context, b);
+  require(ended.value("status") == "completed",
+          "The next job did not complete");
+  TVectorImageP expected    = small.simple->getFrame(TFrameId(1), false);
+  const TVectorImageP clone = expected->clone();
+  clone->findRegions();
+  const auto rows = resultOf(context, b).value("rows").toArray();
+  require(rows.size() == 1 && rows[0].toObject().value("regions").toInt() ==
+                                  int(clone->getRegionCount()),
+          "The next job received another job's regions");
+  const auto old = statusOf(context, a);
+  require(old.value("status") == "canceled" &&
+              old.value("outputs").toObject().value("result_rows") == 0,
+          "A cancelled job received a result");
+  context.removeDocument(first.id);
+  context.removeDocument(second.id);
+}
+
 void rowLimit(Context& context) {
   const auto fixture = vectorLevel(context, 3, 4);
   Document& document = *fixture.document;
@@ -394,6 +631,17 @@ void runAutomationDrawingAnalysisTests(Context& context) {
       {"revision binding", [&context]() { revisionBinding(context); }},
       {"cancel and deadline", [&context]() { cancelAndDeadline(context); }},
       {"row limit", [&context]() { rowLimit(context); }},
+      {"rebuild leaves the application thread",
+       [&context]() { rebuildLeavesTheApplicationThread(context); }},
+      {"cancel during a rebuild",
+       [&context]() { cancelDuringRebuild(context); }},
+      {"estimate in slices", [&context]() { estimateInSlices(context); }},
+      {"estimate over budget",
+       [&context]() { estimateOverBudgetEndsTheJob(context); }},
+      {"new job after a cancelled rebuild",
+       [&context]() { newJobAfterACancelledRebuild(context); }},
+      {"stroke budget and unreadable",
+       [&context]() { strokeBudgetAndUnreadable(context); }},
       {"raster batches and pixel budget",
        [&context]() { rasterBatchesAndPixelBudget(context); }},
       {"admission and retention",

@@ -297,3 +297,24 @@ def hosted_scene_check_ends_with_its_host_and_its_worker(case: NativeAcceptance)
         time.sleep(0.05)
     case.assertFalse(_alive(host), "The scene host outlived its worker")
     case.assertEqual(_claims(case.workspace), [])
+
+
+def end_of_input_during_a_region_rebuild(case: NativeAcceptance) -> None:
+    """Input ending while one large drawing's regions are being built exits in time with
+    nothing left behind: the job is cancelled and the rebuild, on a private clone, ends with
+    the process."""
+    document, level = mcp_analysis_cases._heavy_level(case, drawings=1, strokes=2400)
+    began = time.monotonic()
+    job = mcp_analysis_cases._submit(case, document, level, check="regions")["job_id"]
+    submitted = time.monotonic() - began
+    mcp_analysis_cases._wait_started(case, job)
+    started = time.monotonic() - began
+    time.sleep(0.3)
+    status = case.success("job.status", {"job_id": job})
+    case.assertFalse(status["terminal"], (submitted, started, status["status"]))
+    elapsed, code = close_and_time(case, case.worker)
+    case.assertEqual(code, 0)
+    case.assertLess(elapsed, DEADLINE + SLACK)
+    case.assertFalse(_openmp_registration(case.worker.process.pid).exists())
+    case.assertEqual(_claims(case.workspace), [])
+    case.assertEqual(list(case.workspace.glob("renders/*")), [])

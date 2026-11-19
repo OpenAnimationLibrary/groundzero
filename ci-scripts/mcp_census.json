@@ -561,7 +561,7 @@
     "ci-scripts/mcp_acceptance.py::test_drawings_respect_native_format_number_limits",
     "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
     "ci-scripts/mcp_acceptance.py::test_drawing_analysis_lost_worker",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_retention_and_replay",
+    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_polls_during_a_long_rebuild",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
    ]
   },
@@ -911,7 +911,7 @@
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_scene_check_test.cpp"
+    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp"
    ]
   },
   "job.list": {

@@ -31,6 +31,13 @@ QJsonObject startDrawingAnalysisUnscheduled(Context& context,
                                             const QJsonObject& params,
                                             const AnalysisBudget& budget);
 bool stepDrawingAnalysis(Context& context, const QString& jobId);
+// The same job as a request starts it: slices scheduled, regions built on the
+// rebuild pool.
+QJsonObject startDrawingAnalysisScheduled(Context& context, Document& document,
+                                          const QJsonObject& params,
+                                          const AnalysisBudget& budget);
+// The longest slice the application thread spent in the job.
+qint64 drawingAnalysisLongestSliceMs(Context& context, const QString& jobId);
 void runAutomationDrawingAnalysisTests(Context& context);
 #endif
 

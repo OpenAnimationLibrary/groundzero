@@ -346,6 +346,9 @@ class NativeAcceptance(unittest.TestCase):
     def test_drawing_analysis_toonz_raster(self) -> None:
         mcp_analysis_cases.drawing_analysis_toonz_raster(self)
 
+    def test_drawing_analysis_polls_during_a_long_rebuild(self) -> None:
+        mcp_analysis_cases.drawing_analysis_polls_during_a_long_rebuild(self)
+
     def test_drawing_analysis_lost_worker(self) -> None:
         mcp_analysis_cases.drawing_analysis_lost_worker(self)
 
@@ -747,6 +750,9 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_library_unreadable_dependency_is_refused_not_hidden(self) -> None:
         mcp_library_limit_cases.library_unreadable_dependency_is_refused_not_hidden(self)
+
+    def test_end_of_input_during_a_region_rebuild(self) -> None:
+        mcp_shutdown_cases.end_of_input_during_a_region_rebuild(self)
 
     def test_end_of_input_during_an_analysis_job_is_bounded(self) -> None:
         mcp_shutdown_cases.end_of_input_during_an_analysis_job_is_bounded(self)

@@ -15,6 +15,11 @@
 #include "toonz/txshsimplelevel.h"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QMutexLocker>
+#include <QJsonDocument>
+#include <QRunnable>
+#include <QThreadPool>
 #include <QRegularExpression>
 #include <QTimer>
 
@@ -202,19 +207,29 @@ Plan readPlan(Document& document, const QJsonObject& params,
   return plan;
 }
 
+// Drawings estimated before submit returns; the job estimates the rest in
+// slices, so submit's work is bounded however large the level is.
+constexpr size_t kSubmitEstimateDrawings = 32;
+constexpr int kEstimateSliceMs           = 20;
+
+void addDrawingEstimate(TXshSimpleLevel* level, const TFrameId& frame,
+                        Estimate& estimate) {
+  const TVectorImageP image = level->getFrame(frame, false);
+  if (!image) return;
+  estimate.strokes += image->getStrokeCount();
+  for (UINT index = 0; index < image->getStrokeCount(); ++index)
+    estimate.controlPoints += image->getStroke(index)->getControlPointCount();
+}
+
+// The estimate of the first `count` drawings of a vector level, or of the
+// whole level when it is raster, whose pixels follow from its resolution.
 Estimate estimateFor(TXshSimpleLevel* level,
-                     const std::vector<TFrameId>& frames) {
+                     const std::vector<TFrameId>& frames, size_t count) {
   Estimate estimate;
   estimate.drawings = qint64(frames.size());
   if (isVectorLevel(level)) {
-    for (const TFrameId& frame : frames) {
-      const TVectorImageP image = level->getFrame(frame, false);
-      if (!image) continue;
-      estimate.strokes += image->getStrokeCount();
-      for (UINT index = 0; index < image->getStrokeCount(); ++index)
-        estimate.controlPoints +=
-            image->getStroke(index)->getControlPointCount();
-    }
+    for (size_t index = 0; index < std::min(count, frames.size()); ++index)
+      addDrawingEstimate(level, frames[index], estimate);
     return estimate;
   }
   const TDimension size = level->getProperties()->getImageRes();
@@ -244,6 +259,59 @@ QJsonObject drawingRow(const QString& kind, const QString& levelId,
           {"drawing_id", drawingJson(frame)}};
 }
 
+constexpr int kMaxDrawingStrokes = 4096;
+
+// Regions of one detached clone, copied and built off the application thread.
+// The copy reads the document's drawing under the drawing's own lock, as the
+// library's other readers do; everything after it touches only the clone.
+struct Rebuild final {
+  TVectorImageP source;
+  TVectorImageP image;
+  std::map<int, int> byStyle;
+  int regions = 0;
+  QString error;
+  std::atomic<bool> done{false};
+  // The job was cancelled: nothing is delivered and nothing shared is touched
+  // from here on, apart from a copy already under way.
+  std::atomic<bool> abandoned{false};
+};
+
+void runRebuild(const std::shared_ptr<Rebuild>& rebuild) {
+  try {
+    if (!rebuild->abandoned) {
+      {
+        QMutexLocker lock(rebuild->source->getMutex());
+        rebuild->image = rebuild->source->cloneWithoutRegions();
+      }
+      rebuild->source = TVectorImageP();
+      rebuild->image->findRegions();
+      rebuild->regions = int(rebuild->image->getRegionCount());
+      for (int index = 0; index < rebuild->regions; ++index)
+        ++rebuild->byStyle[rebuild->image->getRegion(index)->getStyle()];
+    }
+  } catch (const std::exception& error) {
+    rebuild->error = QString::fromUtf8(error.what());
+  } catch (...) {
+    rebuild->error = "The native region rebuild raised an unrecognized error.";
+  }
+  rebuild->source = TVectorImageP();
+  rebuild->image  = TVectorImageP();
+  rebuild->done   = true;
+}
+
+// One region rebuild runs at a time, as the lane admits one analysis job; a
+// cancelled job's rebuild runs to its end on the same thread, so the next job's
+// rebuild waits for it. The worker does not wait for a rebuild at exit: the
+// task works on a private clone, and the process ends with it.
+QThreadPool& rebuildPool() {
+  static QThreadPool* pool = []() {
+    auto* created = new QThreadPool();
+    created->setMaxThreadCount(1);
+    return created;
+  }();
+  return *pool;
+}
+
 class DrawingAnalysisJob final
     : public Job,
       public std::enable_shared_from_this<DrawingAnalysisJob> {
@@ -260,6 +328,8 @@ public:
   std::vector<QJsonObject> rows;
   std::map<int, StyleTotal> totals;
   size_t next = 0;
+  // The first drawing whose strokes the estimate has not counted yet.
+  size_t estimateNext = 0;
   std::atomic<qint64> interruptMs{-1};
 
   QString id() const override { return common.id; }
@@ -279,14 +349,28 @@ public:
     const qint64 asked     = interruptMs.load();
     common.cancelRequested = true;
     common.cancelMs        = asked >= 0 ? asked : now();
+    // A region rebuild in flight cannot be stopped, but its result is no
+    // longer wanted: the job ends now and the task, which works on a private
+    // clone and touches nothing shared, finishes unseen or ends with the
+    // process.
+    if (m_pending && !terminal()) {
+      m_pending->rebuild->abandoned = true;
+      m_pending.reset();
+      finish(State::Canceled);
+    }
   }
 
-  // The work runs in application-thread slices that check cancel() between
-  // them, so an interrupt only records when the request was made.
+  // Any thread: a poll's cancellation, recorded as made at `requestedMs`
+  // until cancel() runs on the application thread.
   void interrupt(qint64 requestedMs) override {
     qint64 unset = -1;
     interruptMs.compare_exchange_strong(unset, requestedMs);
   }
+
+  // Run region rebuilds in the slice (test hook for stepping by hand).
+  bool rebuildInline = false;
+  // The longest slice the application thread spent in this job.
+  qint64 longestSliceMs = 0;
 
   qint64 now() const { return jobRegistry(*context).elapsedMs(); }
 
@@ -308,7 +392,18 @@ private:
     std::vector<qint64> paint;
   };
   std::optional<RasterScan> m_raster;
+  struct Pending final {
+    TFrameId frame;
+    std::map<int, int> strokes;
+    std::shared_ptr<Rebuild> rebuild;
+  };
+  std::optional<Pending> m_pending;
 
+  void rebuilt() {
+    if (!terminal()) schedule();
+  }
+  bool startRebuild(const TFrameId& frame, const TVectorImageP& image);
+  bool finishRebuild();
   // Each slice is a posted event, so the event loop does not go idle while
   // the job runs; publishing here keeps polls answered elsewhere current.
   void tick() {
@@ -317,17 +412,21 @@ private:
     if (more) schedule();
   }
   bool guardedStep();
+  bool estimateSlice();
   void requireRevision() const;
   bool processDrawing();
   bool stepRaster();
-  void analyzeVector(const TFrameId& frame, const TVectorImageP& image,
-                     std::vector<QJsonObject>& out,
-                     std::map<int, StyleTotal>& drawingTotals);
+  bool roleRow(const TFrameId& frame, const TVectorImageP& image);
+  void regionRows(const Pending& pending, std::vector<QJsonObject>& out,
+                  std::map<int, StyleTotal>& drawingTotals);
+  bool admitDrawing(const std::vector<QJsonObject>& drawingRows,
+                    const std::map<int, StyleTotal>& drawingTotals);
   bool admitRows(const std::vector<QJsonObject>& drawingRows);
   bool stopForBudget(const QString& reason);
   void markUnreadable();
   void finish(State end);
-  void fail(const QString& code, const QString& message);
+  void fail(const QString& code, const QString& message,
+            const QString& phase = "analyze");
   void appendTotals();
   void addTotal(int style, const StyleTotal& amount);
   bool wantsStyle(int style) const {
@@ -442,9 +541,10 @@ void DrawingAnalysisJob::requireRevision() const {
                 {{"revision", document.revisionText()}});
 }
 
-void DrawingAnalysisJob::fail(const QString& code, const QString& message) {
+void DrawingAnalysisJob::fail(const QString& code, const QString& message,
+                              const QString& phase) {
   common.failure = QJsonObject{
-      {"code", code}, {"phase", "analyze"}, {"message", message.left(2048)}};
+      {"code", code}, {"phase", phase}, {"message", message.left(2048)}};
   rows.clear();
   totals.clear();
   reasons.clear();
@@ -493,6 +593,8 @@ bool DrawingAnalysisJob::guardedStep() {
       return false;
     }
     requireRevision();
+    if (estimateNext < plan.frames.size()) return estimateSlice();
+    if (m_pending) return m_pending->rebuild->done && finishRebuild();
     if (m_raster) return stepRaster();
     if (next >= plan.frames.size()) {
       finish(State::Completed);
@@ -509,9 +611,40 @@ bool DrawingAnalysisJob::guardedStep() {
   return false;
 }
 
+// The first phase of a job whose level is larger than submit estimates: count
+// the remaining drawings' strokes for a few milliseconds per slice, then refuse
+// the whole request, as submit would have, if the estimate is over budget.
+bool DrawingAnalysisJob::estimateSlice() {
+  auto* level = context->document(common.documentId)
+                    .level(plan.levelId)
+                    ->getSimpleLevel();
+  QElapsedTimer timer;
+  timer.start();
+  do {
+    addDrawingEstimate(level, plan.frames[estimateNext], estimate);
+    ++estimateNext;
+  } while (estimateNext < plan.frames.size() &&
+           timer.elapsed() < kEstimateSliceMs);
+  try {
+    refuseOverBudget(estimate, plan, budget);
+  } catch (const Error& error) {
+    fail(error.code,
+         error.message + " " +
+             QString::fromUtf8(
+                 QJsonDocument(error.details).toJson(QJsonDocument::Compact)),
+         "prepare");
+    return false;
+  }
+  return true;
+}
+
 bool DrawingAnalysisJob::step() {
   if (terminal()) return false;
-  return guardedStep();
+  QElapsedTimer timer;
+  timer.start();
+  const bool more = guardedStep();
+  longestSliceMs  = std::max<qint64>(longestSliceMs, timer.elapsed());
+  return more;
 }
 
 bool DrawingAnalysisJob::admitRows(
@@ -548,57 +681,52 @@ void DrawingAnalysisJob::appendTotals() {
   }
 }
 
-void DrawingAnalysisJob::analyzeVector(
-    const TFrameId& frame, const TVectorImageP& image,
-    std::vector<QJsonObject>& out, std::map<int, StyleTotal>& drawingTotals) {
-  cost.strokesScanned += image->getStrokeCount();
-  if (plan.check == Check::Roles) {
-    const DrawingRoles roles = drawingRoles(*image);
-    QJsonObject row          = drawingRow("role_summary", plan.levelId, frame);
-    for (int role = 0; role < 4; ++role)
-      row.insert(roleName(role), roles.counts[role]);
-    row.insert("layered", roles.layered);
-    row.insert("colour_first", roles.colourFirst < 0
-                                   ? QJsonValue()
-                                   : QJsonValue(roles.colourFirst));
-    row.insert("colour_last", roles.colourLast < 0
-                                  ? QJsonValue()
-                                  : QJsonValue(roles.colourLast));
-    out.push_back(row);
-    return;
-  }
-  const TVectorImageP detached = image->clone();
-  detached->findRegions();
-  const int regionCount = int(detached->getRegionCount());
-  cost.regionsBuilt += regionCount;
-  std::map<int, int> byStyle;
-  for (int index = 0; index < regionCount; ++index)
-    ++byStyle[detached->getRegion(index)->getStyle()];
+bool DrawingAnalysisJob::roleRow(const TFrameId& frame,
+                                 const TVectorImageP& image) {
+  const DrawingRoles roles = drawingRoles(*image);
+  QJsonObject row          = drawingRow("role_summary", plan.levelId, frame);
+  for (int role = 0; role < 4; ++role)
+    row.insert(roleName(role), roles.counts[role]);
+  row.insert("layered", roles.layered);
+  row.insert("colour_first", roles.colourFirst < 0
+                                 ? QJsonValue()
+                                 : QJsonValue(roles.colourFirst));
+  row.insert("colour_last", roles.colourLast < 0
+                                ? QJsonValue()
+                                : QJsonValue(roles.colourLast));
+  return admitDrawing({row}, {});
+}
+
+void DrawingAnalysisJob::regionRows(const Pending& pending,
+                                    std::vector<QJsonObject>& out,
+                                    std::map<int, StyleTotal>& drawingTotals) {
+  const Rebuild& built = *pending.rebuild;
   if (plan.check == Check::Regions) {
     QJsonArray styles;
     int painted = 0;
-    for (const auto& [style, count] : byStyle) {
+    for (const auto& [style, count] : built.byStyle) {
       if (style != 0) painted += count;
       if (styles.size() < kRegionStyleRows)
         styles.append(QJsonObject{{"style_id", style}, {"regions", count}});
     }
-    QJsonObject row = drawingRow("region_summary", plan.levelId, frame);
-    row.insert("regions", regionCount);
+    QJsonObject row = drawingRow("region_summary", plan.levelId, pending.frame);
+    row.insert("regions", built.regions);
     row.insert("painted", painted);
-    row.insert("unpainted", regionCount - painted);
+    row.insert("unpainted", built.regions - painted);
     row.insert("by_style", styles);
-    row.insert("by_style_truncated", int(byStyle.size()) > kRegionStyleRows);
+    row.insert("by_style_truncated",
+               int(built.byStyle.size()) > kRegionStyleRows);
     row.insert("built_on", "detached_clone");
     out.push_back(row);
     return;
   }
   std::map<int, StyleTotal> usage;
-  for (const auto& [style, strokes] : strokeStyleUsage(*image))
+  for (const auto& [style, strokes] : pending.strokes)
     usage[style].strokes = strokes;
-  for (const auto& [style, count] : byStyle) usage[style].regions = count;
+  for (const auto& [style, count] : built.byStyle) usage[style].regions = count;
   for (const auto& [style, amount] : usage) {
     if (!wantsStyle(style)) continue;
-    QJsonObject row = drawingRow("style_usage", plan.levelId, frame);
+    QJsonObject row = drawingRow("style_usage", plan.levelId, pending.frame);
     row.insert("style_id", style);
     row.insert("strokes", double(amount.strokes));
     row.insert("regions", double(amount.regions));
@@ -607,6 +735,57 @@ void DrawingAnalysisJob::analyzeVector(
     out.push_back(row);
     drawingTotals[style] = amount;
   }
+}
+
+bool DrawingAnalysisJob::admitDrawing(
+    const std::vector<QJsonObject>& drawingRows,
+    const std::map<int, StyleTotal>& drawingTotals) {
+  if (!admitRows(drawingRows)) return stopForBudget("row_limit");
+  for (const auto& [style, amount] : drawingTotals) addTotal(style, amount);
+  ++next;
+  ++cost.drawingsDone;
+  return true;
+}
+
+// The clone is made here; its regions are built on the rebuild pool so the
+// application thread keeps answering. Returns whether slices remain to run.
+bool DrawingAnalysisJob::startRebuild(const TFrameId& frame,
+                                      const TVectorImageP& image) {
+  Pending pending;
+  pending.frame           = frame;
+  pending.strokes         = strokeStyleUsage(*image);
+  pending.rebuild         = std::make_shared<Rebuild>();
+  pending.rebuild->source = image;
+  const auto rebuild      = pending.rebuild;
+  m_pending               = std::move(pending);
+  if (rebuildInline) {
+    runRebuild(rebuild);
+    return finishRebuild();
+  }
+  const auto self = std::weak_ptr<DrawingAnalysisJob>(shared_from_this());
+  rebuildPool().start(QRunnable::create([rebuild, self]() {
+    runRebuild(rebuild);
+    if (rebuild->abandoned) return;
+    QMetaObject::invokeMethod(
+        QCoreApplication::instance(),
+        [self]() {
+          if (const auto job = self.lock()) job->rebuilt();
+        },
+        Qt::QueuedConnection);
+  }));
+  return false;
+}
+
+bool DrawingAnalysisJob::finishRebuild() {
+  const Pending pending = std::move(*m_pending);
+  m_pending.reset();
+  if (!pending.rebuild->error.isEmpty())
+    throw Error("native_error", pending.rebuild->error);
+  cost.regionsBuilt += pending.rebuild->regions;
+  std::vector<QJsonObject> drawingRows;
+  std::map<int, StyleTotal> drawingTotals;
+  regionRows(pending, drawingRows, drawingTotals);
+  return admitDrawing(drawingRows, drawingTotals);
 }
 
 bool DrawingAnalysisJob::processDrawing() {
@@ -618,14 +797,13 @@ bool DrawingAnalysisJob::processDrawing() {
   if (const TVectorImageP vector = image) {
     if (cost.strokesScanned + qint64(vector->getStrokeCount()) > budget.strokes)
       return stopForBudget("stroke_budget");
-    std::vector<QJsonObject> drawingRows;
-    std::map<int, StyleTotal> drawingTotals;
-    analyzeVector(frame, vector, drawingRows, drawingTotals);
-    if (!admitRows(drawingRows)) return stopForBudget("row_limit");
-    for (const auto& [style, amount] : drawingTotals) addTotal(style, amount);
-    ++next;
-    ++cost.drawingsDone;
-    return true;
+    if (vector->getStrokeCount() > kMaxDrawingStrokes) {
+      markUnreadable();
+      return true;
+    }
+    cost.strokesScanned += vector->getStrokeCount();
+    if (plan.check == Check::Roles) return roleRow(frame, vector);
+    return startRebuild(frame, vector);
   }
   if (const TToonzImageP raster = image) {
     const TRasterCM32P pixels = raster->getRaster();
@@ -756,17 +934,21 @@ std::shared_ptr<DrawingAnalysisJob> startAnalysis(
   const Plan plan       = readPlan(document, params, budget);
   JobRegistry& registry = jobRegistry(context);
   registry.admitAnalysis({}, 0);
-  auto* level             = document.level(plan.levelId)->getSimpleLevel();
-  const Estimate estimate = estimateFor(level, plan.frames);
+  auto* level = document.level(plan.levelId)->getSimpleLevel();
+  const Estimate estimate =
+      estimateFor(level, plan.frames, kSubmitEstimateDrawings);
   refuseOverBudget(estimate, plan, budget);
-  auto job                = std::make_shared<DrawingAnalysisJob>();
-  job->context            = &context;
-  job->budget             = budget;
-  job->plan               = plan;
-  job->estimate           = estimate;
-  job->common.id          = registry.newJobId();
-  job->common.kind        = "drawing_analysis";
-  job->common.lane        = JobLane::Analysis;
+  auto job          = std::make_shared<DrawingAnalysisJob>();
+  job->context      = &context;
+  job->budget       = budget;
+  job->plan         = plan;
+  job->estimate     = estimate;
+  job->estimateNext = isVectorLevel(level) ? std::min(kSubmitEstimateDrawings,
+                                                      plan.frames.size())
+                                           : plan.frames.size();
+  job->common.id    = registry.newJobId();
+  job->common.kind  = "drawing_analysis";
+  job->common.lane  = JobLane::Analysis;
   job->common.documentId  = document.id;
   job->common.revision    = document.revisionText();
   job->common.request     = plan.request;
@@ -790,13 +972,29 @@ QJsonObject startDrawingAnalysisUnscheduled(Context& context,
                                             Document& document,
                                             const QJsonObject& params,
                                             const AnalysisBudget& budget) {
-  return startAnalysis(context, document, params, budget)->record();
+  const auto job     = startAnalysis(context, document, params, budget);
+  job->rebuildInline = true;
+  return job->record();
+}
+
+QJsonObject startDrawingAnalysisScheduled(Context& context, Document& document,
+                                          const QJsonObject& params,
+                                          const AnalysisBudget& budget) {
+  const auto job = startAnalysis(context, document, params, budget);
+  job->schedule();
+  return job->record();
 }
 
 bool stepDrawingAnalysis(Context& context, const QString& jobId) {
   const auto job = std::dynamic_pointer_cast<DrawingAnalysisJob>(
       jobRegistry(context).require(jobId));
   return job && job->step();
+}
+
+qint64 drawingAnalysisLongestSliceMs(Context& context, const QString& jobId) {
+  const auto job = std::dynamic_pointer_cast<DrawingAnalysisJob>(
+      jobRegistry(context).require(jobId));
+  return job ? job->longestSliceMs : -1;
 }
 #endif
 
