@@ -7,7 +7,12 @@
 #include <QString>
 #include <QStringList>
 
+class QIODevice;
+
 namespace GroundzeroAutomation {
+
+/// How much of a file intake reads to find its header.
+constexpr int IntakeHeaderBytes = 262144;
 
 /// What the first bytes of a file say it is, read without decoding.
 ///
@@ -33,14 +38,28 @@ struct ImageHeader final {
   double dpiY   = 0;
   // gamma, srgb, icc_profile, chromaticities: present and not applied.
   QStringList colorMetadata;
+  // grey8, grey_alpha8, rgb8, rgba16, indexed4, rgb5 and so on.
+  QString pixel;
+  // Why a well-formed header names a variant intake refuses (multi_page,
+  // cmyk, planar, photometric); empty otherwise.
+  QString unsupported;
 
-  /// grey1..grey16, grey_alpha8, rgb8, rgba16, indexed4 and so on.
+  /// The pixel layout when the header is valid, else empty.
   QString pixelFormat() const;
 };
 
-/// Read a header from the first bytes of a file; `name` gives the extension
-/// for formats without a signature.
-ImageHeader readImageHeader(const QByteArray& head, const QString& name);
+/// Read a header from the start of a device, seeking within it for TIFF
+/// directories; `name` gives the extension for formats without a signature.
+ImageHeader readImageHeader(QIODevice& device, const QString& name);
+/// The same over bytes already read.
+ImageHeader readImageHeader(const QByteArray& bytes, const QString& name);
+
+/// The extension the contained decoder writes for an intake format, or empty
+/// for a format no native reader is admitted for.
+QString decoderExtension(const QString& format);
+
+/// Helper side of the contained decode (parse kind image_decode:<ext>).
+QJsonObject intakeDecodeSummary(Context& context, const QString& extension);
 
 /// One file name parsed as a native dotted sequence member
 /// `<prefix>.<digits>.<extension>`.

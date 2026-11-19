@@ -18,7 +18,7 @@ namespace {
 const QStringList& jobKinds() {
   static const QStringList kinds{"render_preview", "render_sequence",
                                  "neural_preview", "drawing_analysis",
-                                 "scene_check"};
+                                 "scene_check",    "intake_import"};
   return kinds;
 }
 

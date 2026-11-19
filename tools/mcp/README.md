@@ -351,42 +351,65 @@ use frames 0–65535 for vector levels and 0–999999 for Toonz raster levels. C
 the running catalog for the remaining operation-specific bounds.
 
 The `intake` toolset brings images in with every choice stated. Sources come from one
-directory in a granted root (`source_directory`): either `file_names` (1 to 256 plain
+directory in a granted root (`source_directory`): either `file_names` (1 to 4096 plain
 names, drawings 1, 2, 3 … in that order) or a numbered sequence `<prefix>.<digits>.<ext>`
 (`sequence_prefix`, `sequence_extension`; drawing numbers are the frame numbers, 1 to
-999999, one padding width per sequence).
+999999, one padding width per sequence). All files of one level share one format and size.
+
+Admitted formats: PNG with 1 to 16 bits per sample, uncompressed TIFF (8 or 16 bits, one
+page, chunky, not CMYK), baseline or progressive JPEG (8-bit, grey or colour), BMP and
+TGA. 8-bit PNG is decoded by the worker; every other admitted file is decoded by the
+native reader in a short-lived contained helper (10 s, 1 GiB), which hands back 8-bit
+premultiplied pixels. Everything else is refused by name with `unsupported_format`
+(compressed or multi-page TIFF with the reason `tiff_compression` or `multi_page`),
+32-bit samples with `unsupported_precision`. A header that disagrees with its file is
+`invalid_asset`: pixel rows missing from an uncompressed BMP, TGA or TIFF
+(`truncated_pixels`), a JPEG without its end marker (`truncated_data`), or a decoded size
+that differs from the header (`header_mismatch`). Native readers decode a corrupt JPEG
+entropy stream without an error, so such damage shows as wrong pixels, not a refusal.
 
 - `intake.preflight` reads headers only, never decodes and changes nothing. Each file
   row gives its format from the file's signature (PNG, JPEG, TIFF, GIF, BMP, WebP, PSD,
   OpenEXR, SVG, MP4 and others by name), size, sample depth, pixel format, alpha
-  (`channel`, `transparency_chunk` or `none`), DPI from `pHYs`, colour metadata
-  (`gamma`, `srgb`, `icc_profile`: reported, never applied) and a `status`: `supported`
-  or the code an import would answer. The report adds the sequence's first and last
-  frame, gaps and repeated numbers, a summary (uniform size and DPI, alpha count), the
-  frame-rate handling (images carry no rate; one source frame is one row at the scene's
-  rate), the destination name's collision, whether a link is possible, the blockers and
-  a `plan_digest`. Rows are paged with `offset` and `limit` (default 64).
-- `intake.import` makes one RGBA8 level from up to 64 files and 64 megapixels; larger
-  sets answer `resource_limit` with the limit `inline_import` in its details. Every choice the
-  editor asks in a dialog is an argument: `storage` (`copy` writes a byte-identical
-  private copy of each file and returns the manifest of copies with their SHA-256;
-  `link` copies nothing and keeps the level's native path on the source sequence, for
-  sequences only), `on_existing` (`refuse`, or `reuse_identical`, which returns the
-  existing level with `outcome: reused` and no revision change when its recorded sources
-  have the same SHA-256, and `name_conflict` listing the differences otherwise),
-  `dpi_policy` (`source`, which needs one `pHYs` density in every file, or `value` with
-  `dpi`), `on_gap` (`refuse` by default, `hold` or `blank` for missing frames) and
-  `exposure` (`none`, or `new_column` from `start_frame`). Only PNG up to 8 bits per
-  sample is imported (`unsupported_format` names the format of anything else,
-  `unsupported_precision` refuses 16-bit); a header that disagrees with the decoded
-  image is `invalid_asset`. Passing the preflight's `plan_digest` refuses the import
-  with `source_changed` when a file changed since. Nothing is ever overwritten.
+  (`channel`, `transparency_chunk` or `none`), DPI (`pHYs`, TIFF resolution, JFIF density,
+  BMP pixels per metre), colour metadata (`gamma`, `srgb`, `icc_profile`: reported, never
+  applied) and a `status`: `supported` or the code an import would answer. The report
+  adds the sequence's first and last frame, gaps and repeated numbers, a summary (uniform
+  size and DPI, alpha count), the frame-rate handling (images carry no rate; one source
+  frame is one row at the scene's rate), the destination name's collision, whether a link
+  is possible, `execution` (`inline` or `job`), the blockers and a `plan_digest`. Rows are
+  paged with `offset` and `limit` (default 64).
+- `intake.import` makes one RGBA8 level. Every choice the editor asks in a dialog is an
+  argument: `storage` (`copy` writes a byte-identical private copy of each file and
+  returns the manifest of copies with their SHA-256; `link` copies nothing and keeps the
+  level's native path on the source sequence, for sequences only), `on_existing`
+  (`refuse`, or `reuse_identical`, which returns the existing level with
+  `outcome: reused` and no revision change when its recorded sources have the same
+  SHA-256, and `name_conflict` listing the differences otherwise), `dpi_policy` (`source`,
+  which needs one density in every file, or `value` with `dpi`), `on_gap` (`refuse` by
+  default, `hold` or `blank` for missing frames) and `exposure` (`none`, or `new_column`
+  from `start_frame`). Each drawing row names its `decoder` and its `conversion` steps:
+  `depth_16_to_8_rounded`, `expanded_to_rgba8`, `opaque_alpha_added`, `lossy_source`,
+  `fourth_byte_ignored` (32-bit BMP), `straight_alpha_premultiplied` (TGA and 16-bit TIFF,
+  whose native readers return straight alpha). Passing the preflight's `plan_digest`
+  refuses the import with `source_changed` when a file changed since. Nothing is ever
+  overwritten.
+- Up to 64 8-bit PNG files and 64 megapixels import in the call. Anything longer, and
+  every helper-decoded format, returns `outcome: job_started` with the job record: a job
+  of kind `intake_import` on the analysis lane (`analysis_busy` while another runs),
+  up to 4096 files within the document's limits and 512 MiB of private copies. It decodes
+  one file per slice off the application thread, publishes its record after each one
+  (`progress.unit: files`) and cancels promptly. At its end it applies the import as one
+  change of the document, which advances the revision by one, and only if the document is
+  still at the submitted revision; otherwise it fails with `revision_changed`. A canceled
+  or failed job leaves no level, copy or staging folder. `job.result` pages the drawing
+  rows (`copy_name` included) and returns the import result as `summary`.
 - `intake.provenance` reads a level's import record: storage, source directory, each
-  drawing's source name, size and SHA-256, and whether each source still has the size and
-  modification time it had (`unchanged`, `modified`, `missing`, `unreachable`). The
-  drawings are decoded at import, so a later change of a source never changes the
-  document. Records travel with `scene.save_copy` (manifest key `intake`) and come back
-  with `scene.open`, where `level_path` reads `package`.
+  drawing's source name, size, SHA-256, decoder and conversion, and whether each source
+  still has the size and modification time it had (`unchanged`, `modified`, `missing`,
+  `unreachable`). The drawings are decoded at import, so a later change of a source never
+  changes the document. Records travel with `scene.save_copy` (manifest key `intake`) and
+  come back with `scene.open`, where `level_path` reads `package`.
 
 `vector.export_svg` writes one vector drawing to a new `.svg` path through the native
 writer, as filled outlines or centerline strokes (`stroke_mode`). Only the verified

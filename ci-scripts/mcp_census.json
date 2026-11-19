@@ -208,18 +208,24 @@
    "tokens": [
     "JPEG"
    ],
-   "role": "image intake",
-   "state": "refused",
-   "reason": "intake.preflight names the format from its signature; intake.import returns unsupported_format"
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
   },
   {
    "id": "tiff",
    "tokens": [
     "TIFF"
    ],
-   "role": "image intake",
-   "state": "refused",
-   "reason": "intake.preflight names the format from its signature; intake.import returns unsupported_format"
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
   },
   {
    "id": "gif",
@@ -235,9 +241,24 @@
    "tokens": [
     "BMP"
    ],
-   "role": "image intake",
-   "state": "refused",
-   "reason": "intake.preflight names the format from its signature; intake.import returns unsupported_format"
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
+  },
+  {
+   "id": "tga",
+   "tokens": [
+    "TGA"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
   }
  ],
  "tools": {

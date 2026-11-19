@@ -153,6 +153,57 @@ void testMalformedHeaders() {
   }
 }
 
+// The non-PNG header readers on mutated input: refused or well formed, and
+// never reading past what they were given.
+void testOtherHeaderReaders() {
+  QByteArray bmp, jpeg;
+  {
+    QBuffer buffer(&bmp);
+    buffer.open(QIODevice::WriteOnly);
+    require(gradient(QImage::Format_RGB32).save(&buffer, "BMP"), "BMP fixture");
+  }
+  {
+    QBuffer buffer(&jpeg);
+    buffer.open(QIODevice::WriteOnly);
+    require(gradient(QImage::Format_RGB32).save(&buffer, "JPG"),
+            "JPEG fixture");
+  }
+  const QByteArray tga =
+      QByteArray::fromHex("000002000000000000000000050003002008") +
+      QByteArray(5 * 3 * 4, '\x7f');
+  const ImageHeader bmpHeader = readImageHeader(bmp, "a.bmp");
+  require(bmpHeader.valid && bmpHeader.width == 5 && bmpHeader.height == 3,
+          "BMP header size");
+  const ImageHeader jpegHeader = readImageHeader(jpeg, "a.jpg");
+  require(jpegHeader.valid && jpegHeader.width == 5 &&
+              jpegHeader.pixelFormat() == "rgb8",
+          "JPEG frame header");
+  const ImageHeader tgaHeader = readImageHeader(tga, "a.tga");
+  require(
+      tgaHeader.valid && tgaHeader.width == 5 && tgaHeader.alpha == "channel",
+      "TGA header");
+  require(readImageHeader(tga.left(40), "a.tga").problem == "truncated_pixels",
+          "a TGA without all its pixels is refused");
+  require(readImageHeader(jpeg.left(jpeg.size() - 2), "a.jpg").problem ==
+              "truncated_data",
+          "a JPEG without its end marker is refused");
+  std::mt19937 random(20261120);
+  std::uniform_int_distribution<int> byte(0, 255);
+  for (const auto& sample : {std::make_pair(bmp, QString("a.bmp")),
+                             std::make_pair(jpeg, QString("a.jpg")),
+                             std::make_pair(tga, QString("a.tga"))})
+    for (int round = 0; round < 3000; ++round) {
+      QByteArray mutated = sample.first;
+      std::uniform_int_distribution<int> at(0, mutated.size() - 1);
+      for (int count = 0; count < 3; ++count)
+        mutated[at(random)] = char(byte(random));
+      const ImageHeader header =
+          readImageHeader(mutated.left(at(random) + 1), sample.second);
+      require(!header.valid || (header.width > 0 && header.height > 0),
+              "a mutated header is refused or well formed");
+    }
+}
+
 void testSignatures() {
   const struct {
     QByteArray head;
@@ -256,6 +307,7 @@ void runAutomationIntakeTests(Context&) {
   testAncillaryChunks();
   testMalformedHeaders();
   testSignatures();
+  testOtherHeaderReaders();
   testSequenceNames();
   testNativeSequencePath();
   testSvgWriter();

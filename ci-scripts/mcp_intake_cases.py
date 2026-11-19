@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from xml.etree import ElementTree
 
+import mcp_image_fixtures as fixtures
 from mcp_case import acceptance_case
 from mcp_png import SIGNATURE
 from mcp_vector_opacity_cases import _fixture as _vector_fixture
@@ -166,11 +167,13 @@ def intake_names_and_refuses_unsupported_formats(case: NativeAcceptance) -> None
     source = case.inputs / "formats"
     source.mkdir()
     files = {
-        "photo.png": (b"\xff\xd8\xff\xe0\x00\x10JFIF\x00", "jpeg", "unsupported_format"),
-        "scan.png": (b"II*\x00\x08\x00\x00\x00", "tiff", "unsupported_format"),
+        "photo.png": (b"\xff\xd8\xff\xe0\x00\x10JFIF\x00", "jpeg", "invalid_asset"),
+        "scan.png": (b"II*\x00\x08\x00\x00\x00", "tiff", "invalid_asset"),
+        "pages.tif": (fixtures.tiff(pages=2), "tiff", "unsupported_format"),
         "layers.png": (b"8BPS\x00\x01\x00\x00", "psd", "unsupported_format"),
         "vector.png": (b'<?xml version="1.0"?><svg xmlns="x"/>', "svg", "unsupported_format"),
-        "deep.png": (png(depth=16), "png", "unsupported_precision"),
+        "anim.png": (b"GIF89a\x01\x00\x01\x00", "gif", "unsupported_format"),
+        "light.png": (bytes.fromhex("762f310102000000"), "exr", "unsupported_format"),
         "broken.png": (SIGNATURE + b"\x00\x00\x00\x0dIHDX", "png", "invalid_asset"),
     }
     for name, (data, _format, _code) in files.items():
@@ -354,10 +357,6 @@ def intake_requires_explicit_choices_and_honest_headers(case: NativeAcceptance) 
         case, document, "invalid_params", **_source(mixed, file_names=["a.png", "b.png"])
     )
     case.assertEqual(error["details"]["reason"], "mixed_size")
-    many = case.inputs / "many"
-    _sequence(many, list(range(1, 66)), size=(1, 1))
-    error = _refused(case, document, "resource_limit", **_source(many))
-    case.assertEqual(error["details"]["limit"], "inline_import")
     lying = case.inputs / "lying"
     lying.mkdir()
     (lying / "big.png").write_bytes(png(size=(4, 4), header_size=(64, 64)))
@@ -405,3 +404,310 @@ def vector_svg_export_states_its_verified_subset(case: NativeAcceptance) -> None
     )
     case.assertEqual(error["details"]["reason"], "opacity_envelope")
     case.assertFalse((case.workspace / "envelope.svg").exists())
+
+
+TERMINAL = {"completed", "failed", "canceled", "deadline_exceeded"}
+
+
+def _job(case: NativeAcceptance, started: dict[str, Any]) -> dict[str, Any]:
+    """Wait for an import job and return its terminal record."""
+    case.assertEqual(started["outcome"], "job_started", started)
+    record = started["job"]
+    case.assertEqual((record["kind"], record["lane"]), ("intake_import", "analysis"))
+    return case.wait_job(record["job_id"])
+
+
+def _job_rows(case: NativeAcceptance, job: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Read every row of a completed import job, page by page."""
+    rows: list[dict[str, Any]] = []
+    offset: int | None = 0
+    summary: dict[str, Any] = {}
+    while offset is not None:
+        page = case.success("job.result", {"job_id": job, "offset": offset, "limit": 64})
+        summary = page["summary"]
+        rows.extend(page["rows"])
+        offset = page["next_offset"]
+    return summary, rows
+
+
+def _left_behind(case: NativeAcceptance) -> list[str]:
+    """Import staging and decode folders, and private level copies, under the workspace."""
+    found = [
+        str(path)
+        for path in case.workspace.rglob("*")
+        if path.name.startswith(("intake-", "svg-")) or path.parent.name == "levels"
+    ]
+    return sorted(found)
+
+
+def _pixels_match(
+    case: NativeAcceptance, document: str, level: str, alpha: bool, tolerance: int
+) -> None:
+    """Compare drawing 1 with the fixture pattern; pixels are premultiplied, rows bottom-up."""
+    target = {"level_id": level, "drawing_id": {"number": 1, "suffix": ""}}
+    window = {"coordinate_space": "raster_pixels_lower_left", "x": 0, "y": 0}
+    size = {"width": fixtures.WIDTH, "height": fixtures.HEIGHT}
+    read = case.success(
+        "raster.read_pixels", {"document_id": document, **target, **window, **size}
+    )["pixels"]
+    for index, pixel in enumerate(read):
+        x, y = index % fixtures.WIDTH, fixtures.HEIGHT - 1 - index // fixtures.WIDTH
+        red, green, blue, opacity = fixtures.pattern(x, y, alpha=alpha)
+        expected = [round(value * opacity / 255) for value in (red, green, blue)] + [opacity]
+        actual = [pixel["r"], pixel["g"], pixel["b"], pixel["a"]]
+        for got, want in zip(actual, expected, strict=True):
+            case.assertLessEqual(abs(got - want), tolerance, (x, y, actual, expected))
+
+
+FORMAT_CASES = {
+    "png16": ("deep.png", fixtures.png16, "png", "rgba16", True, "depth_16_to_8_rounded"),
+    "tiff8": ("scan8.tif", fixtures.tiff, "tiff", "rgba8", True, None),
+    "tiff16": (
+        "scan16.tif",
+        lambda: fixtures.tiff(depth=16),
+        "tiff",
+        "rgba16",
+        True,
+        "straight_alpha_premultiplied",
+    ),
+    "bmp": ("flat.bmp", fixtures.bmp, "bmp", "rgb8", False, "opaque_alpha_added"),
+    "tga": ("paint.tga", fixtures.tga, "tga", "rgba8", True, "straight_alpha_premultiplied"),
+}
+
+
+@acceptance_case
+def intake_imports_each_admitted_format_with_its_conversion(case: NativeAcceptance) -> None:
+    """16-bit PNG, TIFF, BMP and TGA decode in the contained helper and state each conversion.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    document = case.create("Formats")
+    for label, (name, encode, kind, pixel, alpha, step) in FORMAT_CASES.items():
+        with case.subTest(format=label):
+            source = case.inputs / f"format-{label}"
+            source.mkdir()
+            data = encode()
+            (source / name).write_bytes(data)
+            selection = _source(source, file_names=[name])
+            row = _preflight(case, document, **selection)["files"][0]
+            case.assertEqual((row["format"], row["pixel_format"]), (kind, pixel))
+            case.assertEqual(row["status"], "supported")
+            started = _import(case, document, **selection, name=label, dpi_policy="value", dpi=72)
+            case.assertEqual(_job(case, started)["status"], "completed")
+            summary, rows = _job_rows(case, started["job"]["job_id"])
+            case.assertEqual(rows[0]["decoder"], f"native_{kind}_helper")
+            if step:
+                case.assertIn(step, rows[0]["conversion"])
+            case.assertEqual(rows[0]["sha256"], hashlib.sha256(data).hexdigest())
+            case.assertTrue(rows[0]["copy_name"].endswith(Path(name).suffix))
+            level = summary["level"]["level_id"]
+            _pixels_match(case, document, level, alpha, 2)
+            case.revisions[document] = summary["revision"]
+
+
+@acceptance_case
+def intake_imports_a_jpeg_as_a_lossy_source(case: NativeAcceptance) -> None:
+    """A JPEG from ffmpeg decodes in the helper and is reported as lossy.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    ffmpeg = case.media_tools / "ffmpeg" if case.media_tools else None
+    if ffmpeg is None or not ffmpeg.is_file():
+        case.skipTest("needs ffmpeg from --media-tools to encode a JPEG")
+    document = case.create("Jpeg")
+    source = case.inputs / "jpeg"
+    source.mkdir()
+    (source / "photo.jpg").write_bytes(fixtures.jpeg(ffmpeg, case.directory))
+    selection = _source(source, file_names=["photo.jpg"])
+    started = _import(case, document, **selection, name="Photo", dpi_policy="value", dpi=72)
+    case.assertEqual(_job(case, started)["status"], "completed")
+    _summary, rows = _job_rows(case, started["job"]["job_id"])
+    case.assertEqual(rows[0]["decoder"], "native_jpeg_helper")
+    case.assertIn("lossy_source", rows[0]["conversion"])
+
+
+@acceptance_case
+def intake_long_import_is_a_job_that_applies_once(case: NativeAcceptance) -> None:
+    """Over 64 files the import is a job: progress per file, paged rows, one revision step.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    document = case.create("Long")
+    source = case.inputs / "long"
+    _sequence(source, list(range(1, 131)), size=(2, 2))
+    case.assertEqual(_preflight(case, document, **_source(source))["execution"], "job")
+    revision = case.revisions[document]
+    started = _import(case, document, **_source(source), name="Long", exposure="new_column")
+    case.assertEqual(started["revision"], revision)
+    final = _job(case, started)
+    case.assertEqual(final["status"], "completed", final)
+    case.assertEqual((final["progress"]["unit"], final["progress"]["done"]), ("files", 130))
+    summary, rows = _job_rows(case, started["job"]["job_id"])
+    case.assertEqual(len(rows), 130)
+    case.assertEqual(int(summary["revision"]), int(revision) + 1)
+    case.assertEqual(summary["exposure"]["length"], 130)
+    listed = case.success("scene.summary", {"document_id": document})
+    case.assertEqual(listed["revision"], summary["revision"])
+    case.revisions[document] = summary["revision"]
+    level = _provenance(case, document, summary["level"]["level_id"])
+    case.assertEqual((level["total_sources"], level["copies"]), (130, 130))
+
+
+@acceptance_case
+def intake_job_cancel_and_failure_leave_nothing(case: NativeAcceptance) -> None:
+    """Cancel, a write during the job and a lying header end the job with nothing kept.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    document = case.create("Stopped")
+    source = case.inputs / "stopped"
+    _sequence(source, list(range(1, 401)), size=(2, 2))
+    before = _left_behind(case)
+    started = _import(case, document, **_source(source), name="Canceled")
+    job = started["job"]["job_id"]
+    case.success("job.cancel", case.write_params(None, {"job_id": job}))
+    case.assertEqual(case.wait_job(job)["status"], "canceled")
+    started = _import(case, document, **_source(source), name="Raced")
+    case.mutate("column.create", document, name="Meanwhile")
+    final = case.wait_job(started["job"]["job_id"])
+    case.assertEqual((final["status"], final["failure"]["code"]), ("failed", "revision_changed"))
+    lying = case.inputs / "lying-bmp"
+    lying.mkdir()
+    data = bytearray(fixtures.bmp())
+    data[18:22] = (64).to_bytes(4, "little")
+    (lying / "big.bmp").write_bytes(bytes(data))
+    selection = _source(lying, file_names=["big.bmp"])
+    error = _refused(case, document, "invalid_asset", **selection, dpi_policy="value", dpi=72)
+    case.assertEqual(error["details"]["reason"], "truncated_pixels")
+    packed = case.inputs / "packed-tiff"
+    packed.mkdir()
+    plain = struct.pack("<HHIHH", 259, 3, 1, 1, 0)
+    lzw = fixtures.tiff().replace(plain, struct.pack("<HHIHH", 259, 3, 1, 5, 0))
+    (packed / "scan.tif").write_bytes(lzw)
+    selection = _source(packed, file_names=["scan.tif"])
+    error = _refused(case, document, "unsupported_format", **selection, dpi_policy="value", dpi=72)
+    case.assertEqual(error["details"]["reason"], "tiff_compression")
+    names = [
+        level["name"]
+        for level in case.success("scene.summary", {"document_id": document})["levels"]
+    ]
+    case.assertEqual(names, [])
+    case.assertEqual(_left_behind(case), before)
+    os.symlink(lying / "big.bmp", lying / "linked.bmp")
+    _refused(case, document, "path_denied", **_source(lying, file_names=["linked.bmp"]))
+
+
+def _fault_import(case: NativeAcceptance, point: str) -> None:
+    from mcp_failure_cases import _fault_worker
+
+    _fault_worker(case, point.replace(":", "-"), "--test-write-fault", point)
+    document = case.create("Fault")
+    source = case.inputs / f"fault-{point.replace(':', '-')}"
+    _sequence(source, [1, 2, 3, 4])
+    before = _left_behind(case)
+    error = _refused(case, document, "io_error", **_source(source), name="Faulted")
+    case.assertNotIn("roll", (error["message"] + json.dumps(error["details"])).lower())
+    case.assertEqual(case.success("scene.summary", {"document_id": document})["levels"], [])
+    case.assertEqual(_left_behind(case), before)
+
+
+@acceptance_case(worker_only="needs --test-write-fault intake:copy, which the adapter never passes")
+def intake_copy_that_fails_half_written_leaves_nothing(case: NativeAcceptance) -> None:
+    """A private copy that cannot be written in full (a full disk) is refused, nothing kept.
+
+    PRD-06 F4. The fault point uses this branch's free-form --test-write-fault; the receipts
+    branch's POINT:MODE syntax reads `intake:copy` as its fail mode when fitted.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    _fault_import(case, "intake:copy")
+
+
+@acceptance_case(
+    worker_only="needs --test-write-fault intake:publish, which the adapter never passes"
+)
+def intake_interrupted_copy_takes_back_the_moved_files(case: NativeAcceptance) -> None:
+    """Copies interrupted halfway into the level store are taken back, nothing kept.
+
+    PRD-06 F4, the same fault-point note as the half-written copy.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    _fault_import(case, "intake:publish")
+
+
+@acceptance_case(worker_only="needs --test-child-fault crash, which the adapter never passes")
+def intake_helper_crash_fails_the_job_and_leaves_nothing(case: NativeAcceptance) -> None:
+    """A contained decoder that crashes fails its job; no level, copy or folder is left.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    from mcp_failure_cases import _fault_worker
+
+    _fault_worker(case, "decoder-crash", "--test-child-fault", "crash")
+    document = case.create("Crash")
+    source = case.inputs / "crash"
+    source.mkdir()
+    (source / "scan.tif").write_bytes(fixtures.tiff())
+    before = _left_behind(case)
+    selection = _source(source, file_names=["scan.tif"])
+    started = _import(case, document, **selection, name="Crash", dpi_policy="value", dpi=72)
+    final = case.wait_job(started["job"]["job_id"])
+    case.assertEqual((final["status"], final["failure"]["code"]), ("failed", "invalid_asset"))
+    case.assertIn("decoder_crashed", final["failure"]["message"])
+    case.assertEqual(case.success("scene.summary", {"document_id": document})["levels"], [])
+    case.assertEqual(_left_behind(case), before)
+
+
+@acceptance_case(worker_only="needs a crash fault and a second worker on the same workspace")
+def intake_retry_after_a_lost_worker_never_duplicates(case: NativeAcceptance) -> None:
+    """WAITING for the durable receipts (mcp/w2-receipts): PRD-06 #4 across workers.
+
+    A worker dies after admitting an import; a fresh worker on the same workspace reports the
+    operation and a retry with the same operation_id answers from the journal without a second
+    set of copies. Runs once operation.status is in the catalog.
+
+    Args:
+        case: A fresh native-worker acceptance fixture.
+    """
+    from mcp_worker import Worker
+
+    tools = {tool["name"] for tool in case.capabilities()["tools"]}
+    if "operation.status" not in tools:
+        case.skipTest("waiting for the durable receipts: operation.status is not in this worker")
+    case.worker.close()
+    arguments = ("--test-write-fault", "journal:outcome:crash")
+    case.worker = Worker(
+        case.executable,
+        case.workspace,
+        case.inputs,
+        case.directory / "lost.stderr.log",
+        test_arguments=arguments,
+    )
+    document = case.create("Lost")
+    source = case.inputs / "lost"
+    _sequence(source, [1, 2])
+    choices = {"storage": "copy", "on_existing": "reuse_identical", "dpi_policy": "source"}
+    params = case.write_params(
+        document, {**_source(source), "name": "Lost", "exposure": "none", **choices}
+    )
+    case.assertIn("error", case.worker.call("intake.import", params))
+    copies = sorted(p.name for p in case.workspace.rglob("*") if p.parent.name == "levels")
+    case.worker.close()
+    case.worker = Worker(
+        case.executable, case.workspace, case.inputs, case.directory / "lost-again.stderr.log"
+    )
+    case.addCleanup(case.worker.close)
+    status = case.success("operation.status", {"operation_id": params["operation_id"]})
+    case.assertIn(status["state"], {"interrupted", "completed"}, status)
+    retried = case.worker.call("intake.import", params).get("error", {}).get("code")
+    case.assertIn(retried, {None, "operation_interrupted", "document_not_found"})
+    again = sorted(p.name for p in case.workspace.rglob("*") if p.parent.name == "levels")
+    case.assertEqual(again, copies)

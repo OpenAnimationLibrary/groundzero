@@ -3,8 +3,10 @@
 #include "automation_cells.h"
 #include "automation_drawing.h"
 #include "automation_files.h"
+#include "automation_jobs.h"
 #include "automation_path.h"
 #include "automation_scene_shared.h"
+#include "automation_shared_parse.h"
 
 #include "tcolorstyles.h"
 #include "tiio.h"
@@ -28,6 +30,12 @@
 #include "toutputproperties.h"
 
 #include <QBuffer>
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QProcess>
+#include <QTemporaryDir>
+#include <QThreadPool>
+#include <QTimer>
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
@@ -42,8 +50,13 @@
 #include <QXmlStreamReader>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <future>
 #include <map>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace GroundzeroAutomation {
@@ -52,12 +65,11 @@ using namespace SceneShared;
 
 namespace {
 
-constexpr int MaxIntakeFiles    = 256;
+constexpr int MaxIntakeFiles    = 4096;
 constexpr int InlineFiles       = 64;
 constexpr qint64 InlinePixels   = 67108864;
 constexpr qint64 MaxSourceBytes = 67108864;
-constexpr int HeaderBytes       = 1048576;
-constexpr int MaxListing        = 4096;
+constexpr int MaxListing        = 16384;
 constexpr int MaxReported       = 64;
 constexpr int MaxSide           = 8192;
 constexpr int MaxSequenceNumber = 999999;
@@ -66,149 +78,7 @@ constexpr int DefaultPage       = 64;
 constexpr double InchesPerMeter = 0.0254;
 constexpr int LastRow           = 999999;
 
-quint32 bigEndian(const QByteArray& bytes, int at) {
-  const auto byte = [&](int index) {
-    return quint32(static_cast<unsigned char>(bytes.at(at + index)));
-  };
-  return byte(0) << 24 | byte(1) << 16 | byte(2) << 8 | byte(3);
-}
-
-bool startsWithHex(const QByteArray& bytes, const char* hex) {
-  return bytes.startsWith(QByteArray::fromHex(hex));
-}
-
-bool looksLikeSvg(const QByteArray& head) {
-  const QByteArray text = head.left(1024).trimmed();
-  return (text.startsWith("<?xml") || text.startsWith("<svg")) &&
-         text.contains("<svg");
-}
-
-QString containerFormat(const QByteArray& head) {
-  if (startsWithHex(head, "ffd8ff")) return "jpeg";
-  for (const char* tiff : {"49492a00", "4d4d002a", "49492b00", "4d4d002b"})
-    if (startsWithHex(head, tiff)) return "tiff";
-  if (head.startsWith("GIF87a") || head.startsWith("GIF89a")) return "gif";
-  if (head.startsWith("BM")) return "bmp";
-  if (head.startsWith("RIFF") && head.mid(8, 4) == "WEBP") return "webp";
-  if (head.startsWith("RIFF") && head.mid(8, 4) == "AVI ") return "avi";
-  if (head.startsWith("8BPS")) return "psd";
-  if (startsWithHex(head, "762f3101")) return "exr";
-  if (head.mid(4, 4) == "ftyp") return "mp4";
-  if (looksLikeSvg(head)) return "svg";
-  return {};
-}
-
-QString extensionFormat(const QString& name) {
-  const QString suffix = QFileInfo(name).suffix().toLower();
-  for (const char* known : {"tga", "pli", "tlv", "tpl", "tzp", "tzl"})
-    if (suffix == QLatin1String(known)) return suffix;
-  return "unknown";
-}
-
-bool validDepth(int colorType, int depth) {
-  switch (colorType) {
-  case 0:
-    return depth == 1 || depth == 2 || depth == 4 || depth == 8 || depth == 16;
-  case 3:
-    return depth == 1 || depth == 2 || depth == 4 || depth == 8;
-  case 2:
-  case 4:
-  case 6:
-    return depth == 8 || depth == 16;
-  default:
-    return false;
-  }
-}
-
-void readPhysicalDensity(ImageHeader& header, const QByteArray& data) {
-  if (data.size() != 9 || static_cast<unsigned char>(data.at(8)) != 1) return;
-  const quint32 x = bigEndian(data, 0), y = bigEndian(data, 4);
-  if (x == 0 || y == 0) return;
-  header.dpiKnown = true;
-  header.dpiX     = x * InchesPerMeter;
-  header.dpiY     = y * InchesPerMeter;
-}
-
-void readChunk(ImageHeader& header, const QByteArray& type,
-               const QByteArray& data) {
-  if (type == "pHYs") readPhysicalDensity(header, data);
-  if (type == "tRNS" && header.alpha == "none")
-    header.alpha = "transparency_chunk";
-  const std::map<QByteArray, QString> color{{"gAMA", "gamma"},
-                                            {"sRGB", "srgb"},
-                                            {"iCCP", "icc_profile"},
-                                            {"cHRM", "chromaticities"}};
-  const auto found = color.find(type);
-  if (found != color.end() && !header.colorMetadata.contains(found->second))
-    header.colorMetadata.append(found->second);
-}
-
-// The chunks after IHDR and before the first IDAT, within the read bytes.
-void readAncillaryChunks(ImageHeader& header, const QByteArray& head) {
-  int offset = 33;
-  for (int count = 0; count < MaxChunks && offset + 8 <= head.size(); ++count) {
-    const quint32 length  = bigEndian(head, offset);
-    const QByteArray type = head.mid(offset + 4, 4);
-    if (type == "IDAT" || type == "IEND" || length > quint32(HeaderBytes))
-      return;
-    if (offset + 12 + qint64(length) > head.size()) return;
-    readChunk(header, type, head.mid(offset + 8, int(length)));
-    offset += 12 + int(length);
-  }
-}
-
-bool validDimension(quint32 value) { return value > 0 && value <= 0x7fffffff; }
-
-// Whether the 13 IHDR bytes at offset 16 hold a size, depth, colour type,
-// compression, filter and interlace method the PNG specification allows.
-bool validIhdr(const QByteArray& head) {
-  const int colorType = static_cast<unsigned char>(head.at(25));
-  const int depth     = static_cast<unsigned char>(head.at(24));
-  const bool methods  = head.at(26) == 0 && head.at(27) == 0;
-  return validDimension(bigEndian(head, 16)) &&
-         validDimension(bigEndian(head, 20)) && validDepth(colorType, depth) &&
-         methods && static_cast<unsigned char>(head.at(28)) <= 1;
-}
-
-ImageHeader readPngHeader(const QByteArray& head) {
-  ImageHeader header;
-  header.format = "png";
-  if (head.size() < 33 || bigEndian(head, 8) != 13 ||
-      head.mid(12, 4) != "IHDR") {
-    header.problem = "missing_ihdr";
-    return header;
-  }
-  if (!validIhdr(head)) {
-    header.problem = "invalid_ihdr";
-    return header;
-  }
-  header.valid      = true;
-  header.width      = int(bigEndian(head, 16));
-  header.height     = int(bigEndian(head, 20));
-  header.bitDepth   = static_cast<unsigned char>(head.at(24));
-  header.colorType  = static_cast<unsigned char>(head.at(25));
-  header.interlaced = head.at(28) == 1;
-  if (header.colorType == 4 || header.colorType == 6) header.alpha = "channel";
-  readAncillaryChunks(header, head);
-  return header;
-}
-
 }  // namespace
-
-QString ImageHeader::pixelFormat() const {
-  if (!valid) return QString();
-  static const std::map<int, QString> names{
-      {0, "grey"}, {2, "rgb"}, {3, "indexed"}, {4, "grey_alpha"}, {6, "rgba"}};
-  return names.at(colorType) + QString::number(bitDepth);
-}
-
-ImageHeader readImageHeader(const QByteArray& head, const QString& name) {
-  if (startsWithHex(head, "89504e470d0a1a0a")) return readPngHeader(head);
-  ImageHeader header;
-  const QString container = containerFormat(head);
-  header.format = container.isEmpty() ? extensionFormat(name) : container;
-  return header;
-}
 
 SequenceName parseSequenceName(const QString& name, const QString& prefix,
                                const QString& extension) {
@@ -362,9 +232,13 @@ std::pair<QString, QString> entryStatus(const SourceFile& file) {
 
 // The status and reason a file's header gives.
 std::pair<QString, QString> headerStatus(const ImageHeader& header) {
-  if (header.format != "png") return {"unsupported_format", QString()};
+  if (decoderExtension(header.format).isEmpty())
+    return {"unsupported_format", QString()};
   if (!header.valid) return {"invalid_asset", header.problem};
-  if (header.bitDepth > 8) return {"unsupported_precision", QString()};
+  if (!header.unsupported.isEmpty())
+    return {"unsupported_format", header.unsupported};
+  if (header.bitDepth > 16 || (header.format == "jpeg" && header.bitDepth != 8))
+    return {"unsupported_precision", QString()};
   if (header.width > MaxSide || header.height > MaxSide ||
       qint64(header.width) * header.height > MaxPixels)
     return {"resource_limit", "pixels"};
@@ -392,7 +266,7 @@ void readHeader(SourcePlan& plan, SourceFile& file,
     QFile input;
     if (openApprovedFile(input, plan.directory + '/' + file.name) ==
         OpenResult::Opened)
-      file.header = readImageHeader(input.read(HeaderBytes), file.name);
+      file.header = readImageHeader(input, file.name);
     else
       file.entry = "other";
   }
@@ -486,14 +360,17 @@ QJsonValue sequenceJson(const SourcePlan& plan) {
 }
 
 struct Uniformity final {
-  bool size                = true;
-  bool dpi                 = true;
-  int withoutDpi           = 0;
-  int withAlpha            = 0;
-  qint64 pixels            = 0;
-  qint64 bytes             = 0;
-  int supported            = 0;
-  const ImageHeader* first = nullptr;
+  bool size      = true;
+  bool dpi       = true;
+  int withoutDpi = 0;
+  int withAlpha  = 0;
+  qint64 pixels  = 0;
+  qint64 bytes   = 0;
+  int supported  = 0;
+  bool format    = true;
+  // Whether every file is an 8-bit PNG the worker decodes itself.
+  bool inWorker = true;
+  std::optional<ImageHeader> first;
 };
 
 Uniformity uniformity(const SourcePlan& plan) {
@@ -506,17 +383,27 @@ Uniformity uniformity(const SourcePlan& plan) {
     result.pixels += qint64(header.width) * header.height;
     if (header.alpha != "none") ++result.withAlpha;
     if (!header.dpiKnown) ++result.withoutDpi;
+    result.inWorker =
+        result.inWorker && header.format == "png" && header.bitDepth <= 8;
     if (!result.first) {
-      result.first = &header;
+      result.first = header;
       continue;
     }
-    result.size = result.size && header.width == result.first->width &&
-                  header.height == result.first->height;
-    result.dpi  = result.dpi && header.dpiKnown == result.first->dpiKnown &&
-                  header.dpiX == result.first->dpiX &&
-                  header.dpiY == result.first->dpiY;
+    result.format = result.format && header.format == result.first->format;
+    result.size   = result.size && header.width == result.first->width &&
+                    header.height == result.first->height;
+    result.dpi    = result.dpi && header.dpiKnown == result.first->dpiKnown &&
+                    header.dpiX == result.first->dpiX &&
+                    header.dpiY == result.first->dpiY;
   }
   return result;
+}
+
+// Whether the import runs as one call: few 8-bit PNG files; anything longer
+// or decoded by the contained helper runs as a job.
+bool runsInline(const SourcePlan& plan, const Uniformity& shape) {
+  return shape.inWorker && int(plan.files.size()) <= InlineFiles &&
+         shape.pixels <= InlinePixels;
 }
 
 QJsonObject summaryJson(const SourcePlan& plan, const Uniformity& shape) {
@@ -525,7 +412,7 @@ QJsonObject summaryJson(const SourcePlan& plan, const Uniformity& shape) {
   QJsonArray formatRows;
   for (auto it = formats.constBegin(); it != formats.constEnd(); ++it)
     formatRows.append(QJsonObject{{"format", it.key()}, {"count", it.value()}});
-  const bool known = shape.first != nullptr;
+  const bool known = shape.first.has_value();
   const bool dpi   = known && shape.dpi && shape.first->dpiKnown;
   return {
       {"files", int(plan.files.size())},
@@ -580,8 +467,7 @@ void capacityBlockers(Document& document, const SourcePlan& plan,
                       const Uniformity& shape, Blockers& blockers) {
   if (!shape.size) blockers.add("invalid_params", "mixed_size");
   if (!shape.dpi) blockers.add("invalid_params", "mixed_dpi");
-  if (int(plan.files.size()) > InlineFiles || shape.pixels > InlinePixels)
-    blockers.add("resource_limit", "inline_import");
+  if (!shape.format) blockers.add("invalid_params", "mixed_formats");
   try {
     const qint64 bytes =
         shape.first
@@ -690,6 +576,7 @@ QJsonValue preflight(Context& context, const QJsonObject& params) {
       {"link_available", !linkedLevelPath(plan).isEmpty()},
       {"inline_limits",
        QJsonObject{{"files", InlineFiles}, {"pixels", double(InlinePixels)}}},
+      {"execution", runsInline(plan, shape) ? "inline" : "job"},
       {"blockers", blockers.rows},
       {"blocker_total", blockers.total},
       {"importable", blockers.total == 0},
@@ -778,12 +665,9 @@ void requireShape(const SourcePlan& plan, const ImportOptions& options,
         "invalid_asset",
         "dpi_policy source needs one pHYs density in every file.",
         {{"reason", shape.withoutDpi > 0 ? "dpi_missing" : "mixed_dpi"}});
-  if (int(plan.files.size()) > InlineFiles || shape.pixels > InlinePixels)
-    throw Error("resource_limit",
-                "An inline import holds at most 64 files and 64 megapixels.",
-                {{"limit", "inline_import"},
-                 {"files", InlineFiles},
-                 {"pixels", double(InlinePixels)}});
+  if (!shape.format)
+    throw Error("invalid_params", "Every drawing of a level has one format.",
+                {{"reason", "mixed_formats"}});
 }
 
 struct LoadedFile final {
@@ -791,6 +675,8 @@ struct LoadedFile final {
   qint64 bytes = 0;
   TRasterImageP raster;
   QString stagedCopy;
+  QString decoder;
+  QStringList conversion;
 };
 
 QImage decodePng(const QByteArray& bytes, const ImageHeader& header,
@@ -827,9 +713,9 @@ TRasterImageP nativeRaster(const QImage& image, double dpi) {
   return result;
 }
 
-QByteArray readSource(const SourcePlan& plan, const SourceFile& file) {
+QByteArray readSource(const QString& directory, const SourceFile& file) {
   QFile input;
-  if (openApprovedFile(input, plan.directory + '/' + file.name) !=
+  if (openApprovedFile(input, directory + '/' + file.name) !=
       OpenResult::Opened)
     throw Error("source_changed", "A source file can no longer be opened.",
                 {{"name", file.name}});
@@ -837,9 +723,10 @@ QByteArray readSource(const SourcePlan& plan, const SourceFile& file) {
   if (input.error() != QFileDevice::NoError)
     throw Error("io_error", "Cannot read a source file.",
                 {{"name", file.name}});
+  const ImageHeader reread = readImageHeader(bytes, file.name);
   if (bytes.size() != file.bytes ||
-      readImageHeader(bytes.left(HeaderBytes), file.name).pixelFormat() !=
-          file.header.pixelFormat())
+      reread.pixelFormat() != file.header.pixelFormat() ||
+      reread.width != file.header.width || reread.height != file.header.height)
     throw Error("source_changed", "A source file changed while it was read.",
                 {{"name", file.name}});
   return bytes;
@@ -849,31 +736,197 @@ double importDpi(const ImportOptions& options, const ImageHeader& header) {
   return options.dpiPolicy == "value" ? options.dpi : header.dpiX;
 }
 
-void stageCopy(PrivateDirectory& staging, LoadedFile& loaded,
-               const QByteArray& bytes, const SourceFile& file) {
-  loaded.stagedCopy = staging.filePath(QString::number(file.number) + ".png");
-  QSaveFile output(loaded.stagedCopy);
-  if (!output.open(QIODevice::WriteOnly) ||
-      output.write(bytes) != bytes.size() || !output.commit())
-    throw Error("io_error", "Cannot stage a private copy of a source file.",
-                {{"name", file.name}});
+// Whether the worker decodes the file itself (8-bit PNG through Qt) rather
+// than a contained helper running the native reader.
+bool decodedInWorker(const ImageHeader& header) {
+  return header.format == "png" && header.bitDepth <= 8;
 }
 
-std::vector<LoadedFile> loadSources(const SourcePlan& plan,
+// Everything one file's decode needs, copied so it can run off the
+// application thread.
+struct DecodeTask final {
+  QString directory;
+  SourceFile file;
+  double dpi = 0;
+  // Empty when no private copy is staged.
+  QString stagingDirectory;
+  QString scratchDirectory;
+  QString childFault;
+  // Test-only write fault intake:copy: the copy fails half written, as on
+  // a full disk.
+  bool copyFault = false;
+};
+
+QStringList conversionOf(const ImageHeader& header,
+                         bool premultipliedByHelper) {
+  QStringList steps;
+  if (header.bitDepth == 16) steps.append("depth_16_to_8_rounded");
+  const QString pixel = header.pixelFormat();
+  if (pixel.startsWith("grey") || pixel.startsWith("indexed") ||
+      pixel == "rgb5")
+    steps.append("expanded_to_rgba8");
+  if (header.alpha == "none") steps.append("opaque_alpha_added");
+  if (header.format == "jpeg") steps.append("lossy_source");
+  if (pixel == "rgbx8") steps.append("fourth_byte_ignored");
+  if (premultipliedByHelper) steps.append("straight_alpha_premultiplied");
+  return steps;
+}
+
+QStringList helperArguments(const QString& directory, const QString& extension,
+                            const QString& childFault) {
+  QStringList arguments{"--automation-worker", "--workspace", directory,
+                        "--parse-helper", "image_decode:" + extension};
+#ifdef BUILD_UI_PORT_TESTS
+  if (!childFault.isEmpty()) arguments << "--test-child-fault" << childFault;
+#else
+  Q_UNUSED(childFault);
+#endif
+  return arguments;
+}
+
+// Run the helper to its end, killing it on cancellation, at the deadline or
+// past the memory bound; returns its one reply line.
+QByteArray superviseDecode(QProcess& helper, const std::atomic<bool>& stop,
+                           const QString& name) {
+  QElapsedTimer timer;
+  timer.start();
+  helper.start();
+  QString cause = helper.waitForStarted(SharedParseDeadlineMs) ? "" : "crashed";
+  QByteArray output;
+  while (cause.isEmpty() && helper.state() != QProcess::NotRunning) {
+    helper.waitForFinished(20);
+    output += helper.readAllStandardOutput();
+    if (stop.load()) cause = "canceled";
+    if (timer.elapsed() > SharedParseDeadlineMs) cause = "timeout";
+    if (processMemoryBytes(helper.processId()) > SharedParseMemoryBytes)
+      cause = "memory";
+  }
+  if (!cause.isEmpty()) {
+    helper.kill();
+    helper.waitForFinished(3000);
+  }
+  output += helper.readAllStandardOutput();
+  if (cause.isEmpty() &&
+      (helper.exitStatus() != QProcess::NormalExit || helper.exitCode() != 0))
+    cause = "crashed";
+  if (cause == "canceled") throw Error("canceled", "The import was canceled.");
+  if (!cause.isEmpty())
+    throw Error("invalid_asset", "The contained decoder did not finish.",
+                {{"name", name}, {"reason", "decoder_" + cause}});
+  return output;
+}
+
+QJsonObject decoderSummary(const QByteArray& output, const QString& name) {
+  const QJsonObject reply = QJsonDocument::fromJson(output.trimmed()).object();
+  const QString status    = reply.value("status").toString();
+  if (status == "parsed") return reply.value("summary").toObject();
+  const QJsonObject details{
+      {"name", name},
+      {"reason", status == "limit" ? "pixels" : "decoder_rejected"},
+      {"native_message", reply.value("message").toString().left(256)}};
+  if (status == "limit")
+    throw Error("resource_limit", "The image is outside the bounds.", details);
+  throw Error("invalid_asset", "The native reader refused the file.", details);
+}
+
+// Decode one file with its native reader in a contained helper process; the
+// helper writes 8-bit premultiplied pixels as a PNG this worker then reads.
+QImage decodeInHelper(const DecodeTask& task, const QByteArray& bytes,
+                      const std::atomic<bool>& stop, bool& premultiplied) {
+  const SourceFile& file  = task.file;
+  const QString extension = decoderExtension(file.header.format);
+  QTemporaryDir directory(task.scratchDirectory + "/intake-decode-XXXXXX");
+  QFile input(directory.filePath("input." + extension));
+  if (!directory.isValid() || !input.open(QIODevice::WriteOnly) ||
+      input.write(bytes) != bytes.size() || !input.flush())
+    throw Error("io_error", "Cannot write the private decode copy.",
+                {{"name", file.name}});
+  input.close();
+  QProcess helper;
+  auto environment = QProcessEnvironment::systemEnvironment();
+  environment.remove("GROUNDZERO_AUTOMATION_CONTROL_FD");
+  helper.setProcessEnvironment(environment);
+  helper.setWorkingDirectory(directory.path());
+  helper.setStandardInputFile(QProcess::nullDevice());
+  helper.setStandardErrorFile(QProcess::nullDevice());
+  helper.setProgram(QCoreApplication::applicationFilePath());
+  helper.setArguments(
+      helperArguments(directory.path(), extension, task.childFault));
+  const QJsonObject summary =
+      decoderSummary(superviseDecode(helper, stop, file.name), file.name);
+  premultiplied = summary.value("alpha_premultiplied_by_helper").toBool();
+  if (summary.value("width").toInt() != file.header.width ||
+      summary.value("height").toInt() != file.header.height)
+    throw Error("invalid_asset", "The header and the decoded image disagree.",
+                {{"name", file.name}, {"reason", "header_mismatch"}});
+  QImageReader reader(directory.filePath("decoded.png"), "png");
+  const QImage image = reader.read();
+  if (image.size() != QSize(file.header.width, file.header.height))
+    throw Error("invalid_asset", "The decoded pixels cannot be read back.",
+                {{"name", file.name}, {"reason", "decode_failed"}});
+  return image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+}
+
+QString stagedCopyPath(const DecodeTask& task) {
+  return QDir(task.stagingDirectory)
+      .filePath(QString::number(task.file.number) + '.' +
+                decoderExtension(task.file.header.format));
+}
+
+// Read, hash, decode and stage one source file. Runs on any thread.
+LoadedFile decodeFile(const DecodeTask& task, const std::atomic<bool>& stop) {
+  const QByteArray bytes = readSource(task.directory, task.file);
+  LoadedFile entry;
+  entry.bytes = bytes.size();
+  entry.sha256 =
+      QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
+  bool premultiplied  = false;
+  const bool inWorker = decodedInWorker(task.file.header);
+  const QImage image  = inWorker
+                            ? decodePng(bytes, task.file.header, task.file.name)
+                            : decodeInHelper(task, bytes, stop, premultiplied);
+  entry.decoder    = inWorker ? QString("qt_png_in_worker")
+                              : "native_" + task.file.header.format + "_helper";
+  entry.conversion = conversionOf(task.file.header, premultiplied);
+  entry.raster     = nativeRaster(image, task.dpi);
+  if (task.stagingDirectory.isEmpty()) return entry;
+  entry.stagedCopy = stagedCopyPath(task);
+  QSaveFile output(entry.stagedCopy);
+  const QByteArray written =
+      task.copyFault ? bytes.left(bytes.size() / 2) : bytes;
+  if (!output.open(QIODevice::WriteOnly) ||
+      output.write(written) != bytes.size() || !output.commit())
+    throw Error("io_error", "Cannot stage a private copy of a source file.",
+                {{"name", task.file.name}});
+  return entry;
+}
+
+DecodeTask decodeTask(Context& context, const SourcePlan& plan,
+                      const ImportOptions& options, const SourceFile& file,
+                      const QString& staging) {
+  DecodeTask task;
+  task.directory        = plan.directory;
+  task.file             = file;
+  task.dpi              = importDpi(options, file.header);
+  task.stagingDirectory = staging;
+  task.scratchDirectory = context.scratchDirectory();
+  task.copyFault        = context.writeFaultArmed("intake:copy");
+#ifdef BUILD_UI_PORT_TESTS
+  task.childFault = context.childFault;
+#endif
+  return task;
+}
+
+std::vector<LoadedFile> loadSources(Context& context, const SourcePlan& plan,
                                     const ImportOptions& options,
                                     PrivateDirectory* staging) {
+  const std::atomic<bool> never{false};
   std::vector<LoadedFile> loaded;
-  for (const SourceFile& file : plan.files) {
-    const QByteArray bytes = readSource(plan, file);
-    LoadedFile entry;
-    entry.bytes = bytes.size();
-    entry.sha256 =
-        QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
-    entry.raster = nativeRaster(decodePng(bytes, file.header, file.name),
-                                importDpi(options, file.header));
-    if (staging) stageCopy(*staging, entry, bytes, file);
-    loaded.push_back(entry);
-  }
+  for (const SourceFile& file : plan.files)
+    loaded.push_back(
+        decodeFile(decodeTask(context, plan, options, file,
+                              staging ? staging->path() : QString()),
+                   never));
   return loaded;
 }
 
@@ -882,19 +935,21 @@ QJsonArray sourceRecords(const SourcePlan& plan,
   QJsonArray sources;
   for (size_t index = 0; index < plan.files.size(); ++index) {
     const SourceFile& file = plan.files[index];
-    sources.append(
-        QJsonObject{{"drawing_id", drawingId(TFrameId(file.number))},
-                    {"name", file.name},
-                    {"bytes", double(loaded[index].bytes)},
-                    {"modified_ms", double(file.modifiedMs)},
-                    {"sha256", QString::fromLatin1(loaded[index].sha256)},
-                    {"width", file.header.width},
-                    {"height", file.header.height},
-                    {"pixel_format", file.header.pixelFormat()},
-                    {"alpha", file.header.alpha},
-                    {"stored_as", "rgba8_premultiplied"},
-                    {"color_metadata",
-                     QJsonArray::fromStringList(file.header.colorMetadata)}});
+    sources.append(QJsonObject{
+        {"drawing_id", drawingId(TFrameId(file.number))},
+        {"name", file.name},
+        {"bytes", double(loaded[index].bytes)},
+        {"modified_ms", double(file.modifiedMs)},
+        {"sha256", QString::fromLatin1(loaded[index].sha256)},
+        {"width", file.header.width},
+        {"height", file.header.height},
+        {"pixel_format", file.header.pixelFormat()},
+        {"alpha", file.header.alpha},
+        {"stored_as", "rgba8_premultiplied"},
+        {"decoder", loaded[index].decoder},
+        {"conversion", QJsonArray::fromStringList(loaded[index].conversion)},
+        {"color_metadata",
+         QJsonArray::fromStringList(file.header.colorMetadata)}});
   }
   return sources;
 }
@@ -944,14 +999,16 @@ TFrameId frameFor(const SourceFile& file, const QString& storage) {
 // of `path`; on failure remove the moved ones, so nothing is left.
 QJsonArray publishCopies(const SourcePlan& plan,
                          const std::vector<LoadedFile>& loaded,
-                         const TFilePath& path) {
+                         const TFilePath& path, bool interrupted) {
   QJsonArray copies;
   QStringList moved;
   for (size_t index = 0; index < plan.files.size(); ++index) {
     const QString target =
         path.withFrame(TFrameId(plan.files[index].number)).getQString();
-    if (publishApproved(loaded[index].stagedCopy, target) !=
-        PublishResult::Published) {
+    // Test-only write fault intake:publish stops the moves halfway.
+    const bool stopped = interrupted && index == plan.files.size() / 2;
+    if (stopped || publishApproved(loaded[index].stagedCopy, target) !=
+                       PublishResult::Published) {
       for (const QString& name : moved) QFile::remove(name);
       throw Error("io_error", "Cannot place a private copy in the level store.",
                   {{"name", plan.files[index].name}});
@@ -967,13 +1024,14 @@ QJsonArray publishCopies(const SourcePlan& plan,
   return copies;
 }
 
-TFilePath privateLevelPath(Context& context) {
+TFilePath privateLevelPath(Context& context, const QString& extension) {
   const QString directory =
       context.resolvePath(context.privateDirectory("levels"), true);
   if (!QDir().mkpath(directory))
     throw Error("io_error", "Cannot create the workspace level directory.");
-  return TFilePath(
-      QDir(directory).filePath(uniqueLevelBase() + "..png").toStdWString());
+  return TFilePath(QDir(directory)
+                       .filePath(uniqueLevelBase() + ".." + extension)
+                       .toStdWString());
 }
 
 TXshSimpleLevel* insertLevel(Document& document, const SourcePlan& plan,
@@ -1125,7 +1183,9 @@ void requirePlanDigest(const SourcePlan& plan, const QJsonObject& params) {
 
 TFilePath levelPathFor(Context& context, const SourcePlan& plan,
                        const ImportOptions& options) {
-  if (options.storage == "copy") return privateLevelPath(context);
+  if (options.storage == "copy")
+    return privateLevelPath(context,
+                            decoderExtension(plan.files.front().header.format));
   const TFilePath linked = linkedLevelPath(plan);
   if (linked.isEmpty())
     throw Error("invalid_params",
@@ -1135,58 +1195,377 @@ TFilePath levelPathFor(Context& context, const SourcePlan& plan,
   return linked;
 }
 
-QJsonValue importIntake(Context& context, const QJsonObject& params) {
-  Document& document          = getDocument(context, params);
-  const ImportOptions options = readOptions(params);
-  const SourcePlan plan       = collectSources(context, params);
-  const Uniformity shape      = uniformity(plan);
-  requireFrames(plan, options);
-  requireShape(plan, options, shape);
-  requirePlanDigest(plan, params);
-  const bool exists = existingLevelId(document, options.name).isString();
-  if (exists && options.onExisting == "refuse")
+// An import that passed every check that needs no decoding.
+struct ImportPlan final {
+  SourcePlan sources;
+  ImportOptions options;
+  Uniformity shape;
+  TFilePath path;
+  bool exists       = false;
+  bool copy         = false;
+  bool publishFault = false;
+};
+
+ImportPlan planImport(Context& context, Document& document,
+                      const QJsonObject& params) {
+  ImportPlan plan;
+  plan.options = readOptions(params);
+  plan.sources = collectSources(context, params);
+  plan.shape   = uniformity(plan.sources);
+  requireFrames(plan.sources, plan.options);
+  requireShape(plan.sources, plan.options, plan.shape);
+  requirePlanDigest(plan.sources, params);
+  plan.exists = existingLevelId(document, plan.options.name).isString();
+  if (plan.exists && plan.options.onExisting == "refuse")
     throw Error("name_conflict", "A level with that name already exists.",
                 {{"reason", "exists"}});
-  const TFilePath path = levelPathFor(context, plan, options);
-  if (!exists) {
-    requireAssetGrowth(
-        *document.scene,
-        automationRasterBytes(shape.first->width, shape.first->height) *
-            qint64(plan.files.size()),
-        int(plan.files.size()), 1);
-    requireExposureRoom(document, plan, options);
-  }
-  PrivateDirectory staging(context.scratchDirectory() + "/intake-XXXXXX");
-  if (!staging.isValid())
-    throw Error("io_error", "Cannot create a private staging directory.");
-  const bool copy = options.storage == "copy" && !exists;
-  std::vector<LoadedFile> loaded =
-      loadSources(plan, options, copy ? &staging : nullptr);
-  const QJsonObject wanted = wantedRecord(plan, options, loaded);
-  if (exists) return reuseExisting(document, options.name, wanted);
+  plan.path         = levelPathFor(context, plan.sources, plan.options);
+  plan.copy         = plan.options.storage == "copy" && !plan.exists;
+  plan.publishFault = context.writeFaultArmed("intake:publish");
+  if (plan.exists) return plan;
+  const ImageHeader& first = *plan.shape.first;
+  requireAssetGrowth(*document.scene,
+                     automationRasterBytes(first.width, first.height) *
+                         qint64(plan.sources.files.size()),
+                     int(plan.sources.files.size()), 1);
+  requireExposureRoom(document, plan.sources, plan.options);
+  return plan;
+}
+
+// Put decoded files into the document. `changed` runs once the cast has
+// changed; before that a refusal leaves the document and the level store as
+// they were.
+QJsonObject applyImport(Document& document, const ImportPlan& plan,
+                        std::vector<LoadedFile>& loaded,
+                        const std::function<void()>& changed) {
+  const QJsonObject wanted = wantedRecord(plan.sources, plan.options, loaded);
+  if (plan.exists) return reuseExisting(document, plan.options.name, wanted);
   const QJsonArray copies =
-      copy ? publishCopies(plan, loaded, path) : QJsonArray();
-  // Nothing in the document changes before the level joins the cast, so a
-  // refusal there takes the copies back and is not a partial application.
+      plan.copy
+          ? publishCopies(plan.sources, loaded, plan.path, plan.publishFault)
+          : QJsonArray();
   TXshSimpleLevel* level = nullptr;
   try {
-    level = insertLevel(document, plan, options, loaded, path);
+    level =
+        insertLevel(document, plan.sources, plan.options, loaded, plan.path);
   } catch (const Error&) {
-    const QDir store(path.getParentDir().getQString());
+    const QDir store(plan.path.getParentDir().getQString());
     for (const QJsonValue& copied : copies)
       QFile::remove(
           store.filePath(copied.toObject().value("copy_name").toString()));
     throw;
   }
-  context.markMutationStarted();
+  changed();
   QJsonObject record = wanted;
   record.insert("copies", copies);
   document.intake.insert(document.idForLevel(level), record);
-  const QJsonValue exposure = exposeLevel(document, plan, options, level);
-  QJsonObject result        = importResult(document, level, record, "created");
+  const QJsonValue exposure =
+      exposeLevel(document, plan.sources, plan.options, level);
+  QJsonObject result = importResult(document, level, record, "created");
   result.insert("copied_files", copies);
   result.insert("exposure", exposure);
   return result;
+}
+
+// ------------------------------------------------------------ import job --
+
+constexpr int ImportDeadlineMs      = 600000;
+constexpr qint64 MaxJobStorageBytes = 536870912;
+
+// One decode at a time: each holds a source file and its pixels in memory.
+QThreadPool& decodePool() {
+  static QThreadPool* pool = []() {
+    auto* created = new QThreadPool();
+    created->setMaxThreadCount(1);
+    return created;
+  }();
+  return *pool;
+}
+
+struct DecodeOutcome final {
+  LoadedFile file;
+  QString code;
+  QString message;
+  QJsonObject details;
+};
+
+class IntakeJob final : public Job,
+                        public std::enable_shared_from_this<IntakeJob> {
+public:
+  enum class State { Running, Completed, Failed, Canceled, DeadlineExceeded };
+
+  Context* context = nullptr;
+  JobCommon common;
+  ImportPlan plan;
+  std::shared_ptr<PrivateDirectory> staging;
+  std::vector<LoadedFile> loaded;
+  std::shared_ptr<std::atomic<bool>> stop =
+      std::make_shared<std::atomic<bool>>(false);
+  std::optional<std::future<DecodeOutcome>> pending;
+  State state    = State::Running;
+  size_t decoded = 0;
+  QJsonObject outcome;
+  std::atomic<qint64> interruptMs{-1};
+
+  QString id() const override { return common.id; }
+  JobLane lane() const override { return JobLane::Analysis; }
+  QString documentId() const override { return common.documentId; }
+  bool terminal() const override { return state != State::Running; }
+  qint64 reservedBytes() const override {
+    return plan.copy ? qint64(plan.shape.bytes) : 0;
+  }
+  QJsonObject record() const override;
+  QJsonValue result(Context& owner, const QJsonObject& params) override;
+
+  void cancel() override {
+    if (common.cancelRequested) return;
+    const qint64 asked     = interruptMs.load();
+    common.cancelRequested = true;
+    common.cancelMs        = asked >= 0 ? asked : now();
+    if (!terminal()) finish(State::Canceled);
+  }
+  void interrupt(qint64 requestedMs) override {
+    qint64 unset = -1;
+    interruptMs.compare_exchange_strong(unset, requestedMs);
+    stop->store(true);
+  }
+
+  qint64 now() const { return jobRegistry(*context).elapsedMs(); }
+  void schedule(int delayMs) {
+    QTimer::singleShot(delayMs, QCoreApplication::instance(),
+                       [self = shared_from_this()]() { self->tick(); });
+  }
+
+private:
+  void tick() {
+    const int delay = step();
+    jobRegistry(*context).publish();
+    if (delay >= 0) schedule(delay);
+  }
+  int step();
+  bool collect();
+  void startDecode();
+  void apply();
+  void finish(State end);
+  void fail(const QString& code, const QString& message,
+            const QJsonObject& details, const QString& phase);
+  QString statusText() const;
+};
+
+QString IntakeJob::statusText() const {
+  switch (state) {
+  case State::Completed:
+    return "completed";
+  case State::Failed:
+    return "failed";
+  case State::Canceled:
+    return "canceled";
+  case State::DeadlineExceeded:
+    return "deadline_exceeded";
+  case State::Running:
+    break;
+  }
+  return common.cancelRequested ? "cancellation_requested" : "running";
+}
+
+// Ends the job; the decoded pixels and the staged copies go with it (a decode
+// still running keeps the staging folder until it returns, then removes it).
+void IntakeJob::finish(State end) {
+  stop->store(true);
+  pending.reset();
+  loaded.clear();
+  staging.reset();
+  state          = end;
+  common.endedMs = now();
+}
+
+void IntakeJob::fail(const QString& code, const QString& message,
+                     const QJsonObject& details, const QString& phase) {
+  const QString name   = details.value("name").toString();
+  const QString reason = details.value("reason").toString();
+  QString text         = message;
+  if (!name.isEmpty()) text += " File: " + name + '.';
+  if (!reason.isEmpty()) text += " Reason: " + reason + '.';
+  common.failure = QJsonObject{
+      {"code", code}, {"phase", phase}, {"message", text.left(2048)}};
+  finish(State::Failed);
+}
+
+void IntakeJob::startDecode() {
+  const SourceFile& file = plan.sources.files[loaded.size()];
+  const DecodeTask task = decodeTask(*context, plan.sources, plan.options, file,
+                                     plan.copy ? staging->path() : "");
+  auto promise          = std::make_shared<std::promise<DecodeOutcome>>();
+  pending               = promise->get_future();
+  decodePool().start([task, promise, flag = stop, folder = staging]() {
+    DecodeOutcome result;
+    try {
+      result.file = decodeFile(task, *flag);
+    } catch (const Error& error) {
+      result.code    = error.code;
+      result.message = error.message;
+      result.details = error.details;
+    } catch (const std::exception& error) {
+      result.code    = "native_error";
+      result.message = QString::fromUtf8(error.what());
+    }
+    promise->set_value(result);
+  });
+}
+
+// Take a finished decode; false when the job failed on it.
+bool IntakeJob::collect() {
+  DecodeOutcome result = pending->get();
+  pending.reset();
+  if (!result.code.isEmpty()) {
+    fail(result.code, result.message, result.details, "decode");
+    return false;
+  }
+  loaded.push_back(result.file);
+  ++decoded;
+  return true;
+}
+
+void IntakeJob::apply() {
+  try {
+    Document& document = context->document(common.documentId);
+    if (document.revisionText() != common.revision)
+      throw Error("revision_changed",
+                  "The document changed after the import began.",
+                  {{"revision", document.revisionText()}});
+    bool changed = false;
+    outcome =
+        applyImport(document, plan, loaded, [&changed]() { changed = true; });
+    if (changed) ++document.revision;
+    outcome.insert("document_id", document.id);
+    outcome.insert("revision", document.revisionText());
+    finish(State::Completed);
+  } catch (const Error& error) {
+    fail(error.code, error.message, error.details, "apply");
+  }
+}
+
+// One slice: start or collect a decode, or apply at the end. Returns the
+// delay before the next slice, or -1 when the job has ended.
+int IntakeJob::step() {
+  if (terminal()) return -1;
+  if (common.startedMs < 0) common.startedMs = now();
+  if (common.cancelRequested || stop->load()) {
+    if (!common.cancelRequested) cancel();
+    return -1;
+  }
+  if (now() - common.startedMs > ImportDeadlineMs) {
+    finish(State::DeadlineExceeded);
+    return -1;
+  }
+  if (pending) {
+    if (pending->wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+      return 5;
+    if (!collect()) return -1;
+  }
+  if (loaded.size() < plan.sources.files.size()) {
+    startDecode();
+    return 5;
+  }
+  apply();
+  return -1;
+}
+
+QJsonObject IntakeJob::record() const {
+  const QJsonObject limits{{"deadline_ms", ImportDeadlineMs},
+                           {"storage_reserved_bytes", double(reservedBytes())},
+                           {"cancel_grace_ms", CancelGraceMs}};
+  const QJsonObject progress{{"unit", "files"},
+                             {"done", double(decoded)},
+                             {"total", double(plan.sources.files.size())}};
+  const int rows = outcome.value("drawings").toArray().size();
+  const QJsonObject outputs{{"directory", QJsonValue()},
+                            {"artifact_count", 0},
+                            {"result_rows", rows}};
+  QJsonObject result = commonRecord(*context, common, statusText(), terminal(),
+                                    limits, progress, outputs);
+  result.insert("intake", QJsonObject{{"files", int(plan.sources.files.size())},
+                                      {"storage", plan.options.storage},
+                                      {"level_name", plan.options.name}});
+  return result;
+}
+
+QJsonValue IntakeJob::result(Context&, const QJsonObject& params) {
+  if (state != State::Completed)
+    throw Error("result_unavailable",
+                "The import has no result; poll job.status.",
+                {{"status", statusText()}, {"failure", common.failure}});
+  const int offset          = integerParam(params, "offset", 0, 65536, 0);
+  const int limit           = integerParam(params, "limit", 1, 256, 64);
+  const QJsonArray drawings = outcome.value("drawings").toArray();
+  const QJsonArray copies   = outcome.value("copied_files").toArray();
+  QJsonArray rows;
+  for (int index = offset; index < drawings.size() && rows.size() < limit;
+       ++index) {
+    QJsonObject row = drawings[index].toObject();
+    row.insert("copy_name", index < copies.size()
+                                ? copies[index].toObject().value("copy_name")
+                                : QJsonValue());
+    rows.append(row);
+  }
+  QJsonObject summary = outcome;
+  summary.remove("drawings");
+  summary.remove("copied_files");
+  summary.insert("copied_file_count", copies.size());
+  const int end = offset + rows.size();
+  return QJsonObject{
+      {"job_id", common.id},
+      {"kind", common.kind},
+      {"status", statusText()},
+      {"summary", summary},
+      {"rows", rows},
+      {"total_rows", drawings.size()},
+      {"offset", offset},
+      {"next_offset", end < drawings.size() ? QJsonValue(end) : QJsonValue()},
+      {"source_revision", common.revision}};
+}
+
+QJsonObject submitImportJob(Context& context, Document& document,
+                            const ImportPlan& plan, const QJsonObject& params) {
+  if (plan.copy && plan.shape.bytes > MaxJobStorageBytes)
+    throw Error(
+        "resource_limit",
+        "The private copies of one import job hold at most 512 MiB.",
+        {{"limit", "job_storage"}, {"maximum", double(MaxJobStorageBytes)}});
+  JobRegistry& registry = jobRegistry(context);
+  registry.admitAnalysis({}, 0);
+  auto job     = std::make_shared<IntakeJob>();
+  job->context = &context;
+  job->plan    = plan;
+  job->staging = std::make_shared<PrivateDirectory>(context.scratchDirectory() +
+                                                    "/intake-job-XXXXXX");
+  if (!job->staging->isValid())
+    throw Error("io_error", "Cannot create the import job's staging folder.");
+  job->common.id          = registry.newJobId();
+  job->common.kind        = "intake_import";
+  job->common.lane        = JobLane::Analysis;
+  job->common.documentId  = document.id;
+  job->common.revision    = document.revisionText();
+  job->common.request     = params;
+  job->common.submittedMs = registry.elapsedMs();
+  job->common.request.remove("operation_id");
+  registry.add(job);
+  job->schedule(0);
+  return {{"outcome", "job_started"}, {"job", job->record()}};
+}
+
+QJsonValue importIntake(Context& context, const QJsonObject& params) {
+  Document& document = getDocument(context, params);
+  ImportPlan plan    = planImport(context, document, params);
+  if (!runsInline(plan.sources, plan.shape))
+    return submitImportJob(context, document, plan, params);
+  PrivateDirectory staging(context.scratchDirectory() + "/intake-XXXXXX");
+  if (!staging.isValid())
+    throw Error("io_error", "Cannot create a private staging directory.");
+  std::vector<LoadedFile> loaded = loadSources(
+      context, plan.sources, plan.options, plan.copy ? &staging : nullptr);
+  return applyImport(document, plan, loaded,
+                     [&context]() { context.markMutationStarted(); });
 }
 
 // ------------------------------------------------------------ provenance --

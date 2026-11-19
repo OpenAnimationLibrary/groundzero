@@ -179,8 +179,8 @@ class CensusFailureCases(unittest.TestCase):
         self.assert_reports(self.static(), "README names file format WEBM")
 
     def test_readme_extension_the_census_lacks_fails(self) -> None:
-        self.readme += "\nWrites a `.tga` file.\n"
-        self.assert_reports(self.static(), "README names file format TGA")
+        self.readme += "\nWrites a `.mkv` file.\n"
+        self.assert_reports(self.static(), "README names file format MKV")
 
     def test_format_the_catalog_does_not_show_fails(self) -> None:
         tool = next(t for t in self.capabilities["tools"] if t["name"] == "render.submit")

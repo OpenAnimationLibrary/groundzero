@@ -338,6 +338,7 @@ set(SOURCES
     automation_cell_tools.cpp
     automation_cell_retime.cpp
     automation_intake.cpp
+    automation_intake_formats.cpp
     automation_fx.cpp
     automation_fx_preflight.cpp
     automation_fx_profile.cpp
