@@ -254,6 +254,7 @@ JournalLimits JournalLimits::small() {
   limits.segmentBytes = 64 * 1024;
   limits.fullReceipts = 16;
   limits.receiptStubs = 64;
+  limits.memoryReceipts = 4;
   limits.packages     = 4;
   limits.jobs         = 8;
   return limits;
@@ -505,6 +506,8 @@ void Journal::scanSegment(Segment& segment, bool recovery) {
     }
     good.push_back(text);
     const QJsonObject record = QJsonDocument::fromJson(json).object();
+    m_applyingSegment        = segment.name;
+    m_applyingOffset         = segment.offset + position;
     const qint64 seq         = integer(record, "seq");
     if (seq > 0 && first == 0) first = seq;
     last = std::max(last, seq);
@@ -561,6 +564,22 @@ void Journal::quarantineSegment(Segment& segment,
   m_quarantined.append(damage);
 }
 
+namespace {
+
+// An outcome as the index keeps it: without its inline response, which stays
+// on disk in the line that starts at `offset` of `segment`.
+void keepOutcome(JournalOperation& operation, QJsonObject record,
+                 const QString& segment, qint64 offset) {
+  if (record.contains("response") && offset >= 0) {
+    record.remove("response");
+    operation.responseSegment = segment;
+    operation.responseOffset  = offset;
+  }
+  operation.outcome = record;
+}
+
+}  // namespace
+
 void Journal::apply(const QJsonObject& record) {
   const QString type = record.value("type").toString();
   const QString id   = record.value("operation_id").toString();
@@ -591,7 +610,7 @@ void Journal::apply(const QJsonObject& record) {
     else if (type == "intent" && found->writer == w)
       found->intent = record;
     else if (type == "outcome" && found->writer == w)
-      found->outcome = record;
+      keepOutcome(*found, record, m_applyingSegment, m_applyingOffset);
     else if (type == "reconcile" && found->reconcile.isEmpty())
       found->reconcile = record;
   } else if (type == "job") {
@@ -786,9 +805,35 @@ QByteArray Journal::readBlob(const QString& digest, qint64 bytes) const {
                                                            : QByteArray();
 }
 
+QJsonObject Journal::outcomeLine(const JournalOperation& operation) const {
+  QFile file(path(operation.responseSegment));
+  if (!file.open(QIODevice::ReadOnly)) return {};
+  const auto matching = [&operation](const QByteArray& text) {
+    const QByteArray json = text.mid(65);
+    if (text.size() < 66 || sha256Hex(json) != text.left(64)) return false;
+    const QJsonObject record = QJsonDocument::fromJson(json).object();
+    return record.value("type") == "outcome" &&
+           record.value("operation_id") == operation.operationId &&
+           record.value("seq") == operation.outcome.value("seq");
+  };
+  if (file.seek(operation.responseOffset)) {
+    const QByteArray text =
+        file.readLine(m_start.limits.lineBytes + 2).trimmed();
+    if (matching(text)) return QJsonDocument::fromJson(text.mid(65)).object();
+  }
+  // Compaction rewrote the segment, so the line moved; it keeps its content.
+  file.seek(0);
+  for (const QByteArray& text : file.readAll().split('\n'))
+    if (matching(text)) return QJsonDocument::fromJson(text.mid(65)).object();
+  return {};
+}
+
 QJsonObject Journal::response(const JournalOperation& operation) const {
   const QJsonObject& record = operation.outcome;
-  if (record.contains("response")) return record.value("response").toObject();
+  if (!operation.responseSegment.isEmpty()) {
+    const QJsonObject line = outcomeLine(operation);
+    if (line.contains("response")) return line.value("response").toObject();
+  }
   const QByteArray bytes =
       readBlob(record.value("blob").toString(), integer(record, "bytes"));
   if (bytes.isEmpty())
@@ -1203,6 +1248,8 @@ void Journal::forgetCompacted(const Segment& segment, const Retention& plan) {
     found->stubState =
         stubRecord(QJsonObject{}, *found).value("state").toString();
     found->outcome = found->intent = found->reconcile = QJsonObject();
+    found->responseSegment.clear();
+    found->responseOffset = -1;
   }
   for (const QString& id : plan.jobs)
     if (integer(m_jobs.value(id), "seq") <= segment.lastSeq) m_jobs.remove(id);

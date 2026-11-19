@@ -566,7 +566,10 @@ def retention_runs_between_requests(case: NativeAcceptance) -> None:
     journal = case.success("journal.status", {})
     case.assertGreater(journal["retained"]["receipt_stubs"], 0)
     case.assertLess(journal["retained"]["full_receipts"], 71)
-    case.assertEqual(case.success("scene.create", first)["document_id"], document)
+    # Its in-memory receipt was dropped long ago (4 kept under these limits),
+    # so the retry is answered by the journal's stub.
+    expired = case.failure("scene.create", first)
+    case.assertEqual(expired["code"], "receipt_expired", expired)
 
 
 @acceptance_case(worker_only="needs --test-write-fault and --test-journal-limits")

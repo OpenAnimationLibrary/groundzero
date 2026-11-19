@@ -37,6 +37,9 @@ constexpr int MaximumCapabilityPage   = 64;
 constexpr int MaximumCapabilityOffset = 4096;
 constexpr int DefaultCapabilityPage   = 16;
 constexpr qint64 maximumReceiptBytes = 64 * 1024 * 1024;
+// Ordinary receipts kept in memory without a journal; with one, its
+// memoryReceipts limit, past which the oldest it holds are dropped.
+constexpr int MaximumMemoryReceipts  = 2048;
 constexpr qint64 maximumResultBytes  = 8 * 1024 * 1024 - 1024;
 // One reserved first cancellation per retained job: two lanes of 32.
 constexpr int maximumControlReceipts = 2 * JobsPerLane;
@@ -693,7 +696,7 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
     checkResult(entry.descriptor, result);
 #endif
     key.response = {{"result", result}};
-    recordOutcome(journal, operationId, key.response);
+    key.durable  = recordOutcome(journal, operationId, key.response);
     rememberReceipt(operationId, key, controlJob);
     if (writeClass == "job") recordJobStart(journal, operationId, result);
     if (method == "job.discard") forgetJob(params.value("job_id").toString());
@@ -704,7 +707,7 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
       const Error recorded =
           boundedControlError(error, operationId, controlJob);
       key.response = {{"error", errorObject(recorded)}};
-      recordOutcome(journal, operationId, key.response);
+      key.durable  = recordOutcome(journal, operationId, key.response);
       rememberReceipt(operationId, key, controlJob);
       throw recorded;
     }
@@ -774,10 +777,11 @@ bool Dispatcher::admit(Journal& journal, const QString& method,
 // The reply waits for the outcome on disk. When it cannot be recorded the
 // change still stands and is returned; the journal is then unavailable to
 // this worker, and a later worker reconciles the operation as interrupted.
-void Dispatcher::recordOutcome(Journal* journal, const QString& operationId,
+// True when the journal holds the outcome.
+bool Dispatcher::recordOutcome(Journal* journal, const QString& operationId,
                                const QJsonObject& response) {
   writeFaultFires(m_context, "journal:handler");
-  if (!journal) return;
+  if (!journal) return false;
   const QJsonObject result = response.value("result").toObject();
   const QJsonObject error  = response.value("error").toObject();
   const QJsonValue revision =
@@ -785,7 +789,7 @@ void Dispatcher::recordOutcome(Journal* journal, const QString& operationId,
           ? result.value("revision")
           : error.value("details").toObject().value("revision");
   const QJsonValue job = result.value("job_id");
-  journal->outcome(
+  return journal->outcome(
       operationId, response,
       {{"code", error.isEmpty() ? QJsonValue() : error.value("code")},
        {"revision", revision.isString() ? revision : QJsonValue()},
@@ -836,6 +840,15 @@ QJsonObject Dispatcher::replayJournal(Journal& journal,
 QJsonObject Dispatcher::recordedResponse(Journal& journal,
                                          const JournalOperation& operation) {
   const QJsonObject response = journal.response(operation);
+  // This worker's own outcome, its in-memory receipt dropped: the reply is
+  // the one it gave, byte for byte, as an in-memory replay would be.
+  if (operation.writer == m_instance) {
+    if (!response.contains("error")) return response.value("result").toObject();
+    const QJsonObject error = response.value("error").toObject();
+    throw Error(error.value("code").toString(),
+                error.value("message").toString(),
+                error.value("details").toObject());
+  }
   const QJsonObject receipt{
       {"source", "journal"},
       {"recorded_by_worker", operation.writer},
@@ -853,19 +866,48 @@ QJsonObject Dispatcher::recordedResponse(Journal& journal,
   return result;
 }
 
-void Dispatcher::checkReceiptCapacity(bool control) const {
+bool Dispatcher::receiptsFit() const {
+  Journal* journal = workspaceJournal(m_context);
+  const int maximum =
+      journal ? journal->limits().memoryReceipts : MaximumMemoryReceipts;
+  return m_receipts.size() - m_controlJobs.size() < maximum &&
+         m_receiptBytes <= maximumReceiptBytes - maximumResultBytes;
+}
+
+// Drops the oldest receipts the journal holds until a new one fits; an exact
+// retry of a dropped operation is answered from the journal. A receipt the
+// journal does not hold is never dropped.
+void Dispatcher::dropDurableReceipts() {
+  while (!receiptsFit() && !m_droppable.empty()) {
+    const auto found = m_receipts.find(m_droppable.front());
+    m_droppable.pop_front();
+    if (found == m_receipts.end()) continue;
+    m_receiptBytes -= receiptSize(found->response);
+    m_receipts.erase(found);
+  }
+}
+
+void Dispatcher::checkReceiptCapacity(bool control) {
   // The reserve holds one first cancellation per retained job; an unknown id's
   // cancellation is refused without a receipt and takes no slot.
   if (control) {
     const int retained = jobRegistry(m_context).retainedCount();
     if (m_controlJobs.size() < std::min(retained, maximumControlReceipts))
       return;
-  } else if (m_receipts.size() - m_controlJobs.size() < 2048 &&
-             m_receiptBytes <= maximumReceiptBytes - maximumResultBytes) {
-    return;
+    throw Error("resource_limit",
+                "The worker receipt limit was reached; start a new worker.");
   }
-  throw Error("resource_limit",
-              "The worker receipt limit was reached; start a new worker.");
+  dropDurableReceipts();
+  if (receiptsFit()) return;
+  Journal* journal = workspaceJournal(m_context);
+  throw Error(
+      "resource_limit",
+      "The worker's in-memory receipts are full and none can be dropped: "
+      "the workspace journal does not hold them. Start a new worker.",
+      {{"limit", "receipts"},
+       {"reason", journal ? "journal_unavailable" : "no_journal"},
+       {"journal_reason",
+        journal ? QJsonValue(journal->unavailableReason()) : QJsonValue()}});
 }
 
 // A discarded job no longer holds a first-cancellation reserve or a pending
@@ -879,10 +921,12 @@ void Dispatcher::rememberReceipt(const QString& operationId,
                                  const Receipt& receipt,
                                  const QString& controlJob) {
   m_receipts.insert(operationId, receipt);
-  if (controlJob.isEmpty())
-    m_receiptBytes += receiptSize(receipt.response);
-  else
+  if (!controlJob.isEmpty()) {
     m_controlJobs.insert(controlJob);
+    return;
+  }
+  m_receiptBytes += receiptSize(receipt.response);
+  if (receipt.durable) m_droppable.push_back(operationId);
 }
 
 void Dispatcher::finishRevision(QJsonObject& result, const QString& documentId,

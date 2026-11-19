@@ -138,9 +138,11 @@ void fillByteQuota(Dispatcher& dispatcher) {
         call(dispatcher, "fixture.receipt",
              {{"operation_id", "payload-" + QString::number(accepted)}});
     if (response.contains("error")) {
+      const QJsonObject error = response.value("error").toObject();
       require(
-          response.value("error").toObject().value("code") == "resource_limit",
-          "Byte exhaustion returned the wrong error");
+          error.value("code") == "resource_limit" &&
+              error.value("details").toObject().value("reason") == "no_journal",
+          "Byte exhaustion without a journal returned the wrong error");
       break;
     }
   }
