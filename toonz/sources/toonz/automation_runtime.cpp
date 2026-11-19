@@ -502,6 +502,8 @@ QJsonObject admission(const QString& tool, const QString& direction,
 QJsonArray admittedFormats(Context& context) {
   QStringList rendered{"png"};
   if (mediaState(context).usable()) rendered.append("mp4");
+  std::unique_ptr<Tiio::Writer> exr(Tiio::makeWriter("exr"));
+  if (exr) rendered.append("exr");
   return {admission("level.import", "read", {"png"}),
           admission("raster.import_png", "read", {"png"}),
           admission("raster.export_png", "write", {"png"}),

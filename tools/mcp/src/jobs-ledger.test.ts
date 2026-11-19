@@ -120,7 +120,7 @@ async function jobSession(answer: (method: string) => Promise<unknown>) {
   const request = vi.fn(async (method: string): Promise<unknown> => {
     if (method === "automation.capabilities") {
       return {
-        protocol_version: 4,
+        protocol_version: 5,
         tools: jobTools,
         next_offset: null,
         toolsets: [{ name: "core", description: "Core", tools: jobTools.map((t) => t.name) }],

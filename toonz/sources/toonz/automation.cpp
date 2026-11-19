@@ -16,7 +16,9 @@
 #include "automation_intake.h"
 #include "automation_level_lifecycle.h"
 #include "automation_scene_host.h"
+#include "automation_compare.h"
 #include "automation_import.h"
+#include "automation_render_profile.h"
 #include "automation_runtime.h"
 #include "automation_shared_parse.h"
 #include "automation_shutdown.h"
@@ -772,6 +774,8 @@ int domainTestResult(Context& context) {
     runAutomationSceneHostTests(context);
     runAutomationImportTests(context);
     runAutomationRuntimeTests(context);
+    runAutomationRenderProfileTests();
+    runAutomationCompareTests();
     runAutomationJobsTests(context);
     runAutomationJournalTests(context);
     runAutomationSceneCheckTests(context);

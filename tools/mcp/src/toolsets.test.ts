@@ -23,7 +23,7 @@ interface Group {
 
 function capabilities(groups: Group[]) {
   return {
-    protocol_version: 4,
+    protocol_version: 5,
     next_offset: null,
     tools: groups.flatMap((group) => group.tools.map((name) => nativeTool(name))),
     toolsets: groups.map((group) => ({
@@ -232,7 +232,7 @@ test.each([
   ["a reserved tool name", [{ name: "core", tools: ["toolsets.list"] }], ["toolsets.list"]],
 ])("rejects a native catalog with %s", async (_label, toolsets, tools) => {
   const catalog = {
-    protocol_version: 4,
+    protocol_version: 5,
     next_offset: null,
     tools: tools.map((name) => nativeTool(name)),
     toolsets: toolsets.map((group) => ({ ...group, description: "Tools" })),

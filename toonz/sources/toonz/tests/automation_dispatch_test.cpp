@@ -232,8 +232,10 @@ QString bytePressure(Context& context, Dispatcher& dispatcher) {
 QJsonValue escapedCancellation(Context& context, const QString& method,
                                const QJsonObject& params) {
   QJsonObject response = executeJobs(context, method, params).toObject();
+  // Sized so the escaped receipt of a render job record lands between 12 and
+  // 16 KiB.
   response.insert("failure", QJsonObject{{"code", "padding"},
-                                         {"message", QString(2048, QChar(1))}});
+                                         {"message", QString(1800, QChar(1))}});
   return response;
 }
 
@@ -484,8 +486,8 @@ void toolsetCatalog(Context& context) {
   Dispatcher dispatcher(context);
   const QJsonObject capabilities =
       result(dispatcher, "automation.capabilities", {});
-  require(capabilities.value("protocol_version").toInt() == 4,
-          "The catalog reports protocol version 4");
+  require(capabilities.value("protocol_version").toInt() == 5,
+          "The catalog reports protocol version 5");
   QHash<QString, QString> listed;
   for (const QJsonValue& value : capabilities.value("toolsets").toArray()) {
     const QJsonObject toolset = value.toObject();

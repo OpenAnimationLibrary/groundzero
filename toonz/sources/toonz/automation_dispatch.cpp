@@ -630,7 +630,7 @@ QJsonObject Dispatcher::capabilities(const QJsonObject& params) const {
     page.append(descriptor);
   }
   return QJsonObject{
-      {"protocol_version", 4},
+      {"protocol_version", 5},
       {"worker", workerIdentity(m_context)},
       {"workspace", m_context.workspace()},
       {"tools", page},

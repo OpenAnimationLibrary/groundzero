@@ -205,7 +205,7 @@ def render_failure_after_final_frame_publishes_nothing(case: NativeAcceptance) -
     case.assertEqual(ended["failure"]["phase"], "render")
     case.assertEqual(ended["completed_frames"], SEQUENCE["end_frame"] + 1)
     _assert_nothing_published(case, job)
-    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 4)
+    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 5)
 
 
 @acceptance_case(
@@ -243,7 +243,7 @@ def render_encoder_failure_publishes_nothing(case: NativeAcceptance) -> None:
     _fault_worker(case, "encoder", "--test-render-fault", "encoder-failure", media=True)
     document = _scene(case)
     baseline = _descendants(case.worker.process.pid)
-    movie = {"format": "mp4", **SEQUENCE}
+    movie = {"profile": "opaque8-mp4", **SEQUENCE}
     job = case.mutate("render.submit", document, **movie)["job_id"]
     ended = _ends(case, job, "failed", "encoder")
     case.assertEqual(
@@ -584,7 +584,7 @@ def live_worker_and_host_files_survive_another_workers_start(case: NativeAccepta
     before = _directories(case)
     case.assertTrue(any(path.name.startswith("job_") for path in before))
     other = _second_worker(case, "bystander")
-    case.assertEqual(other.call("automation.capabilities", {})["result"]["protocol_version"], 4)
+    case.assertEqual(other.call("automation.capabilities", {})["result"]["protocol_version"], 5)
     case.assertLessEqual(before, _directories(case))
     ended = case.wait_job(editable["job_id"])
     case.assertEqual(ended["status"], "completed", ended)
@@ -597,7 +597,7 @@ def live_worker_and_host_files_survive_another_workers_start(case: NativeAccepta
     hosts = list(case.workspace.glob("runtime_*/scene-host-*"))
     case.assertEqual(len(hosts), 1)
     again = _second_worker(case, "second-bystander")
-    case.assertEqual(again.call("automation.capabilities", {})["result"]["protocol_version"], 4)
+    case.assertEqual(again.call("automation.capabilities", {})["result"]["protocol_version"], 5)
     case.assertTrue(hosts[0].is_dir())
     case.assertEqual(wait(case, case.worker, hosted)["status"], "completed")
     artifacts = call(case, case.worker, "job.result", {"job_id": hosted})["artifacts"]

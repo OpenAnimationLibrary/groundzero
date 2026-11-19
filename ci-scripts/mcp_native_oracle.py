@@ -177,9 +177,14 @@ SIGNAL_EXITS: list[str] = []
 
 
 def _run(
-    command: list[str], output: Path, environment: dict[str, str], timeout: float, scene: Path
+    command: list[str],
+    output: Path,
+    environment: dict[str, str],
+    timeout: float,
+    scene: Path,
+    extension: str,
 ) -> subprocess.CompletedProcess[str]:
-    for stale in output.glob("frame.*.png"):
+    for stale in output.glob(f"frame.*.{extension}"):
         stale.unlink()
     try:
         return subprocess.run(
@@ -203,17 +208,20 @@ def render_with_tcomposer(
     *,
     stuff: Path,
     timeout: float = 300,
+    extension: str = "png",
 ) -> list[Path]:
-    """Render frames of a scene with the batch renderer and return the PNG files, in order.
+    """Render frames of a scene with the batch renderer and return the image files, in order.
 
     Args:
         tcomposer: The renderer of the build under test.
         scene: A .tnz inside a project (a `scenes.xml` binds it), whose output camera is the size
             to render.
-        output: An existing folder that receives `frame.NNNN.png`.
+        output: An existing folder that receives `frame.NNNN.<extension>`.
         frames: The scene's own frame numbers, from zero.
         stuff: A private folder for the renderer's settings, created if missing.
         timeout: Seconds before the render is abandoned.
+        extension: The output type; the scene's stored settings for it (bits per pixel,
+            compression) are the ones the renderer applies.
     Raises:
         OracleError: When the renderer fails, hangs or writes a different set of frames.
     """
@@ -223,7 +231,7 @@ def render_with_tcomposer(
         str(tcomposer),
         str(scene),
         "-o",
-        str(output / "frame..png"),
+        str(output / f"frame..{extension}"),
         "-range",
         str(frames.start + 1),
         str(frames.stop),
@@ -238,14 +246,14 @@ def render_with_tcomposer(
         "DYLD_LIBRARY_PATH": str(tcomposer.parent),
         "QT_QPA_PLATFORM": "cocoa" if sys.platform == "darwin" else "xcb",
     }
-    done = _run(command, output, environment, timeout, scene)
+    done = _run(command, output, environment, timeout, scene, extension)
     if done.returncode < 0:
         # The renderer died of a signal in Qt's event loop (a crash report shows the dispatch of
         # an event, not scene code), once in about twenty runs. It is retried once, and the
         # signal is recorded in SIGNAL_EXITS so that a run can show how often it happens.
         SIGNAL_EXITS.append(f"{scene.name}: signal {-done.returncode}")
-        done = _run(command, output, environment, timeout, scene)
-    written = sorted(output.glob("frame.*.png"))
+        done = _run(command, output, environment, timeout, scene, extension)
+    written = sorted(output.glob(f"frame.*.{extension}"))
     if done.returncode != 0 or len(written) != len(frames):
         tail = (done.stdout + done.stderr)[-600:]
         raise OracleError(

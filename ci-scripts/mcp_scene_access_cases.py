@@ -808,7 +808,7 @@ def read_only_documents_refuse_mutations(case: NativeAcceptance) -> None:
         case.assertEqual((details["reason"], details.get("slice")), (reason, slice_), name)
     case.assertEqual(call(case, worker, "scene.summary", {"document_id": document}), before)
     case.assertFalse((case.workspace / "copy").exists())
-    submit = {"document_id": document, "expected_revision": "0", "format": "mp4"}
+    submit = {"document_id": document, "expected_revision": "0", "profile": "opaque8-mp4"}
     submit.update(start_frame=0, end_frame=0, operation_id=_op(case))
     refuse(case, worker, "render.submit", submit, "render_unavailable")
     discard(case, worker, document)

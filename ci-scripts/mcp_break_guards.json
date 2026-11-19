@@ -441,8 +441,8 @@
   {
     "id": "native-snapshot-removed-at-job-end",
     "file": "toonz/sources/toonz/automation_render.cpp",
-    "find": "  void removeSnapshotFiles() {\n    const QString folder",
-    "replace": "  void removeSnapshotFiles() {\n    return;\n    const QString folder",
+    "find": "  void removeSnapshotFiles() {\n#ifdef BUILD_UI_PORT_TESTS",
+    "replace": "  void removeSnapshotFiles() {\n    return;\n#ifdef BUILD_UI_PORT_TESTS",
     "why": "A job removes its snapshot's scene and artwork when it ends.",
     "tests": [
       {

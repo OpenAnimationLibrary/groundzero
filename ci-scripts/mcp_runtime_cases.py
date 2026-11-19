@@ -220,13 +220,13 @@ def runtime_formats_native_vs_admitted(case: NativeAcceptance) -> None:
     admitted = {(row["tool"], row["direction"]): row["formats"] for row in formats["admitted"]}
     case.assertEqual(admitted[("level.import", "read")], ["png"])
     case.assertEqual(admitted[("audio.import", "read")], ["wav", "aiff"])
-    case.assertEqual(admitted[("render.submit", "render")], ["png"])
+    case.assertEqual(admitted[("render.submit", "render")], ["png", "exr"])
     unadmitted = [name for name in native["image_read"] if name not in {"png"}]
     case.assertTrue(unadmitted, "The native image registry lists only PNG")
     configured = _worker(case, "formats-media", media_tools=case.media_tools)
     rows = _inspect(case, configured, "media")["formats"]["admitted"]
     rendered = {row["tool"]: row["formats"] for row in rows if row["direction"] == "render"}
-    case.assertEqual(rendered["render.submit"], ["png", "mp4"])
+    case.assertEqual(rendered["render.submit"], ["png", "mp4", "exr"])
 
 
 @acceptance_case
@@ -271,6 +271,7 @@ CHECK_ORDER = [
     "writer",
     "media_tools",
     "encoder",
+    "conversions",
     "dependencies",
     "storage",
     "lane",
@@ -315,7 +316,13 @@ def render_preflight_reports_every_failure(case: NativeAcceptance) -> None:
     tools = stub_media_tools(case, "preflight-tools", " V....D mpeg4  MPEG-4 part 2")
     _use_worker(case, "preflight", media_tools=tools)
     document = case.create("Preflight")
-    broken = {"start_frame": 10, "end_frame": 5, "format": "mp4", "width": 33, "height": 32}
+    broken = {
+        "start_frame": 10,
+        "end_frame": 5,
+        "profile": "opaque8-mp4",
+        "width": 33,
+        "height": 32,
+    }
     report = _preflight(case, document, kind="sequence", **broken)
     case.assertEqual([check["id"] for check in report["checks"]], CHECK_ORDER)
     failed = {check["id"]: check for check in report["checks"] if check["status"] == "fail"}
@@ -353,11 +360,11 @@ def mp4_refused_without_encoder(case: NativeAcceptance) -> None:
     tools = stub_media_tools(case, "no-encoder-tools", " V....D mpeg4  MPEG-4 part 2")
     _use_worker(case, "no-encoder", media_tools=tools)
     capabilities = case.success("render.capabilities", {})
-    case.assertEqual(capabilities["profiles"], ["rgba8-png"])
+    case.assertEqual(capabilities["profiles"], ["rgba8-png", "rgba-half-exr", "rgba-float-exr"])
     case.assertIs(capabilities["mp4"]["encoder_available"], False)
     case.assertNotIn("graphics_backend", capabilities)
     document = case.create("No encoder")
-    movie = {"start_frame": 0, "end_frame": 1, "format": "mp4", "width": 32, "height": 32}
+    movie = {"start_frame": 0, "end_frame": 1, "profile": "opaque8-mp4", "width": 32, "height": 32}
     error = _refused(case, "render.submit", document, **movie)
     case.assertEqual(error["code"], "render_unavailable")
     case.assertEqual(
@@ -413,8 +420,14 @@ def preview_reports_effective_output(case: NativeAcceptance) -> None:
     case.assertAlmostEqual(dpi["x"], camera["width_px"] / camera["width_in"])
     case.assertAlmostEqual(dpi["y"], camera["height_px"] / camera["height_in"])
     case.assertEqual(effective["camera"]["resolution"], {"width": 1920, "height": 1080})
-    expected = {"profile": "rgba8-png", "alpha": "straight", "color_depth_bits": 8}
+    expected = {"profile": "rgba8-png", "alpha": "straight", "omissions": []}
     case.assertEqual({key: effective[key] for key in expected}, expected)
+    case.assertEqual(effective["color"]["pipeline"]["channel_bits"], 8)
+    case.assertEqual(effective["color"]["output"]["sample"], "uint8")
+    case.assertEqual(
+        effective["conversions"],
+        [{"kind": "depremultiply_truncation", "class": "inherent", "accepted": True}],
+    )
     case.assertEqual((effective["frame_rate"], effective["audio"]), (24, False))
     job = case.mutate("render.preview", document, frame=0)
     case.assertEqual(job["effective"], effective)
@@ -437,7 +450,7 @@ def media_tools_replaced_after_launch_are_refused(case: NativeAcceptance) -> Non
         shutil.copy2(_binary(source, name), _binary(tools, name))
     _use_worker(case, "replaced", media_tools=tools.resolve())
     document = case.create("Replaced tools")
-    movie = {"start_frame": 0, "end_frame": 1, "format": "mp4", "width": 32, "height": 32}
+    movie = {"start_frame": 0, "end_frame": 1, "profile": "opaque8-mp4", "width": 32, "height": 32}
     case.assertTrue(_preflight(case, document, kind="sequence", **movie)["ready"])
     probe = _binary(tools, "ffprobe")
     os.utime(probe)

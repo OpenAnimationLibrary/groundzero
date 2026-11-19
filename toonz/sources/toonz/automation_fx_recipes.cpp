@@ -1904,7 +1904,7 @@ const char* const recipeTexts[] = {
    "arguments": {
     "document_id": "${input.document_id}",
     "kind": "sequence",
-    "format": "png",
+    "profile": "rgba8-png",
     "start_frame": "${input.start_frame}",
     "end_frame": "${input.end_frame}",
     "width": "${input.width}",
@@ -1968,7 +1968,7 @@ const char* const recipeTexts[] = {
    "tool": "render.submit",
    "arguments": {
     "document_id": "${input.document_id}",
-    "format": "png",
+    "profile": "rgba8-png",
     "start_frame": "${input.start_frame}",
     "end_frame": "${input.end_frame}",
     "width": "${input.width}",

@@ -1291,7 +1291,8 @@
       "render.submit",
       "scene.check.submit",
       "drawing.analysis.submit",
-      "assistance.neural.preview"
+      "assistance.neural.preview",
+      "review.compare.submit"
      ]
     },
     "modify": {

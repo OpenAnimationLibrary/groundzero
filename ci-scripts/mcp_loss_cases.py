@@ -89,7 +89,13 @@ def render_cancel_with_a_full_encoder_pipe_leaves_nothing(case: NativeAcceptance
     _without_encoder_input(case)
     document = _scene(case, 40)
     baseline = _descendants(case.worker.process.pid)
-    movie = {"format": "mp4", "start_frame": 0, "end_frame": 39, "width": 512, "height": 512}
+    movie = {
+        "profile": "opaque8-mp4",
+        "start_frame": 0,
+        "end_frame": 39,
+        "width": 512,
+        "height": 512,
+    }
     job = case.mutate("render.submit", document, **movie)["job_id"]
     marker, _ = _await_encoder(case, job)
     pid = json.loads(marker.read_text(encoding="utf-8"))["pid"]
@@ -189,7 +195,7 @@ def render_survives_its_volume_being_removed(case: NativeAcceptance) -> None:
     case.assertLess(time.monotonic() - started, LOSS_SECONDS)
     case.assertIn(ended["status"], {"failed", "canceled"}, ended)
     case.assertIs(ended["writers_closed"], True)
-    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 4)
+    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 5)
     case.assertEqual(case.failure("job.result", {"job_id": job})["code"], "artifacts_unavailable")
     # The workspace journal went with the volume, so no write is admitted any more.
     refused = case.failure("render.submit", case.write_params(document, SEQUENCE))

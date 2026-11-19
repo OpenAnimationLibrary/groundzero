@@ -271,7 +271,7 @@ handshake, since a cold start on a loaded machine spends most of that loading th
 executable. A worker that does not answer in time fails the call with a message that
 says the handshake timed out and after how many milliseconds.
 
-The adapter requires native automation protocol version 4. An older or newer
+The adapter requires native automation protocol version 5. An older or newer
 worker is refused with `INCOMPATIBLE_WORKER`.
 
 Ask the MCP host to list tools to see the capabilities of that binary. Tool input
@@ -1379,14 +1379,56 @@ in its scene host and fails with `source_changed` when a pinned source file chan
 analysis job runs at a time per worker and its hosts (`analysis_busy`), and a worker
 retains 32 (`resource_limit`, `details.limit: retained_analysis_jobs`).
 
-`render.submit` accepts `format: "png"` (the default) or `format: "mp4"` when the
-configured media tools and native movie writer are available. MP4 requires even
-dimensions up to 2048 pixels, `step: 1`, and at most 120 frames within the render
-storage budget. Its output has no audio or alpha; transparent areas use a black
-matte. `job.result` returns a movie's `workspace_relative_path`, SHA-256,
-size, dimensions, timing, and observed codec metadata after verification. Movie
-bytes stay in that workspace file; `artifact.read` remains PNG-only and rejects
-movie IDs with `unsupported_artifact_kind`.
+`render.submit` takes an output `profile`: `rgba8-png` (the default; 8-bit straight
+alpha), `opaque8-mp4` when the configured media tools and native movie writer are
+available, `rgba-half-exr` or `rgba-float-exr` (OpenEXR scanline files, ZIP, RGBA,
+premultiplied alpha, linear light). MP4 requires even dimensions up to 2048 pixels,
+`step: 1`, and at most 120 frames. Its output has no audio or alpha; transparent areas
+use a black matte. `job.result` returns a movie's or an EXR frame's
+`workspace_relative_path`, SHA-256, size and dimensions after verification (an EXR
+frame's header, channels, sample type, compression and chunk table are checked).
+Those bytes stay in the workspace file; `artifact.read` serves PNG images only and
+rejects movie and EXR ids with `unsupported_artifact_kind` and `details.hint:
+"job.result"`.
+
+`pipeline` chooses the channel depth and color space the render computes in:
+`profile_default` (8-bit nonlinear for PNG and MP4, float nonlinear for EXR, gamma 2.2)
+or `scene`, the scene's stored `bpp`, linear setting and color space gamma. Every
+render reports, in its `effective` output, `color` (the pipeline, the written output and the
+scene's stored settings), `conversions` and `omissions`. Conversions are
+`inherent` (`depremultiply_truncation` for PNG; `yuv420_subsampling`,
+`lossy_video_codec`, `alpha_flattened_black` for MP4; `half_float_range` for half EXR)
+or `avoidable`: `quantize_to_8bit` and `clip_hdr` (a deeper pipeline written to 8 bits),
+`linearize_quantized` (an integer pipeline written to EXR),
+`fx_integer_intermediate` (one row per effect that cannot compute in float, in a float
+pipeline) and `output_setting_ignored` (under `pipeline: "scene"`, one row per stored
+setting the worker does not apply). An avoidable conversion refuses the job with
+`unaccepted_conversion` unless its kind is listed in `accept_conversions`; the job
+records each one with `accepted`. Omissions name the stored output settings a render
+does not apply (time stretch, stereoscopic, field rendering, shrink, multimedia,
+clapperboard, render gamma, a different aspect export, and the scene's audio), each
+with the scene's value. A job may reserve 2 GiB of render storage
+(`count × (width × height × bytes per pixel + 64 KiB)`, 4 bytes per pixel for PNG and
+MP4, 8 for half and 16 for float EXR), a worker 4 GiB, and the workspace volume must
+keep 1 GiB free beyond the reservation.
+
+`review.compare.submit` starts an `image_review` job on the analysis lane that compares
+pairs of 8-bit PNG render frames: `pairs` (1-120, each side an `artifact` or a
+`job_frame` of a completed render job) or `range` (two jobs paired by frame number;
+`frame_mismatch` lists the frames either lacks). The comparison uses stored code values
+with no color management, in `premultiplied` (default) or `straight` mode, over `rgba`
+or `rgb`, in an optional `region`, against a `tolerance` profile (`exact`, `rounding`,
+`straight_alpha_roundtrip`, `native_fx_regression`) or explicit integers. Each pair
+row reports both sides (job, revision, frame, digests, size, DPI, camera, fit scale,
+crop, color settings), every condition that differs between them, per-channel
+integer sums with binary64 mean and RMSE, a 256-bin histogram, nearest-rank
+percentiles, changed pixels and their box, a grid and the largest 4-connected changed
+regions, a verdict, and a difference image (`changed`, `all` or `none`; at most 16 per
+job). Sizes that differ are `size_mismatch` and never resampled. `sheet: true` adds
+one review sheet (reference, candidate and difference per pair, at most 16 rows,
+reduced by one integer factor to fit 2048 pixels). Images are job artifacts read with
+`artifact.read`; the summary row names the evidence as visual. Review storage is
+64 MiB per job and 128 MiB per worker.
 
 `runtime.inspect` reports what this worker can actually run: its identity (the
 `instance_id` and build that job records carry) and platform (operating system and version, the machine's and the build's CPU
@@ -1410,21 +1452,21 @@ not admissions: `formats.admitted` names what each tool accepts.
 
 Every render requires usable graphics. `render.preflight` takes the arguments of
 `render.preview` (`kind: "preview"`, `frame`) or `render.submit`
-(`kind: "sequence"`, `start_frame`, `end_frame`, `step`, `format`), plus
-`expected_revision`, and runs all 15 checks the job tools apply, in order:
-`frame_range`, `dimensions`, `scene_numbering`, `fx_graph`, `fx_extent`,
-`graphics`, `writer`, `media_tools`, `encoder`, `dependencies`, `storage`, `lane`,
-`retention`, `render_admission` and `source_pins`. Every check runs and reports
-its status, code and details, so one call lists every problem; `effective`
-describes the output (size, preview fit scale, frames, rate, profile, 8-bit
-nonlinear color with gamma 2.2, alpha, no audio, camera resolution, size and DPI,
-and a full-camera crop). `render.preview`, `render.submit` and
+(`kind: "sequence"`, `start_frame`, `end_frame`, `step`, `profile`, `pipeline`,
+`accept_conversions`), plus `expected_revision`, and runs all 16 checks the job tools
+apply, in order: `frame_range`, `dimensions`, `scene_numbering`, `fx_graph`,
+`fx_extent`, `graphics`, `writer`, `media_tools`, `encoder`, `conversions`,
+`dependencies`, `storage`, `lane`, `retention`, `render_admission` and `source_pins`.
+Every check runs and reports its status, code and details, so one call lists every
+problem; `effective` describes the output (size, preview fit scale, frames, rate,
+profile, color pipeline and output, conversions, omissions, alpha, no audio, camera
+resolution, size and DPI, and a full-camera crop). `render.preview`, `render.submit` and
 `assistance.neural.preview` refuse with the first failing check's code and
 `details.check` before any job, directory or snapshot exists; an `end_frame`
 before `start_frame` is `invalid_params` with `details.reason:
 "end_before_start"`. Unavailable graphics, writer, media tools and encoder are
 `render_unavailable` with `details.cause` `gl_unavailable`,
-`png_writer_unavailable`, `mp4_writer_unregistered`,
+`png_writer_unavailable`, `exr_writer_unavailable`, `mp4_writer_unregistered`,
 `media_tools_not_configured`, `media_tools_changed` or `codec_unavailable`. A
 granted media tool replaced after its first probe refuses MP4 with
 `media_tools_changed`. A sound source whose private copy is missing or changed
@@ -1581,7 +1623,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (129):
+- `core` toolset (130):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1604,15 +1646,15 @@ the adapter and the live editor bridge add the rest.
   `project.create`, `project.duplicate`, `project.inspect`, `project.list`, `project.scenes`,
   `raster.export_png`, `raster.import_png`, `raster.patch`, `raster.read_pixels`,
   `render.capabilities`, `render.preflight`, `render.preview`, `render.submit`,
-  `runtime.inspect`, `scene.check.submit`, `scene.create`, `scene.dependencies`,
-  `scene.discard`, `scene.import_editable`, `scene.import_plan`, `scene.inventory`,
-  `scene.open`, `scene.open_read_only`, `scene.package_info`, `scene.save_copy`,
-  `scene.save_preflight`, `scene.settings`, `scene.source_status`, `scene.summary`,
-  `scene.validate`, `text.fonts`, `tool.describe`, `vector.edit`, `vector.export_svg`,
-  `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
-  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
-  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
-  `vector.transform`
+  `review.compare.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
+  `scene.dependencies`, `scene.discard`, `scene.import_editable`, `scene.import_plan`,
+  `scene.inventory`, `scene.open`, `scene.open_read_only`, `scene.package_info`,
+  `scene.save_copy`, `scene.save_preflight`, `scene.settings`, `scene.source_status`,
+  `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`, `vector.edit`,
+  `vector.export_svg`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
+  `vector.inspect`, `vector.opacity.inspect`, `vector.opacity.profile.set`,
+  `vector.opacity.set`, `vector.order.move`, `vector.select`, `vector.structure`,
+  `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

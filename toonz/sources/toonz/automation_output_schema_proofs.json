@@ -864,7 +864,9 @@
   },
   "project.list": {
     "handler": "listProjects",
-    "read": []
+    "read": [
+      "status"
+    ]
   },
   "project.scenes": {
     "handler": "listScenes",
@@ -900,6 +902,10 @@
   },
   "render.submit": {
     "handler": "submit",
+    "read": []
+  },
+  "review.compare.submit": {
+    "handler": "submitReview",
     "read": []
   },
   "rig.dependents": {
@@ -1060,12 +1066,23 @@
     "handler": "savePreflight",
     "read": [
       "availability",
+      "bytes_estimate",
       "coded_path",
+      "encoded_bytes_bound",
+      "files_estimate",
+      "free_bytes",
+      "input_index",
+      "known_bytes",
       "owner_id",
       "owner_kind",
       "package_path",
       "role",
-      "source"
+      "root_sha256",
+      "same_volume_as_workspace",
+      "save_mode",
+      "source",
+      "staging",
+      "upper_bound"
     ]
   },
   "scene.settings": {

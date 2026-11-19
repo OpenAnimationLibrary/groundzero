@@ -393,8 +393,14 @@ const QHash<QString, Declaration>& declarations() {
                     false},
         {"fx_preflight_failed", "invalid_package", "package_write_failed",
          "render_blocked", "render_busy", "render_limit",
-         "render_output_failed", "render_unavailable",
+         "render_output_failed", "render_unavailable", "unaccepted_conversion",
          "unsupported_render_settings"}}},
+      {"review.compare.submit",
+       {ToolEffects{
+            "job_start", "reads", {"writes_private"}, "starts", {}, false},
+        {"analysis_busy", "artifacts_unavailable", "frame_mismatch",
+         "invalid_artifact", "io_error", "profile_conflict", "resource_limit",
+         "unknown_artifact", "unknown_job", "unsupported_artifact_kind"}}},
       {"rig.dependents", {kInspect, {"invalid_handle", "revision_conflict"}}},
       {"rig.evaluate", {kInspect, {"invalid_handle"}}},
       {"rig.inspect", {kInspect, {"revision_conflict"}}},
@@ -923,7 +929,7 @@ QJsonObject capabilitiesResultSchema() {
                     {"description", stringSchema(1, 1024)},
                     {"tools", arraySchema(stringSchema(1, 128), 0, 1024)}});
   return strictObject(
-      {{"protocol_version", QJsonObject{{"type", "integer"}, {"const", 4}}},
+      {{"protocol_version", QJsonObject{{"type", "integer"}, {"const", 5}}},
        {"workspace", stringSchema(1, 4096)},
        {"tools", arraySchema(descriptorSchema(), 0, 64)},
        {"tool_count",

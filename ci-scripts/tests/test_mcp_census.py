@@ -185,7 +185,7 @@ class CensusFailureCases(unittest.TestCase):
 
     def test_format_the_catalog_does_not_show_fails(self) -> None:
         tool = next(t for t in self.capabilities["tools"] if t["name"] == "render.submit")
-        tool["inputSchema"]["properties"]["format"]["enum"] = ["png"]
+        tool["inputSchema"]["properties"]["profile"]["enum"] = ["rgba8-png"]
         self.assert_reports(self.live(), "format mp4: the catalog does not show")
 
     def test_format_evidence_tool_missing_from_the_catalog_fails(self) -> None:

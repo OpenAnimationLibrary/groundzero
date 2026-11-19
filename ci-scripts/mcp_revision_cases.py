@@ -159,6 +159,8 @@ class Session:
             self.document = result["document_id"]
         if step.get("select_document"):
             self.document = self.variables[step["select_document"]]
+        if "settle" in step:
+            _settle(self, step)
 
     def _until_terminal(self, step: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
         """Repeat a job.status step until the job it reads is terminal."""

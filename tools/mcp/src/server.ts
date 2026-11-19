@@ -78,8 +78,8 @@ async function discover(
     limit: CATALOG_PAGE,
     declarations: true,
   });
-  if (!isObject(first) || first["protocol_version"] !== 4) {
-    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 4");
+  if (!isObject(first) || first["protocol_version"] !== 5) {
+    throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 5");
   }
   const entries = await catalogPages(worker, first);
   const tools = await catalog(entries, true);

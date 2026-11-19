@@ -139,7 +139,7 @@ def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> N
     fresh = case.write_params(document, {"width_px": 64})
     case.revisions[document] = case.success("scene.settings", fresh)["revision"]
     case.assertEqual(len(case.success("automation.list_documents", {})["documents"]), 1)
-    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 4)
+    case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 5)
     evidence: dict[str, Any] = {
         "ordinary_receipts": ORDINARY_RECEIPTS,
         "control_receipts": CONTROL_RECEIPTS,

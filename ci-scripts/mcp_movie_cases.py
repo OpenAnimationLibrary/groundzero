@@ -94,7 +94,7 @@ def _fixture(case: NativeAcceptance) -> tuple[str, str]:
 
 def _options() -> dict[str, Any]:
     return {
-        "format": "mp4",
+        "profile": "opaque8-mp4",
         "start_frame": START_FRAME,
         "end_frame": START_FRAME + len(COLORS) - 1,
         "step": 1,
@@ -109,7 +109,6 @@ def _movie_artifact(case: NativeAcceptance, job: dict[str, Any]) -> dict[str, An
     case.assertIs(status["writers_closed"], True)
     case.assertEqual(status["completed_frames"], len(COLORS))
     case.assertEqual(status["failed_frames"], 0)
-    case.assertEqual(status["format"], "mp4")
     case.assertEqual(status["profile"], "opaque8-mp4")
     case.assertEqual(status["frame_rate"], FRAME_RATE)
     result = case.success("job.result", {"job_id": job["job_id"]})
@@ -303,9 +302,15 @@ def movie_options_reject_unsupported_values(case: NativeAcceptance) -> None:
     document = case.create("Unsupported movie settings")
     for override in ({"width": 319}, {"height": 239}, {"step": 2}):
         _reject_submit(case, document, {**_options(), **override}, "unsupported_render_settings")
-    for override in ({"format": "webm"}, {"quality": 50}, {"scale": 50}, {"audio": True}):
+    for override in (
+        {"profile": "webm"},
+        {"format": "mp4"},
+        {"quality": 50},
+        {"scale": 50},
+        {"audio": True},
+    ):
         _reject_submit(case, document, {**_options(), **override}, case.schema_code())
-    params = case.write_params(document, {"frame": 0, "format": "mp4"})
+    params = case.write_params(document, {"frame": 0, "profile": "opaque8-mp4"})
     case.schema_failure("render.preview", params)
 
 
