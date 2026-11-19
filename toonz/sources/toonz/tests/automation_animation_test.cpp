@@ -614,7 +614,8 @@ void breakdownSplitsEverySegmentKind() {
     double previous;
     double next;
   };
-  const std::array<Case, 4> cases{Case{5, 25, 0, 12}, Case{18, 50, 12, 24},
+  const std::array<Case, 6> cases{Case{5, 25, 0, 12},    Case{14, 50, 12, 24},
+                                  Case{18, 50, 12, 24},  Case{22, 50, 12, 24},
                                   Case{30, 110, 24, 36}, Case{40, -10, 36, 48}};
   for (const auto& item : cases) {
     const auto curve  = editedCurve();
@@ -656,7 +657,7 @@ void breakdownSplitsEverySegmentKind() {
 }
 
 void breakdownMatchesTheEditor() {
-  for (const int frame : {5, 18, 30, 40}) {
+  for (const int frame : {5, 14, 18, 22, 30, 40}) {
     const auto curve  = editedCurve();
     const auto edited = appliedBreakdown(*curve, breakdown(frame, 40));
     TDoubleParamP native(new TDoubleParam(*curve));
@@ -673,8 +674,11 @@ void breakdownMatchesTheEditor() {
       near(ours[index].m_value, theirs[index].m_value);
     }
     for (const double sample : denseFrames(80)) {
-      // The editor leaves the next ease key's incoming ease longer than its new
-      // segment; the evaluator rebalances it to the clamp this tool writes.
+      // The editor leaves the next ease key's incoming ease longer than its
+      // new segment (the evaluator rebalances it to the clamp this tool
+      // writes) and, for a frame inside that last ease, writes the clamp into
+      // the previous key's incoming handle, which bends the segment before it.
+      if (frame == 22 && sample < 12) continue;
       near(edited->getValue(sample), native->getValue(sample));
     }
   }
@@ -715,7 +719,42 @@ void breakdownSurvivesSaveAndReopen() {
             "Reopening changed a breakdown sample");
 }
 
+void rejectedFor(TDoubleParam& curve, const QString& reason,
+                 const std::function<void()>& action) {
+  const auto before = inspectAnimationKeys(curve);
+  try {
+    action();
+  } catch (const Error& error) {
+    require(error.details.value("reason").toString() == reason,
+            "The refusal does not name its reason");
+    require(inspectAnimationKeys(curve) == before,
+            "A refused breakdown changed the curve");
+    return;
+  }
+  throw std::runtime_error("A refusal for " + reason.toStdString() +
+                           " did not happen");
+}
+
 void breakdownRefusals() {
+  TDoubleParamP linear(new TDoubleParam());
+  for (const int frame : {0, 10, 20})
+    linear->setKeyframe(key(frame, frame, TDoubleKeyframe::Linear, {}, {}));
+  rejectedFor(*linear, "key_exists",
+              [&]() { prepareAnimationBreakdown(*linear, breakdown(10, 50)); });
+  rejectedFor(*linear, "outside_segment",
+              [&]() { prepareAnimationBreakdown(*linear, breakdown(25, 50)); });
+  rejectedFor(*linear, "favour_percent_or_value", [&]() {
+    prepareAnimationBreakdown(
+        *linear, {{"frame", 5}, {"value", 1}, {"favour_percent", 1}});
+  });
+  TDoubleParamP wide(new TDoubleParam());
+  wide->setKeyframe(key(0, 0, TDoubleKeyframe::Linear, {}, {}));
+  wide->setKeyframe(key(10, 900000, TDoubleKeyframe::Linear, {}, {}));
+  rejectedFor(*wide, "value_out_of_bounds",
+              [&]() { prepareAnimationBreakdown(*wide, breakdown(5, 200)); });
+  rejected(*wide, "invalid_argument", [&]() {
+    prepareAnimationBreakdown(*wide, {{"frame", 5}, {"value", 1000000.5}});
+  });
   const auto curve = editedCurve();
   rejected(*curve, "invalid_argument",
            [&]() { prepareAnimationBreakdown(*curve, breakdown(12, 50)); });
