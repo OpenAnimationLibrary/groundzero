@@ -365,8 +365,10 @@ premultiplied pixels. Everything else is refused by name with `unsupported_forma
 32-bit samples with `unsupported_precision`. A header that disagrees with its file is
 `invalid_asset`: pixel rows missing from an uncompressed BMP, TGA or TIFF
 (`truncated_pixels`), a JPEG without its end marker (`truncated_data`), or a decoded size
-that differs from the header (`header_mismatch`). Native readers decode a corrupt JPEG
-entropy stream without an error, so such damage shows as wrong pixels, not a refusal.
+that differs from the header (`header_mismatch`). The native JPEG reader ignores libjpeg's
+warnings, so the helper first decodes each JPEG again with the application's turbojpeg,
+stopping at the first warning: a damaged entropy stream ("Corrupt JPEG data", "Premature
+end of data segment") is refused as `invalid_asset` with the reason `corrupt_data`.
 
 - `intake.preflight` reads headers only, never decodes and changes nothing. Each file
   row gives its format from the file's signature (PNG, JPEG, TIFF, GIF, BMP, WebP, PSD,

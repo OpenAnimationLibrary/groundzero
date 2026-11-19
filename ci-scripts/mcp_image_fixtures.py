@@ -119,13 +119,21 @@ def tga(*, alpha: bool = True) -> bytes:
     return header + pixels
 
 
-def jpeg(ffmpeg: Path, directory: Path, size: int = 16) -> bytes:
-    """Encode a flat-coloured opaque JPEG with ffmpeg at the highest quality."""
-    target = directory / "fixture.jpg"
+def jpeg(ffmpeg: Path, directory: Path, size: int = 16, *, detailed: bool = False) -> bytes:
+    """Encode an opaque JPEG with ffmpeg at high quality: a flat colour, or a detailed test card."""
+    target = directory / ("detailed.jpg" if detailed else "fixture.jpg")
+    source = f"testsrc2=s={size}x{size}" if detailed else f"color=c=0x3C5AC8:s={size}x{size}"
     command = [
-        str(ffmpeg), "-v", "error", "-y", "-f", "lavfi",
-        "-i", f"color=c=0x3C5AC8:s={size}x{size}", "-frames:v", "1", "-q:v", "1",
-        "-pix_fmt", "yuvj444p", str(target),
+        str(ffmpeg), "-v", "error", "-y", "-f", "lavfi", "-i", source,
+        "-frames:v", "1", "-q:v", "1", "-pix_fmt", "yuvj444p", str(target),
     ]  # fmt: skip
     subprocess.run(command, check=True, capture_output=True, timeout=60)
     return target.read_bytes()
+
+
+def damaged_jpeg(data: bytes) -> bytes:
+    """Zero the second half of the entropy-coded data and keep the end marker."""
+    scan = data.find(b"\xff\xda")
+    start = scan + 2 + int.from_bytes(data[scan + 2 : scan + 4], "big")
+    middle = (start + len(data)) // 2
+    return data[:middle] + bytes(len(data) - middle - 2) + b"\xff\xd9"

@@ -4,14 +4,17 @@
 #include "timageinfo.h"
 #include "trasterimage.h"
 #include "trop.h"
+#include "turbojpeg.h"
 
 #include <QBuffer>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QtEndian>
 
 #include <map>
+#include <vector>
 
 namespace GroundzeroAutomation {
 namespace {
@@ -502,6 +505,28 @@ ImageHeader readTgaHeader(const QByteArray& head, qint64 fileSize) {
   return header;
 }
 
+// The native JPEG reader ignores libjpeg's warnings ("Corrupt JPEG data",
+// "Premature end of data segment") and returns filled pixels. A second decode
+// with the turbojpeg library the application already links, stopping on the
+// first warning, tells a whole stream from a damaged one.
+void requireWholeJpeg(const QString& path, int width, int height) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly))
+    throw Error("rejected", "The private JPEG copy cannot be read.");
+  const QByteArray bytes = file.readAll();
+  tjhandle decoder       = tjInitDecompress();
+  if (!decoder) throw Error("rejected", "The JPEG verifier cannot start.");
+  std::vector<unsigned char> pixels(size_t(width) * height * 4);
+  const int result = tjDecompress2(
+      decoder, reinterpret_cast<const unsigned char*>(bytes.constData()),
+      static_cast<unsigned long>(bytes.size()), pixels.data(), width, 0, height,
+      TJPF_RGBA, TJFLAG_STOPONWARNING);
+  const QString message = QString::fromUtf8(tjGetErrorStr2(decoder));
+  tjDestroy(decoder);
+  if (result != 0)
+    throw Error("rejected", "corrupt_data: " + message.left(200));
+}
+
 bool premultiplied(const TRaster32P& raster) {
   raster->lock();
   bool valid = true;
@@ -565,6 +590,8 @@ QJsonObject intakeDecodeSummary(Context& context, const QString& extension) {
   if (info->m_lx <= 0 || info->m_ly <= 0 || info->m_lx > MaxSide ||
       info->m_ly > MaxSide || qint64(info->m_lx) * info->m_ly > MaxPixels)
     throw Error("resource_limit", "The image is outside the admitted size.");
+  if (extension == "jpg")
+    requireWholeJpeg(directory.filePath("input.jpg"), info->m_lx, info->m_ly);
   const TRasterImageP image = reader->load();
   if (!image || !image->getRaster())
     throw Error("rejected", "The native reader decoded no raster.");

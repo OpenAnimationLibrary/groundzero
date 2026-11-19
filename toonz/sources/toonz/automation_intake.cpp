@@ -820,9 +820,14 @@ QJsonObject decoderSummary(const QByteArray& output, const QString& name) {
   const QJsonObject reply = QJsonDocument::fromJson(output.trimmed()).object();
   const QString status    = reply.value("status").toString();
   if (status == "parsed") return reply.value("summary").toObject();
+  const QString message = reply.value("message").toString();
+  const QString reason  = status == "limit" ? "pixels"
+                          : message.startsWith("corrupt_data")
+                              ? "corrupt_data"
+                              : "decoder_rejected";
   const QJsonObject details{
       {"name", name},
-      {"reason", status == "limit" ? "pixels" : "decoder_rejected"},
+      {"reason", reason},
       {"native_message", reply.value("message").toString().left(256)}};
   if (status == "limit")
     throw Error("resource_limit", "The image is outside the bounds.", details);

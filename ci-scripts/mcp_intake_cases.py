@@ -508,7 +508,7 @@ def intake_imports_each_admitted_format_with_its_conversion(case: NativeAcceptan
 
 @acceptance_case
 def intake_imports_a_jpeg_as_a_lossy_source(case: NativeAcceptance) -> None:
-    """A JPEG from ffmpeg decodes in the helper and is reported as lossy.
+    """A JPEG decodes in the helper as lossy; one with a damaged entropy stream is refused.
 
     Args:
         case: A fresh native-worker acceptance fixture.
@@ -523,9 +523,17 @@ def intake_imports_a_jpeg_as_a_lossy_source(case: NativeAcceptance) -> None:
     selection = _source(source, file_names=["photo.jpg"])
     started = _import(case, document, **selection, name="Photo", dpi_policy="value", dpi=72)
     case.assertEqual(_job(case, started)["status"], "completed")
-    _summary, rows = _job_rows(case, started["job"]["job_id"])
+    summary, rows = _job_rows(case, started["job"]["job_id"])
     case.assertEqual(rows[0]["decoder"], "native_jpeg_helper")
     case.assertIn("lossy_source", rows[0]["conversion"])
+    case.revisions[document] = summary["revision"]
+    damaged = fixtures.damaged_jpeg(fixtures.jpeg(ffmpeg, case.directory, 256, detailed=True))
+    (source / "damaged.jpg").write_bytes(damaged)
+    selection = _source(source, file_names=["damaged.jpg"])
+    started = _import(case, document, **selection, name="Damaged", dpi_policy="value", dpi=72)
+    final = case.wait_job(started["job"]["job_id"])
+    case.assertEqual((final["status"], final["failure"]["code"]), ("failed", "invalid_asset"))
+    case.assertIn("corrupt_data", final["failure"]["message"])
 
 
 @acceptance_case
