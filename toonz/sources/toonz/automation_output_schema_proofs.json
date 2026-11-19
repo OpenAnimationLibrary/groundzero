@@ -592,6 +592,10 @@
     "handler": "discardScene",
     "read": []
   },
+  "scene.guides.set": {
+    "handler": "setGuides",
+    "read": []
+  },
   "scene.inventory": {
     "handler": null,
     "read": []
@@ -604,8 +608,16 @@
     "handler": "openReadOnly",
     "read": []
   },
+  "scene.output.set": {
+    "handler": "setOutput",
+    "read": []
+  },
   "scene.package_info": {
     "handler": null,
+    "read": []
+  },
+  "scene.properties.inspect": {
+    "handler": "inspectProperties",
     "read": []
   },
   "scene.save_copy": {

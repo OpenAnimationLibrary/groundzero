@@ -875,6 +875,11 @@
    "toolset": "core",
    "writes": true
   },
+  "scene.guides.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "scene.inventory": {
    "origin": "worker",
    "toolset": "core",
@@ -890,7 +895,17 @@
    "toolset": "core",
    "writes": true
   },
+  "scene.output.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "scene.package_info": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.properties.inspect": {
    "origin": "worker",
    "toolset": "core",
    "writes": false
@@ -1421,11 +1436,15 @@
    "id": "scene.output_settings",
    "domain": "Projects and scenes",
    "outcome": "Edit output range, scale, markers and guide settings of a scene.",
-   "classification": "not_exposed",
-   "tools": [],
+   "classification": "exposed",
+   "tools": [
+    "scene.properties.inspect",
+    "scene.output.set",
+    "scene.guides.set",
+    "scene.settings"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W2"
+    "kind": "implemented"
    }
   },
   {

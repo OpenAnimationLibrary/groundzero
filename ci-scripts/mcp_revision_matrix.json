@@ -7179,6 +7179,93 @@
     }
    ],
    "no_noop": "a removed camera cannot be removed again"
+  },
+  "scene.output.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "stored output or preview settings",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "apply_to": [
+      "preview"
+     ],
+     "settings": {
+      "shrink": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "apply_to": [
+       "output"
+      ],
+      "sync_color_settings": true
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "apply_to": [
+      "preview"
+     ],
+     "settings": {
+      "shrink": 2
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "scene.guides.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Projects and scenes",
+   "class": "content",
+   "changes": "field guide, markers or ruler guides",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "markers": {
+      "interval": 8,
+      "start_frame": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "markers": {}
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "markers": {
+      "interval": 8,
+      "start_frame": 2
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
   }
  },
  "known_violations": []

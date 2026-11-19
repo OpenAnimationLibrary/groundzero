@@ -418,6 +418,18 @@ reopened. Whole-curve copy and retime still refuse objects with layers. IK, pins
 published channels, Plastic deformation, and hook tracker regions are outside this
 profile, and these tools have no live-editor or undo counterpart.
 
+`scene.properties.inspect` reports the stored output and preview blocks (range,
+effective range at the current frame count, step, shrink, bpp, aspect export, frame rate),
+the color-settings sync flag, column filters, background color, field guide, markers and
+ruler guides in inches, and one `settings_scope` row per setting: whether it is scene data,
+a project default, machine tuning or editor view state (safe area, viewer aspect guides,
+camera box), and which tool edits it. `scene.output.set` changes only the blocks named in
+`apply_to`; 128 bpp and linear color are not settable. Worker renders take their own
+explicit settings and never read these stored ones. `scene.guides.set` replaces the field
+guide, markers or each ruler guide list; guides change no rendered pixel. `scene.create`
+and `scene.settings` take an explicit `background_color`. Guides, the field guide ratio
+and the aspect export ratio are saved at full precision.
+
 `camera.list` pages through the sheet's cameras with their output and preview roles;
 `camera.inspect` and `camera.update` take an optional `camera_id` (the output camera
 otherwise) and report DPI per axis, square pixels and the interest rectangle. A
@@ -1047,7 +1059,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (129):
+- `core` toolset (132):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -1071,13 +1083,13 @@ the adapter and the live editor bridge add the rest.
   `raster.export_png`, `raster.import_png`, `raster.patch`, `raster.read_pixels`,
   `render.capabilities`, `render.preflight`, `render.preview`, `render.submit`,
   `runtime.inspect`, `scene.check.submit`, `scene.create`, `scene.dependencies`,
-  `scene.discard`, `scene.inventory`, `scene.open`, `scene.open_read_only`,
-  `scene.package_info`, `scene.save_copy`, `scene.settings`, `scene.source_status`,
-  `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`, `vector.edit`,
-  `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
-  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
-  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
-  `vector.transform`
+  `scene.discard`, `scene.guides.set`, `scene.inventory`, `scene.open`, `scene.open_read_only`,
+  `scene.output.set`, `scene.package_info`, `scene.properties.inspect`, `scene.save_copy`,
+  `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`,
+  `tool.describe`, `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
+  `vector.inspect`, `vector.opacity.inspect`, `vector.opacity.profile.set`,
+  `vector.opacity.set`, `vector.order.move`, `vector.select`, `vector.structure`,
+  `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
