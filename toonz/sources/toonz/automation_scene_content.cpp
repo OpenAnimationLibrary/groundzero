@@ -266,9 +266,7 @@ void addSceneRows(Document& document) {
 }
 
 void addLibraryRows(Document& document) {
-  TLevelSet* set = document.scene->getLevelSet();
-  for (int index = 0; index < set->getLevelCount(); ++index) {
-    TXshLevel* level = set->getLevel(index);
+  for (TXshLevel* level : distinctLevels(document.scene->getLevelSet())) {
     if (level->getLibraryProvenance().relationship !=
         TXshLevel::LibraryProvenance::Linked)
       continue;
@@ -453,11 +451,11 @@ QJsonObject readOnlyCounts(Document& document) {
     effects += int(effectCount(sheetMembers(entry.sheet)));
     objects += entry.sheet->getStageObjectTree()->getStageObjectCount();
   }
-  TLevelSet* set = document.scene->getLevelSet();
-  for (int item = 0; item < set->getLevelCount(); ++item)
-    if (set->getLevel(item)->getSoundLevel()) ++sounds;
+  const auto levels = distinctLevels(document.scene->getLevelSet());
+  for (TXshLevel* level : levels)
+    if (level->getSoundLevel()) ++sounds;
   return {{"sheets", int(index.sheets.size())},
-          {"levels", set->getLevelCount()},
+          {"levels", int(levels.size())},
           {"columns", columns},
           {"fx_nodes", effects},
           {"frames", document.scene->getFrameCount()},

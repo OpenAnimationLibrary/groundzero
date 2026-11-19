@@ -155,6 +155,26 @@ QString Document::idForObject(TStageObject* value) {
   return registerHandle(objects, value, "object");
 }
 
+QVector<TXshLevel*> distinctLevels(const TLevelSet* set) {
+  QVector<TXshLevel*> levels;
+  QSet<TXshLevel*> seen;
+  for (int index = 0; index < set->getLevelCount(); ++index) {
+    TXshLevel* level = set->getLevel(index);
+    if (seen.contains(level)) continue;
+    seen.insert(level);
+    levels.push_back(level);
+  }
+  return levels;
+}
+
+QJsonObject boundedNameSchema(int maxCharacters, bool noControls) {
+  return {
+      {"type", "string"},
+      {"minLength", 1},
+      {"maxLength", maxCharacters},
+      {"pattern", noControls ? "^[^\\x00-\\x1f\\x7f-\\x9f]+$" : "^[^\\x00]+$"}};
+}
+
 TXshLevel* Document::level(const QString& handle) const {
   TXshLevel* value     = findHandle(levels, handle);
   const TLevelSet* set = scene->getLevelSet();

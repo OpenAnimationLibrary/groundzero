@@ -94,7 +94,7 @@ bool boolParam(const QJsonObject& params, const QString& key, bool fallback) {
 
 QString nameParam(const QJsonObject& params) {
   const QString name = requiredString(params, "name");
-  if (name.size() > 128 || name.contains(QChar::Null))
+  if (name.toUcs4().size() > 128 || name.contains(QChar::Null))
     throw Error("invalid_argument",
                 "name must contain 1 to 128 characters without NUL.");
   return name;
@@ -1140,10 +1140,10 @@ void addSceneOperations(QJsonArray& catalog) {
       {{"project_id",
         QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}}},
       {}));
-  catalog.append(
-      operation("scene.create",
-                "Create an isolated native scene. Timeline frames start at 0.",
-                merge(settings, {{"name", textSchema()}}), {"name"}, true));
+  catalog.append(operation(
+      "scene.create",
+      "Create an isolated native scene. Timeline frames start at 0.",
+      merge(settings, {{"name", boundedNameSchema(128)}}), {"name"}, true));
   catalog.append(
       operation("scene.summary",
                 "Inspect native scene, levels, columns and stage objects; "
@@ -1167,7 +1167,8 @@ void addSceneOperations(QJsonArray& catalog) {
 }
 
 void addLevelOperations(QJsonArray& catalog) {
-  QJsonObject level  = merge(documentSchema(), {{"name", textSchema()}});
+  QJsonObject level =
+      merge(documentSchema(), {{"name", boundedNameSchema(128)}});
   QJsonObject create = level;
   create.insert("format", enumSchema({"vector", "rgba8", "toonzRaster"}));
   catalog.append(
@@ -1189,12 +1190,12 @@ void addLevelOperations(QJsonArray& catalog) {
 
 void addColumnOperations(QJsonArray& catalog) {
   QJsonObject column = merge(documentSchema(), {{"column_id", textSchema()}});
-  catalog.append(operation("column.create",
-                           "Append an empty level column with a stable handle.",
-                           merge(documentSchema(), {{"name", textSchema()}}),
-                           {"document_id", "name"}, true));
+  catalog.append(operation(
+      "column.create", "Append an empty level column with a stable handle.",
+      merge(documentSchema(), {{"name", boundedNameSchema(128)}}),
+      {"document_id", "name"}, true));
   QJsonObject update =
-      merge(column, {{"name", textSchema()},
+      merge(column, {{"name", boundedNameSchema(128)},
                      {"visible", QJsonObject{{"type", "boolean"}}},
                      {"locked", QJsonObject{{"type", "boolean"}}},
                      {"opacity", numberSchema(0, 1)}});
@@ -1327,8 +1328,8 @@ void addAnimationOperations(QJsonArray& catalog) {
   QJsonObject object = merge(documentSchema(), {{"object_id", textSchema()}});
   catalog.append(operation(
       "object.create", "Create a native pegbar with a stable object handle.",
-      merge(documentSchema(),
-            {{"name", textSchema()}, {"kind", enumSchema({"pegbar"})}}),
+      merge(documentSchema(), {{"name", boundedNameSchema(128)},
+                               {"kind", enumSchema({"pegbar"})}}),
       {"document_id", "name", "kind"}, true));
   catalog.append(operation(
       "object.parent",

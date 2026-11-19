@@ -552,6 +552,15 @@ steps from the top sheet; a sub-xsheet exposed twice is two sheet rows with one
 that instance are listed, and the sheets below it. Names repeated within a sheet are
 `duplicate_name`. Child-sheet column handles name inventory rows; column tools accept
 top-sheet columns only. It works on editable documents too and never creates objects.
+
+Every tool that takes a name states its limit in its input schema, and the dispatcher refuses
+a longer or malformed name as `invalid_params` before the tool runs: 1 to 128 Unicode
+characters without NUL for scenes, levels, columns, pegs and sound sources (as for palette
+pages and styles); 1 to 256 without NUL or control characters for effects, macros and offset
+layers; 1 to 256 without NUL for motion paths. The native level set can list one level twice
+when a scene repeats a level's name; `cast.list`, `scene.dependencies`, `cast.usage` and the
+counts of `scene.open_read_only` list each level once, by its handle, and two levels may share
+a name.
 `scene.source_status` re-checks every file pinned at open and reports each change as
 `modified`, `replaced` (a new file in its place), `missing` or `unreadable`, with
 `state: "missing"` when the scene file itself is gone; editable documents return
@@ -730,6 +739,13 @@ names the worker that issued it; an id a worker does not hold is refused with
 document was discarded) or `not_issued`. An exact retry of a job-starting call
 returns the same job; a new worker knows no earlier job or document, so a retry
 there returns `document_not_found` and starts nothing.
+
+A render job of an editable draft renders from a private snapshot of the draft's scene and
+artwork. The snapshot exists while the job runs, even if the draft is discarded meanwhile.
+When the job ends, whatever its outcome, the scene and artwork are removed; only
+`snapshot/manifest.json`, whose SHA-256 the record names, stays with the artifacts that
+`job.result` serves until the worker ends. A job that failed or was canceled keeps nothing. A
+later worker removes everything a dead worker left.
 
 `vector.inspect` returns each stroke's art `role` (`line_art`, `colour_art`, `underlay`
 or `overlay`, derived with the editor's rule: a stroke whose control points all have

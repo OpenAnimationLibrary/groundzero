@@ -6,7 +6,9 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
+#include <QSet>
 #include <QStringList>
+#include <QVector>
 
 #include <map>
 #include <memory>
@@ -14,6 +16,7 @@
 
 class QApplication;
 class TFx;
+class TLevelSet;
 class TProject;
 class TStageObject;
 class TStageObjectSpline;
@@ -28,6 +31,18 @@ class JobRegistry;
 struct SceneHostRegistry;
 struct RuntimeState;
 struct SelectionRegistry;
+
+// The levels of a cast, each once, in cast order. The native level set can list
+// one level twice: it keys levels by name, and a scene whose levels repeat a
+// name makes loading insert the level that the name table no longer holds
+// again. A level is its object, never its name, so every read tool walks this.
+QVector<TXshLevel*> distinctLevels(const TLevelSet* set);
+
+// The input schema of a name: 1 to `maxCharacters` Unicode characters and no
+// NUL; with `noControls`, also none of the C0 and C1 control characters. Every
+// tool that takes a name states its bound this way, so the dispatcher refuses a
+// longer or malformed one as invalid_params before the handler runs.
+QJsonObject boundedNameSchema(int maxCharacters, bool noControls = false);
 
 class Error final : public std::runtime_error {
 public:

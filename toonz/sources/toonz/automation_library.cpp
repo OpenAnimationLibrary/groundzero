@@ -677,9 +677,7 @@ QJsonArray libraryOperations() {
           "identity, revision, thumbnail state and name collisions. Bounded, "
           "paged, and never inserts an item.",
           {{"kind", kindSchema()},
-           {"name_contains",
-            QJsonObject{
-                {"type", "string"}, {"minLength", 1}, {"maxLength", 120}}},
+           {"name_contains", boundedNameSchema(120)},
            {"offset", sharedIntegerSchema(0, 8192)},
            {"limit", sharedIntegerSchema(1, 256)},
            {"expected_listing_revision", sharedRevisionSchema("listing")}},

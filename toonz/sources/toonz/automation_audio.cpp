@@ -1326,14 +1326,14 @@ QJsonArray audioOperations() {
   catalog.append(tool(
       "audio.import",
       "Import a WAV or AIFF file as a sound source after bounded validation.",
-      {{"path", stringSchema(4096)}, {"name", stringSchema(128)}}, true));
+      {{"path", stringSchema(4096)}, {"name", boundedNameSchema(128)}}, true));
   catalog.append(tool("audio.inspect",
                       "Inspect sound sources, columns, clips and the mix rule.",
                       {}, false));
   catalog.append(tool("audio.column.create",
                       "Append an audible, unlocked sound column with an "
                       "explicit volume.",
-                      {{"name", stringSchema(128)},
+                      {{"name", boundedNameSchema(128)},
                        {"volume_permille", integerSchema(0, 1000)}},
                       true));
   catalog.append(tool("audio.column.set_volume",
