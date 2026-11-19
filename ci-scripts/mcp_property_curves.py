@@ -169,9 +169,7 @@ def is_rich(keys: dict[int, Key]) -> bool:
 def shape_is_defined(keys: dict[int, Key]) -> bool:
     """Whether the model gives every speed segment a shape to compare.
 
-    Its two handles must not cross, and its frame axis must not lose the cubic term of the
-    Bezier (three times the outgoing length minus three times the incoming one is not twice the
-    span), where the worker samples a stepped curve: the known violation KV-9.
+    Its two handles must not cross.
     """
     items = ordered(keys)
     for first, last in zip(items, items[1:], strict=False):
@@ -179,7 +177,7 @@ def shape_is_defined(keys: dict[int, Key]) -> bool:
             continue
         span = last.frame - first.frame
         outgoing, incoming = first.outgoing[1], incoming_of(first, last)[1]
-        if outgoing > span + incoming or 3 * outgoing - 3 * incoming == 2 * span:
+        if outgoing > span + incoming:
             return False
     return True
 

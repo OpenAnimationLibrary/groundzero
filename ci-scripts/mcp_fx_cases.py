@@ -7,6 +7,7 @@ import hashlib
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
+from mcp_failure_cases import _fault_worker
 from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
@@ -144,3 +145,154 @@ def color_keys_survive_render_and_reopen(case: NativeAcceptance) -> None:
     restored_effect = next(item for item in restored["effects"] if item["name"] == "Animated card")
     _assert_key_values(case, reopened, restored_effect["fx_id"])
     _assert_key_render(case, reopened)
+
+
+def _graph_effect(case: NativeAcceptance, document: str, effect: str) -> dict[str, Any]:
+    graph = case.success("fx.graph", {"document_id": document})
+    return next(item for item in graph["effects"] if item["fx_id"] == effect)
+
+
+@acceptance_case
+def fx_key_on_a_non_animatable_parameter_is_refused(case: NativeAcceptance) -> None:
+    """A key on a public parameter that cannot animate (an enum and a bool) is refused before
+    any change; the parameter keeps no key, its value and the revision stay, and a plain set
+    of the same value still works."""
+    document = case.create("Non-animatable keys")
+    gradient = case.mutate("fx.create", document, type="STD_iwa_LinearGradientFx")["fx_id"]
+    multiply = case.mutate("fx.create", document, type="multFx")["fx_id"]
+    for effect, parameter, value in ((gradient, "curveType", 1), (multiply, "matte", True)):
+        with case.subTest(parameter=parameter):
+            before = case.success("fx.parameter.get", {"document_id": document, "fx_id": effect})
+            described = next(p for p in before["parameters"] if p["name"] == parameter)
+            case.assertFalse(described["animatable"])
+            revision = case.revisions[document]
+            request = {"fx_id": effect, "parameter": parameter, "value": value, "frame": 3}
+            error = case.failure("fx.parameter.set_key", case.write_params(document, request))
+            case.assertEqual(error["code"], "NOT_ANIMATABLE", error)
+            after = case.success("fx.parameter.get", {"document_id": document, "fx_id": effect})
+            case.assertEqual(after, before)
+            summary = case.success("scene.summary", {"document_id": document})
+            case.assertEqual(summary["revision"], revision)
+            case.mutate(
+                "fx.parameter.set", document, fx_id=effect, parameter=parameter, value=value
+            )
+            changed = case.success("fx.parameter.get", {"document_id": document, "fx_id": effect})
+            current = next(p for p in changed["parameters"] if p["name"] == parameter)
+            case.assertEqual((current["value"], current["keyframes"]), (value, []))
+
+
+REFUSED_OPERATION = "refused-connect"
+
+
+@acceptance_case(worker_only="needs --test-write-fault, which the adapter never passes")
+def fx_native_connection_refusal_keeps_the_previous_link(case: NativeAcceptance) -> None:
+    """A native connection that silently leaves the port empty is undone: the port gets its
+    previous source back, the write is a typed error naming the restored link, the revision
+    stays and the render is the one before the call."""
+    _fault_worker(
+        case,
+        "fx-connect",
+        "--test-write-fault",
+        "native:fx-connect",
+        "--test-fault-operation",
+        REFUSED_OPERATION,
+    )
+    document = case.create("Native refusal")
+    first = _card(case, document, "Kept card")
+    second = _card(case, document, "Refused card")
+    _color(case, document, first, COLORS[0])
+    _color(case, document, second, OTHER_COLOR)
+    output = case.success("fx.graph", {"document_id": document})["current_output_fx_id"]
+    _connect(case, document, output, first)
+    _assert_preview(case, document, COLORS[0])
+    revision = case.revisions[document]
+    request = case.write_params(
+        document, {"fx_id": output, "port": "source", "source_fx_id": second}
+    )
+    request["operation_id"] = REFUSED_OPERATION
+    error = case.failure("fx.connect", request)
+    case.assertEqual(error["code"], "NATIVE_FAILURE", error)
+    details = error["details"]
+    case.assertEqual(
+        (details["reason"], details["restored"], details["previous_source_fx_id"]),
+        ("silent_refusal", True, first),
+    )
+    summary = case.success("scene.summary", {"document_id": document})
+    case.assertEqual(summary["revision"], revision)
+    port = _graph_effect(case, document, output)["ports"][0]
+    case.assertEqual((port["connected"], port.get("source_fx_id")), (True, first))
+    _assert_preview(case, document, COLORS[0])
+    case.assertEqual(case.failure("fx.connect", request)["details"], details)
+    _connect(case, document, output, second)
+    _assert_preview(case, document, OTHER_COLOR)
+
+
+def _first_parameter(entry: dict[str, Any], animatable: bool) -> dict[str, Any] | None:
+    for parameter in entry["parameters"]:
+        if parameter["supported"] and (not animatable or parameter["animatable"]):
+            if not animatable or parameter["schema"].get("type") in ("number", "array"):
+                return parameter
+    return None
+
+
+def _parameter_writes(case: NativeAcceptance, document: str, effect: str, entry: dict) -> None:
+    plain = _first_parameter(entry, False)
+    if plain is not None and not plain["keyframes"]:
+        case.mutate(
+            "fx.parameter.set",
+            document,
+            fx_id=effect,
+            parameter=plain["name"],
+            value=plain["value"],
+        )
+    keyed = _first_parameter(entry, True)
+    if keyed is not None:
+        case.mutate(
+            "fx.parameter.set_key",
+            document,
+            fx_id=effect,
+            parameter=keyed["name"],
+            frame=1,
+            value=keyed["value"],
+        )
+    case.success("fx.parameter.get", {"document_id": document, "fx_id": effect, "frame": 1})
+
+
+def _node_writes(case: NativeAcceptance, document: str, effect: str) -> None:
+    """Writes whose results describe the effect, so its diagnostics too: an effect with
+    unconnected required inputs reports them."""
+    for enabled in (True, False):
+        case.mutate("fx.terminal.set", document, fx_id=effect, enabled=enabled)
+        case.mutate("fx.enabled.set", document, fx_id=effect, enabled=not enabled)
+
+
+def _type_writes(case: NativeAcceptance, document: str, card: str, entry: dict) -> None:
+    effect = case.mutate("fx.create", document, type=entry["type"], name="Typed")["fx_id"]
+    _node_writes(case, document, effect)
+    for port in entry["ports"]:
+        case.mutate("fx.connect", document, fx_id=effect, port=port["name"], source_fx_id=card)
+    _node_writes(case, document, effect)
+    case.mutate("fx.rename", document, fx_id=effect, name=f"{entry['type']} node")
+    _parameter_writes(case, document, effect, entry)
+    position = {"x": 10, "y": 20}
+    case.mutate("fx.layout.set", document, positions=[{"fx_id": effect, "position": position}])
+    copy = case.mutate("fx.duplicate", document, fx_id=effect)["fx_id"]
+    for port in entry["ports"]:
+        case.mutate("fx.disconnect", document, fx_id=effect, port=port["name"])
+    for node in (copy, effect):
+        case.mutate("fx.delete", document, fx_id=node)
+
+
+@acceptance_case
+def fx_every_admitted_type_meets_every_write_result_schema(case: NativeAcceptance) -> None:
+    """Every admitted effect type goes through create, connect, terminal, enable, rename,
+    parameter, layout, duplicate, disconnect and delete; the harness checks each result
+    against its tool's output schema, so a result shape one type produces cannot slip by."""
+    catalog = case.success("fx.catalog", {})["effects"]
+    available = [entry for entry in catalog if entry["available"]]
+    case.assertGreaterEqual(len(available), 31)
+    document = case.create("Every type")
+    card = _card(case, document, "Source card")
+    for entry in available:
+        with case.subTest(type=entry["type"]):
+            _type_writes(case, document, card, entry)

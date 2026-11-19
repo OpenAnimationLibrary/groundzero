@@ -29,11 +29,27 @@ const ToolEffects kEdit{"document_write", "writes", {}, "none", {}, true};
 const ToolEffects kAdd{"document_write", "writes", {}, "none", {}, false};
 const ToolEffects kEditFromFile{"document_write", "writes", {"reads_roots"},
                                 "none",           {},       true};
+// Writes that can change the FX graph (see ToolEffects::fxGraph).
+const ToolEffects kFxEdit{
+    "document_write", "writes", {}, "none", {}, true, true};
+const ToolEffects kFxAdd{
+    "document_write", "writes", {}, "none", {}, false, true};
+const ToolEffects kFxEditFromFile{
+    "document_write", "writes", {"reads_roots"}, "none", {}, true, true};
 const ToolEffects kImport{
     "document_write", "writes", {"reads_roots", "writes_private"},
     "none",           {},       false};
 const ToolEffects kExport{"document_write", "reads", {"writes_caller_path"},
                           "none",           {},      false};
+
+// The animation key writes also address effect channels (fx_id), which
+// answer the FX profile's refusals.
+QStringList withFxKeyErrors(QStringList errors) {
+  errors << "INVALID_PARAMS" << "NATIVE_FAILURE" << "OUT_OF_RANGE"
+         << "PARAMETER_CONSTRAINT" << "RESOURCE_LIMIT" << "STALE_ENTITY"
+         << "UNSUPPORTED_FX" << "UNSUPPORTED_PARAMETER" << "unsupported_target";
+  return errors;
+}
 
 // One row per native tool. Its effects say what the tool can change; its
 // errors are the codes it returns beyond those common to its class and inputs
@@ -44,27 +60,33 @@ const QHash<QString, Declaration>& declarations() {
        {kInspect,
         {"resource_limit", "unsupported_channel", "unsupported_target"}}},
       {"animation.copy_curve",
-       {kEdit,
-        {"invalid_handle", "invalid_unit", "locked",
-         "unsupported_interpolation"}}},
-      {"animation.delete_keys", {kEdit, {"invalid_argument", "missing_key"}}},
+       {kFxEdit,
+        withFxKeyErrors({"invalid_handle", "invalid_unit", "locked",
+                         "unsupported_channel", "unsupported_interpolation"})}},
+      {"animation.delete_keys",
+       {kFxEdit, withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                                  "missing_key", "unsupported_channel",
+                                  "unsupported_interpolation"})}},
       {"animation.duplicate_keys",
-       {kEdit,
-        {"invalid_argument", "invalid_unit", "locked", "missing_key",
-         "unsupported_channel", "unsupported_interpolation"}}},
+       {kFxEdit, withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                                  "missing_key", "unsupported_channel",
+                                  "unsupported_interpolation"})}},
       {"animation.insert_breakdown",
-       {kEdit,
-        {"invalid_argument", "invalid_unit", "locked", "unsupported_channel",
-         "unsupported_interpolation"}}},
+       {kFxEdit,
+        withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                         "unsupported_channel", "unsupported_interpolation"})}},
       {"animation.keys",
        {kInspect,
         {"invalid_unit", "resource_limit", "unsupported_channel",
          "unsupported_target"}}},
       {"animation.move_keys",
-       {kEdit,
-        {"invalid_argument", "invalid_unit", "locked", "missing_key",
-         "unsupported_channel", "unsupported_interpolation"}}},
-      {"animation.retime_curve", {kEdit, {"invalid_unit", "locked"}}},
+       {kFxEdit, withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                                  "missing_key", "unsupported_channel",
+                                  "unsupported_interpolation"})}},
+      {"animation.retime_curve",
+       {kFxEdit,
+        withFxKeyErrors({"invalid_unit", "locked", "unsupported_channel",
+                         "unsupported_interpolation"})}},
       {"animation.sample",
        {kInspect,
         {"invalid_argument", "invalid_unit", "resource_limit",
@@ -75,8 +97,9 @@ const QHash<QString, Declaration>& declarations() {
         {"invalid_argument", "invalid_unit", "locked", "unsupported_channel",
          "unsupported_interpolation"}}},
       {"animation.set_keys",
-       {kEdit,
-        {"invalid_argument", "invalid_unit", "locked", "unsupported_channel"}}},
+       {kFxEdit,
+        withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                         "unsupported_channel", "unsupported_interpolation"})}},
       {"artifact.read",
        {ToolEffects{"read", "none", {"reads_private"}, "reads", {}, false},
         {"invalid_artifact", "job_discarded", "path_denied", "unknown_artifact",
@@ -100,7 +123,7 @@ const QHash<QString, Declaration>& declarations() {
        {kEdit, {"audio_overlap", "incompatible_column", "timing_conflict"}}},
       {"audio.clip.remove", {kEdit, {"locked", "not_found"}}},
       {"audio.clip.update", {kEdit, {"not_found"}}},
-      {"audio.column.create", {kAdd, {}}},
+      {"audio.column.create", {kFxAdd, {}}},
       {"audio.column.set_volume", {kEdit, {"locked"}}},
       {"audio.import",
        {kImport, {"invalid_asset", "name_conflict", "unsupported_format"}}},
@@ -153,15 +176,15 @@ const QHash<QString, Declaration>& declarations() {
       {"cast.list", {kInspect, {"stale_revision"}}},
       {"cast.usage", {kInspect, {"stale_revision"}}},
       {"column.cells", {kInspect, {"incompatible_column"}}},
-      {"column.create", {kAdd, {"unsupported_target"}}},
+      {"column.create", {kFxAdd, {"unsupported_target"}}},
       {"column.delete",
-       {kEdit,
+       {kFxEdit,
         {"has_dependents", "incompatible_column", "locked",
          "unsupported_target"}}},
       {"column.duplicate",
-       {kAdd, {"incompatible_column", "unsupported_target"}}},
+       {kFxAdd, {"incompatible_column", "unsupported_target"}}},
       {"column.kinds", {kInspectWorker, {}}},
-      {"column.move", {kEdit, {"invalid_handle", "unsupported_target"}}},
+      {"column.move", {kFxEdit, {"invalid_handle", "unsupported_target"}}},
       {"column.expose",
        {kEdit,
         {"incompatible_column", "locked", "missing_drawing",
@@ -180,34 +203,64 @@ const QHash<QString, Declaration>& declarations() {
        {kEdit,
         {"already_exists", "locked", "not_found", "unsupported_drawing_id"}}},
       {"fx.catalog", {kInspectWorker, {}}},
-      {"fx.connect", {kEdit, {"GRAPH_CYCLE", "UNKNOWN_PORT"}}},
-      {"fx.create", {kAdd, {"UNSUPPORTED_FX"}}},
-      {"fx.delete", {kEdit, {"UNSUPPORTED_FX"}}},
-      {"fx.disconnect", {kEdit, {"UNKNOWN_PORT"}}},
-      {"fx.duplicate", {kAdd, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
-      {"fx.enabled.set", {kEdit, {"UNSUPPORTED_FX", "locked"}}},
+      {"fx.connect",
+       {kFxEdit, {"GRAPH_CYCLE", "NATIVE_FAILURE", "UNKNOWN_PORT"}}},
+      {"fx.create", {kFxAdd, {"UNSUPPORTED_FX"}}},
+      {"fx.delete", {kFxEdit, {"UNSUPPORTED_FX"}}},
+      {"fx.disconnect", {kFxEdit, {"UNKNOWN_PORT"}}},
+      {"fx.duplicate",
+       {kFxAdd, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
+      {"fx.enabled.set", {kFxEdit, {"UNSUPPORTED_FX", "locked"}}},
       {"fx.graph", {kInspect, {"invalid_handle"}}},
-      {"fx.macro.create", {kEdit, {"INVALID_MACRO", "invalid_handle"}}},
-      {"fx.macro.expand", {kEdit, {"INVALID_MACRO"}}},
-      {"fx.output.select", {kEdit, {"INVALID_OUTPUT"}}},
+      {"fx.graph.delta",
+       {kInspect, {"delta_unavailable", "invalid_handle", "stale_revision"}}},
+      {"fx.group.create",
+       {kFxAdd,
+        {"NATIVE_FAILURE", "STALE_ENTITY", "invalid_group", "locked",
+         "resource_limit"}}},
+      {"fx.group.remove",
+       {kFxEdit,
+        {"INVALID_GRAPH", "NATIVE_FAILURE", "locked", "unknown_group"}}},
+      {"fx.group.rename",
+       {kFxEdit,
+        {"INVALID_GRAPH", "NATIVE_FAILURE", "locked", "unknown_group"}}},
+      {"fx.layout.set",
+       {kFxEdit, {"NATIVE_FAILURE", "STALE_ENTITY", "locked"}}},
+      {"fx.link.add",
+       {kFxEdit,
+        {"NATIVE_FAILURE", "STALE_ENTITY", "already_linked",
+         "link_incompatible", "locked", "resource_limit", "unsupported_link"}}},
+      {"fx.link.remove",
+       {kFxEdit, {"NATIVE_FAILURE", "STALE_ENTITY", "locked"}}},
+      {"fx.macro.create", {kFxEdit, {"INVALID_MACRO", "invalid_handle"}}},
+      {"fx.macro.expand", {kFxEdit, {"INVALID_MACRO"}}},
+      {"fx.output.select", {kFxEdit, {"INVALID_OUTPUT"}}},
       {"fx.parameter.get",
        {kInspect, {"UNSUPPORTED_FX", "UNSUPPORTED_PARAMETER"}}},
       {"fx.parameter.set",
-       {kEdit,
+       {kFxEdit,
         {"INVALID_PARAMS", "OUT_OF_RANGE", "PARAMETER_CONSTRAINT",
-         "UNKNOWN_PARAMETER", "UNSUPPORTED_FX"}}},
-      {"fx.parameter.set_key", {kEdit, {"OUT_OF_RANGE", "UNKNOWN_PARAMETER"}}},
+         "UNKNOWN_PARAMETER", "UNSUPPORTED_FX", "locked"}}},
+      {"fx.parameter.set_key",
+       {kFxEdit,
+        {"NOT_ANIMATABLE", "OUT_OF_RANGE", "UNKNOWN_PARAMETER", "locked"}}},
+      {"fx.port_group.set",
+       {kFxEdit,
+        {"GRAPH_CYCLE", "INVALID_CONNECTION", "NATIVE_FAILURE",
+         "PORT_TYPE_MISMATCH", "STALE_ENTITY", "UNSUPPORTED_FX", "locked",
+         "resource_limit", "unknown_port_group"}}},
       {"fx.preset.apply",
-       {kEditFromFile,
+       {kFxEditFromFile,
         {"INCOMPATIBLE_PRESET", "INVALID_PARAMS", "INVALID_PRESET",
-         "PRESET_READ_FAILED", "RESOURCE_LIMIT", "UNREGISTERED_PRESET"}}},
+         "PRESET_READ_FAILED", "RESOURCE_LIMIT", "UNREGISTERED_PRESET",
+         "locked"}}},
       {"fx.preset.save",
        {kExport,
         {"ALREADY_EXISTS", "INVALID_PARAMS", "MISSING_PARENT",
          "PRESET_WRITE_FAILED", "RESOURCE_LIMIT", "publication_unsupported"}}},
       {"fx.recipe.list", {kInspectWorker, {}}},
-      {"fx.rename", {kEdit, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
-      {"fx.terminal.set", {kEdit, {}}},
+      {"fx.rename", {kFxEdit, {"INVALID_PARAMS", "UNSUPPORTED_FX", "locked"}}},
+      {"fx.terminal.set", {kFxEdit, {}}},
       {"hook.delete",
        {kEdit, {"has_dependents", "locked", "missing_key", "not_found"}}},
       {"hook.inspect", {kInspect, {"unsupported_level"}}},
@@ -765,6 +818,11 @@ QJsonObject declaredTool(const QJsonObject& descriptor) {
 QStringList declaredToolNames() { return declarations().keys(); }
 
 QStringList outputSchemaNames() { return successSchemas().keys(); }
+
+bool changesFxGraph(const QString& tool) {
+  const auto found = declarations().constFind(tool);
+  return found != declarations().constEnd() && found->effects.fxGraph;
+}
 
 bool advancesRevision(const QJsonObject& descriptor) {
   static const QSet<QString> advancing{"writes", "creates", "discards"};

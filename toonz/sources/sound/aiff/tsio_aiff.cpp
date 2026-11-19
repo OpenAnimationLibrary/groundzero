@@ -7,11 +7,17 @@
 #include "tfilepath_io.h"
 #include "tsioutils.h"
 #include <math.h>
+#include <string.h>
+
+#include <climits>
+#include <cstdint>
+#include <memory>
 
 #define DEFAULT_OFFSET 0
 #define DEFAULT_BLOCKSIZE 0
 #define AIFF_NBYTE 4
 #define COMM_NBYTE 24
+#define COMM_MIN_NBYTE 18
 #define OFFSETBLOCSIZE_NBYTE 8
 #define SSND_PREDATA_NBYTE 16
 
@@ -70,10 +76,10 @@ public:
 
 class TCOMMChunk final : public TAIFFChunk {
 public:
-  USHORT m_chans;    // numero di canali
-  TUINT32 m_frames;  // numero di campioni
-  USHORT m_bitPerSample;
-  TUINT32 m_sampleRate;
+  USHORT m_chans        = 0;  // numero di canali
+  TUINT32 m_frames      = 0;  // numero di campioni
+  USHORT m_bitPerSample = 0;
+  TUINT32 m_sampleRate  = 0;
 
   TCOMMChunk(string name, TINT32 length) : TAIFFChunk(name, length) {}
 
@@ -92,6 +98,7 @@ public:
     UCHAR sampleRateBuffer[10];  // sample rate come letto dallo stream
     memset(sampleRateBuffer, 0, 10);
     is.read((char *)&sampleRateBuffer, sizeof(sampleRateBuffer));
+    if (is.fail()) return false;
     m_sampleRate = convertToLong(sampleRateBuffer);
     is.seekg(pos + (long)m_length, is.beg);
     return true;
@@ -147,8 +154,8 @@ static ostream &operator<<(ostream &os, const TCOMMChunk &commChunk) {
 
 class TSSNDChunk final : public TAIFFChunk {
 public:
-  TUINT32 m_offset;  // dall'inizio dei sample frames tra i wavedata
-  TUINT32 m_blockSize;
+  TUINT32 m_offset    = 0;  // dall'inizio dei sample frames tra i wavedata
+  TUINT32 m_blockSize = 0;
   std::unique_ptr<UCHAR[]> m_waveData;
 
   TSSNDChunk(string name, TINT32 length) : TAIFFChunk(name, length) {}
@@ -162,11 +169,12 @@ public:
       m_blockSize = swapTINT32(m_blockSize);
     }
 
+    if (is.fail() || m_length < OFFSETBLOCSIZE_NBYTE) return false;
+
     // alloca il buffer dei campioni
     m_waveData.reset(new UCHAR[m_length - OFFSETBLOCSIZE_NBYTE]);
-    if (!m_waveData) cout << " ERRORE " << endl;
     is.read((char *)m_waveData.get(), m_length - OFFSETBLOCSIZE_NBYTE);
-    return true;
+    return !is.fail();
   }
 
   bool write(ofstream &os) {
@@ -236,7 +244,7 @@ TUINT32 convertToLong(UCHAR *buffer) {
     flipLong(buffer + 2);
   }
 
-  mantissa = *((TUINT32 *)(buffer + 2));
+  memcpy(&mantissa, buffer + 2, sizeof(mantissa));
   exp      = 30 - *(buffer + 1);
   while (exp--) {
     last = mantissa;
@@ -271,7 +279,7 @@ void storeFloat(unsigned char *buffer, TUINT32 value) {
     value <<= 1;
   }
 
-  *((TUINT32 *)(buffer + 2)) = value;
+  memcpy(buffer + 2, &value, sizeof(value));
 
   buffer[0] = 0x40;
 
@@ -299,6 +307,10 @@ TSoundTrackP TSoundTrackReaderAiff::load() {
     throw TException(L"Unable to load the AIFF file " + m_path.getWideString() +
                      L" : doesn't exist");
 
+  is.seekg(0, std::ios::end);
+  const std::streamoff fileSize = is.tellg();
+  is.seekg(0, std::ios::beg);
+
   // legge il chunk ID
   is.read((char *)&ckID, sizeof(ckID) - 1);
   ckID[4] = '\0';
@@ -312,12 +324,15 @@ TSoundTrackP TSoundTrackReaderAiff::load() {
   is.read((char *)&formType, sizeof(formType) - 1);
   formType[4] = '\0';
 
+  if (is.fail())
+    throw TException("The AIFF file is damaged: its header is cut");
+
   // il formType DEVE essere uguale a "AIFF"
   if ((string(formType, 4) != "AIFF") && (string(formType, 4) != "AIFC"))
     throw TException("The AIFF file doesn't contain the AIFF form");
 
-  TCOMMChunk *commChunk = 0;
-  TSSNDChunk *ssndChunk = 0;
+  std::unique_ptr<TCOMMChunk> commChunk;
+  std::unique_ptr<TSSNDChunk> ssndChunk;
 
   while (!is.eof()) {
     string name;
@@ -327,34 +342,54 @@ TSoundTrackP TSoundTrackReaderAiff::load() {
 
     if (!ret) break;
 
+    // A chunk with a negative size cannot be skipped, and a COMM or SSND chunk
+    // that runs past the end of the file has no data to read.
+    if (length < 0)
+      throw TException("The AIFF file is damaged: a chunk has a negative size");
+    const std::streamoff bodyStart = is.tellg();
+    const bool wanted              = name == "COMM" || name == "SSND";
+    if (bodyStart + length > fileSize) {
+      if (wanted)
+        throw TException(
+            "The AIFF file is damaged: a chunk is longer than the file");
+      break;
+    }
+
     // legge solo i chunk che ci interessano, ossia COMM e SSND
 
     if (name == "COMM") {
+      if (length < COMM_MIN_NBYTE)
+        throw TException(
+            "The AIFF file is damaged: the COMM chunk is too short");
+
       // legge i dati del chunk COMM
-      commChunk = new TCOMMChunk("COMM", length);
-      commChunk->read(is);
+      commChunk.reset(new TCOMMChunk("COMM", length));
+      if (!commChunk->read(is))
+        throw TException("The AIFF file is damaged: the COMM chunk is cut");
 
       // considera il byte di pad alla fine del chunk nel caso
       // in cui la lunghezza di questi e' dispari
-      if (length % 2) is.seekg((TINT32)is.tellg() + 1);
+      if (length % 2) is.seekg(bodyStart + length + 1);
     } else if (name == "SSND") {
+      if (length < OFFSETBLOCSIZE_NBYTE)
+        throw TException(
+            "The AIFF file is damaged: the SSND chunk is too short");
+
       // legge i dati del chunk SSND
-      ssndChunk = new TSSNDChunk("SSND", length);
-      ssndChunk->read(is);
+      ssndChunk.reset(new TSSNDChunk("SSND", length));
+      if (!ssndChunk->read(is))
+        throw TException("The AIFF file is damaged: the SSND chunk is cut");
 
       // considera il byte di pad alla fine del chunk nel caso
       // in cui la lunghezza di questi e' dispari
-      if (length % 2) is.seekg((TINT32)is.tellg() + 1);
+      if (length % 2) is.seekg(bodyStart + length + 1);
     } else {
       // spostati nello stream di un numero di byte pari a length
-      if (!(length % 2))
-        is.seekg((TINT32)is.tellg() + length);
-      else
-        is.seekg((TINT32)is.tellg() + (TINT32)length + 1);
+      is.seekg(bodyStart + length + (length % 2));
     }
   }
 
-  TSoundTrack *track = 0;
+  TSoundTrackP track;
 
   if (commChunk && ssndChunk) {
     if (commChunk->m_chans < 1)
@@ -363,79 +398,92 @@ TSoundTrackP TSoundTrackReaderAiff::load() {
     if (commChunk->m_chans > 2)
       throw TException("Unsupported channels number in sound file");
 
-    switch (commChunk->m_bitPerSample) {
-    case 8:
-      if (commChunk->m_chans == 1)
-        track = new TSoundTrackMono8Signed(commChunk->m_sampleRate, 1,
-                                           (TINT32)commChunk->m_frames);
-      else
-        track = new TSoundTrackStereo8Signed(commChunk->m_sampleRate, 2,
-                                             (TINT32)commChunk->m_frames);
+    const int bits = commChunk->m_bitPerSample;
+    if (bits != 8 && bits != 16 && bits != 24 && bits != 32)
+      throw TException("Unsupported sample size in sound file");
 
-      memcpy((void *)track->getRawData(),
-             (void *)(ssndChunk->m_waveData.get() + ssndChunk->m_offset),
+    // The samples must lie inside the SSND data: its offset field and the
+    // frame count of COMM are taken from the file and may promise more than
+    // the chunk holds.
+    if (commChunk->m_frames > (TUINT32)INT_MAX)
+      throw TException("The AIFF file declares too many sample frames");
+    const uint64_t dataBytes =
+        (uint64_t)ssndChunk->m_length - OFFSETBLOCSIZE_NBYTE;
+    const uint64_t frameBytes =
+        (uint64_t)(bits / 8) * (uint64_t)commChunk->m_chans;
+    if ((uint64_t)ssndChunk->m_offset + commChunk->m_frames * frameBytes >
+        dataBytes)
+      throw TException(
+          "The AIFF file declares more sample frames than its sound data "
+          "holds");
+
+    const bool mono     = commChunk->m_chans == 1;
+    const TINT32 frames = (TINT32)commChunk->m_frames;
+    switch (bits) {
+    case 8:
+      if (mono)
+        track = new TSoundTrackMono8Signed(commChunk->m_sampleRate, 1, frames);
+      else
+        track =
+            new TSoundTrackStereo8Signed(commChunk->m_sampleRate, 2, frames);
+      break;
+    case 16:
+      if (mono)
+        track = new TSoundTrackMono16(commChunk->m_sampleRate, 1, frames);
+      else  // due canali
+        track = new TSoundTrackStereo16(commChunk->m_sampleRate, 2, frames);
+      break;
+    case 24:
+      if (mono)
+        track = new TSoundTrackMono24(commChunk->m_sampleRate, 1, frames);
+      else  // due canali
+        track = new TSoundTrackStereo24(commChunk->m_sampleRate, 2, frames);
+      break;
+    default:
+      if (mono)
+        track = new TSoundTrackMono32Float(commChunk->m_sampleRate, 1, frames);
+      else  // due canali
+        track =
+            new TSoundTrackStereo32Float(commChunk->m_sampleRate, 2, frames);
+      break;
+    }
+    if (!track->getRawData())
+      throw TException("Not enough memory to load the AIFF file");
+
+    UCHAR* source = ssndChunk->m_waveData.get() + ssndChunk->m_offset;
+    switch (bits) {
+    case 8:
+      memcpy((void*)track->getRawData(), (void*)source,
              commChunk->m_frames * commChunk->m_chans);
       break;
 
     case 16:
-      if (commChunk->m_chans == 1)
-        track = new TSoundTrackMono16(commChunk->m_sampleRate, 1,
-                                      (TINT32)commChunk->m_frames);
-      else  // due canali
-        track = new TSoundTrackStereo16(commChunk->m_sampleRate, 2,
-                                        (TINT32)commChunk->m_frames);
-
       if (!TNZ_LITTLE_ENDIAN)
-        memcpy((void *)track->getRawData(),
-               (void *)(ssndChunk->m_waveData.get() + ssndChunk->m_offset),
+        memcpy((void*)track->getRawData(), (void*)source,
                commChunk->m_frames * track->getSampleSize());
       else
-        swapAndCopy16Bits(
-            (short *)(ssndChunk->m_waveData.get() + ssndChunk->m_offset),
-            (short *)track->getRawData(),
-            (TINT32)(commChunk->m_frames * commChunk->m_chans));
+        swapAndCopy16Bits((short*)source, (short*)track->getRawData(),
+                          (TINT32)(commChunk->m_frames * commChunk->m_chans));
       break;
 
     case 24:
-      if (commChunk->m_chans == 1)
-        track = new TSoundTrackMono24(commChunk->m_sampleRate, 1,
-                                      (TINT32)commChunk->m_frames);
-      else  // due canali
-        track = new TSoundTrackStereo24(commChunk->m_sampleRate, 2,
-                                        (TINT32)commChunk->m_frames);
-
-       if (!TNZ_LITTLE_ENDIAN)
-        memcpy((void *)track->getRawData(),
-               (void *)(ssndChunk->m_waveData.get() + ssndChunk->m_offset),
+      if (!TNZ_LITTLE_ENDIAN)
+        memcpy((void*)track->getRawData(), (void*)source,
                commChunk->m_frames * track->getSampleSize());
       else
-         swapAndCopy24Bits(
-             (void *)(ssndChunk->m_waveData.get() + ssndChunk->m_offset),
-             (void *)track->getRawData(),
-             (TINT32)(commChunk->m_frames * commChunk->m_chans));
-       break;
-    case 32:
-      if (commChunk->m_chans == 1)
-        track = new TSoundTrackMono32Float(commChunk->m_sampleRate, 1,
-                                           (TINT32)commChunk->m_frames);
-      else  // due canali
-        track = new TSoundTrackStereo32Float(commChunk->m_sampleRate, 2,
-                                             (TINT32)commChunk->m_frames);
+        swapAndCopy24Bits((void*)source, (void*)track->getRawData(),
+                          (TINT32)(commChunk->m_frames * commChunk->m_chans));
+      break;
 
-       if (!TNZ_LITTLE_ENDIAN)
-        memcpy((void *)track->getRawData(),
-               (void *)(ssndChunk->m_waveData.get() + ssndChunk->m_offset),
+    default:
+      if (!TNZ_LITTLE_ENDIAN)
+        memcpy((void*)track->getRawData(), (void*)source,
                commChunk->m_frames * track->getSampleSize());
       else
-         swapAndCopy32Bits(
-             (TINT32 *)(ssndChunk->m_waveData.get() + ssndChunk->m_offset),
-             (TINT32 *)track->getRawData(),
-             (TINT32)(commChunk->m_frames * commChunk->m_chans));
-       break;
+        swapAndCopy32Bits((TINT32*)source, (TINT32*)track->getRawData(),
+                          (TINT32)(commChunk->m_frames * commChunk->m_chans));
+      break;
     }
-
-    if (commChunk) delete commChunk;
-    if (ssndChunk) delete ssndChunk;
   }
 
   return track;

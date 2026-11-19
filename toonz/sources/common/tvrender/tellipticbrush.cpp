@@ -152,32 +152,6 @@ void tellipticbrush::buildEnvelopeVectors(const TThickPoint &p,
 
 //------------------------------------------------------------
 
-/*!
-  Builds the angle that supports a *quality* discretization of the circle
-  with maximal error < m_pixSize.
-*/
-void tellipticbrush::buildAngularSubdivision(double radius, double angle,
-                                             double err, int &nAngles) {
-  /*
-See "Graphic Gems", page 600.
-
-NOTE: maxAngle is not multiplied by 2.0 as the naive pythagorical
-argument would pretend. The 2.0 holds if we want to find the angle
-at which the distance of the circle from its approximation is always < error.
-
-But we want MORE. We want that to happen against the distance from EVERY
-TANGENT LINE of the arc - not the arc itself.
-This is coherent with the assumption that pixels orientation is not known.
-
-It's easy to see that maxAngle just has to be not multiplied by 2.
-*/
-
-  double maxAngle = acos(1.0 - err / radius);  //* 2.0;
-  nAngles         = tceil(fabs(angle) / maxAngle);
-}
-
-//------------------------------------------------------------
-
 TRectD tellipticbrush::computeBBox(const TStroke &stroke) {
   TRectD bbox;
 

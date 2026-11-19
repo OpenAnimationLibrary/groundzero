@@ -120,14 +120,47 @@ class CompareTest(unittest.TestCase):
                 oracle.compare_files(good, broken)
 
 
+EFFECTS = ["aFx", "bFx", "cFx", "dFx", "eFx", "fFx"]
+SCENE_TEXT = (
+    "scene "
+    + "".join(f"<{tag} id='{n}'> " for n, tag in enumerate(EFFECTS))
+    + "<Toonz_columnFx id='9'>"
+)
+PROBES = [
+    {"kind": "vector", "what": "a stroke", "x": 0, "y": 0, "frame": 0, "rgba": [10, 20, 30, 255]},
+    {
+        "kind": "toonz_raster",
+        "what": "a block",
+        "x": 0,
+        "y": 1,
+        "frame": 0,
+        "rgba": [10, 20, 30, 255],
+    },
+    {"kind": "png", "what": "art", "x": 2, "y": 2, "frame": 1, "rgba": [10, 20, 30, 255]},
+    {"kind": "effect", "what": "a key", "x": 1, "y": 0, "frames": [0, 1], "min_difference": 50},
+]
+
+
+COMPARISONS: dict[str, Any] = {
+    "bridge_disabled": {
+        "status": "compared",
+        "cases": ["corpus_baselines_are_reproduced_by_this_builds_batch_renderer"],
+    },
+    "bridge_enabled": {"status": "not_built", "reason": "the live bridge cannot open a scene " * 2},
+    "assisted_save_reopen": {"status": "not_built", "reason": "an editable import is missing " * 2},
+}
+
+
 def make_corpus(root: Path) -> dict[str, Any]:
     """A one-scene corpus with a baseline set and a history entry, on disk."""
     scene = root / "one"
     (scene / "scenes").mkdir(parents=True)
-    (scene / "scenes" / "shot.tnz").write_text("scene")
+    (scene / "scenes" / "shot.tnz").write_text(SCENE_TEXT)
     (root / "baselines" / "one").mkdir(parents=True)
     for frame in range(2):
-        png(root / "baselines" / "one" / f"frame.{frame + 1:04d}.png", picture(), 4)
+        pixels = picture()
+        pixels[1] = (110, 20, 30, 255) if frame else pixels[1]
+        png(root / "baselines" / "one" / f"frame.{frame + 1:04d}.png", pixels, 4)
     manifest: dict[str, Any] = {
         "schema_version": 1,
         "provenance": {"kind": "generated_by_script", "note": "x", "human_review": "none"},
@@ -137,9 +170,12 @@ def make_corpus(root: Path) -> dict[str, Any]:
                 "expected": {"levels": 1},
                 "files": corpus.scene_files(root, "one"),
                 "policy": {"color": 0, "alpha": 0, "pixels": 0.0, "why": ""},
+                "effects": EFFECTS,
+                "probes": PROBES,
                 "baseline": {"files": corpus.baseline_files(root, "one")},
             }
         },
+        "comparisons": copy.deepcopy(COMPARISONS),
         "history": [],
     }
     entry = manifest["scenes"]["one"]
@@ -225,6 +261,83 @@ class CheckTest(unittest.TestCase):
         self.rewrite(manifest)
         self.assertTrue(any("needs its reason" in p for p in corpus.check(self.root)))
 
+    def with_scene(self, **changes: Any) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["scenes"]["one"].update(changes)
+        self.rewrite(manifest)
+
+    def test_a_probe_the_baseline_does_not_hold_fails(self) -> None:
+        probes = copy.deepcopy(PROBES)
+        probes[0]["rgba"] = [10, 20, 31, 255]
+        self.with_scene(probes=probes)
+        self.assertTrue(
+            any("the baseline holds [10, 20, 30, 255]" in p for p in corpus.check(self.root))
+        )
+
+    def test_an_effect_that_changes_no_pixel_between_its_frames_fails(self) -> None:
+        probes = copy.deepcopy(PROBES)
+        probes[3]["min_difference"] = 101
+        self.with_scene(probes=probes)
+        self.assertTrue(any("changes by 100" in p for p in corpus.check(self.root)))
+
+    def test_a_corpus_that_shows_no_vector_column_fails(self) -> None:
+        self.with_scene(probes=[p for p in PROBES if p["kind"] != "vector"])
+        self.assertTrue(any("no probe shows a vector" in p for p in corpus.check(self.root)))
+
+    def test_a_corpus_that_shows_no_png_column_fails(self) -> None:
+        self.with_scene(probes=[p for p in PROBES if p["kind"] != "png"])
+        self.assertTrue(any("no probe shows a png" in p for p in corpus.check(self.root)))
+
+    def test_a_corpus_with_no_animated_effect_fails(self) -> None:
+        self.with_scene(probes=[p for p in PROBES if "frames" not in p])
+        self.assertTrue(
+            any("changing a pixel between frames" in p for p in corpus.check(self.root))
+        )
+
+    def test_a_probe_outside_the_image_or_frames_fails(self) -> None:
+        probes = copy.deepcopy(PROBES)
+        probes[0]["x"] = 4
+        probes[1]["frame"] = 2
+        self.with_scene(probes=probes)
+        found = corpus.check(self.root)
+        self.assertTrue(any("pixel outside the image" in p for p in found), found)
+        self.assertTrue(any("frame outside the baselines" in p for p in found), found)
+
+    def test_declared_effects_must_be_the_effects_the_scene_file_holds(self) -> None:
+        self.with_scene(effects=EFFECTS[:-1])
+        self.assertTrue(any("its scene file holds" in p for p in corpus.check(self.root)))
+
+    def test_too_few_effect_types_in_the_corpus_fail(self) -> None:
+        (self.root / "one" / "scenes" / "shot.tnz").write_text("scene <aFx id='1'>")
+        manifest = copy.deepcopy(self.manifest)
+        entry = manifest["scenes"]["one"]
+        entry["effects"] = ["aFx"]
+        entry["files"] = corpus.scene_files(self.root, "one")
+        entry["scene_sha256"] = corpus.digest(entry["files"])
+        entry["baseline"]["rendered_from"] = entry["scene_sha256"]
+        self.rewrite(manifest)
+        self.assertTrue(any("fewer than 6" in p for p in corpus.check(self.root)))
+
+    def test_a_comparison_without_a_statement_fails(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        del manifest["comparisons"]["bridge_enabled"]
+        self.rewrite(manifest)
+        self.assertTrue(
+            any("no statement for bridge_enabled" in p for p in corpus.check(self.root))
+        )
+
+    def test_a_compared_statement_must_name_a_case_that_exists(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["comparisons"]["bridge_disabled"]["cases"] = ["a_case_nobody_wrote"]
+        self.rewrite(manifest)
+        self.assertTrue(any("does not define" in p for p in corpus.check(self.root)))
+
+    def test_a_comparison_that_is_not_built_must_say_why(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        manifest["comparisons"]["assisted_save_reopen"]["reason"] = "later"
+        self.rewrite(manifest)
+        self.assertTrue(any("reason is missing or short" in p for p in corpus.check(self.root)))
+
     def test_a_missing_manifest_is_reported(self) -> None:
         (self.root / "manifest.json").unlink()
         self.assertTrue(any("does not exist" in p for p in corpus.check(self.root)))
@@ -308,7 +421,10 @@ class RegenerationTest(unittest.TestCase):
             frames = []
             for index in range(2):
                 path = scratch / f"frame.{index + 1:04d}.png"
-                png(path, picture(base=(1, 1, 1, 255)), 4)
+                pixels = picture()
+                pixels[1] = (110, 20, 30, 255) if index else pixels[1]
+                pixels[15] = (1, 1, 1, 255)
+                png(path, pixels, 4)
                 frames.append(path)
             tool = scratch / "tcomposer"
             tool.write_bytes(b"binary")

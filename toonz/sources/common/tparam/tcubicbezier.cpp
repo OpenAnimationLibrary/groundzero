@@ -2,27 +2,52 @@
 
 #include "tcubicbezier.h"
 
+namespace {
+
+// cubicRoot() divides by the cubic coefficient, which loses the root once
+// that coefficient is small next to the others. Below this ratio the root is
+// found from the quadratic part and refined on the whole cubic instead.
+const double negligibleCubic = 1e-3;
+
+}  // namespace
+
 //-----------------------------------------------------------------------------
 
 DVAPI double invCubicBezierX(double x, const TPointD &a, const TPointD &aSpeed,
                              const TPointD &bSpeed, const TPointD &b) {
-  double aSpeedX            = aSpeed.x;
-  double bSpeedX            = bSpeed.x;
-  if (aSpeedX == 0) aSpeedX = epsilon;
-  if (bSpeedX == 0) bSpeedX = -epsilon;
-
   // a*u^3+b*u^2+c*u+d
   double x0 = a.x;
-  double x1 = x0 + aSpeedX;
+  double x1 = x0 + aSpeed.x;
   double x3 = b.x;
-  double x2 = x3 + bSpeedX;
+  double x2 = x3 + bSpeed.x;
 
   double aX = x3 + 3 * (x1 - x2) - x0;
   double bX = 3 * (x2 - 2 * x1 + x0);
   double cX = 3 * (x1 - x0);
   double dX = x0 - x;
 
-  return cubicRoot(aX, bX, cX, dX);
+  if (fabs(aX) > negligibleCubic * (fabs(bX) + fabs(cX)))
+    return cubicRoot(aX, bX, cX, dX);
+
+  // x(u) does not decrease on [0, 1] for handles within the segment, so the
+  // root stays inside [lo, hi]; a Newton step that leaves it is replaced by
+  // bisection.
+  double lo = 0, hi = 1;
+  double u = tcrop(quadraticRoot(bX, cX, dX), 0.0, 1.0);
+  for (int i = 0; i < 64; ++i) {
+    double f = ((aX * u + bX) * u + cX) * u + dX;
+    if (f < 0)
+      lo = u;
+    else if (f > 0)
+      hi = u;
+    else
+      break;
+    double step = f / ((3 * aX * u + 2 * bX) * u + cX);
+    if (fabs(step) <= 1e-15) break;
+    u -= step;
+    if (!(lo < u && u < hi)) u = 0.5 * (lo + hi);
+  }
+  return u;
 }
 
 //-----------------------------------------------------------------------------

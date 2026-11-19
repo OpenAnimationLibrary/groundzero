@@ -669,19 +669,6 @@
     ]
   },
   {
-    "id": "model-degenerate-frame-axis",
-    "file": "ci-scripts/mcp_property_curves.py",
-    "find": " or 3 * outgoing - 3 * incoming == 2 * span",
-    "replace": "",
-    "why": "A speed segment whose frame axis has no cubic term is a known violation, not compared.",
-    "tests": [
-      {
-        "kind": "unit",
-        "pattern": "test_mcp_property_curves.py"
-      }
-    ]
-  },
-  {
     "id": "model-generator-cubic-frame-axis",
     "file": "ci-scripts/mcp_property_curves.py",
     "find": "        if 3 * (far - near) == span:\n            far += 1 if far < span else -1\n",
@@ -924,6 +911,746 @@
         "kind": "acceptance",
         "names": [
           "a_bound_draft_keeps_its_project_through_a_package"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "job-discard-refuses-running",
+    "file": "toonz/sources/toonz/automation_jobs.cpp",
+    "native": true,
+    "find": "  if (!job->terminal())\n    throw Error(\"in_use\",",
+    "replace": "  if (false)\n    throw Error(\"in_use\",",
+    "why": "job.discard never touches a running job; it is refused with in_use and job.cancel as the next call.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "job_discard_refuses_a_running_job",
+          "native_domain_regressions"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "job-discard-frees-the-slot",
+    "file": "toonz/sources/toonz/automation_jobs.cpp",
+    "native": true,
+    "find": "                                return job->id() == id;",
+    "replace": "                                return false;",
+    "why": "A discarded job leaves the registry, so its lane admits a new job.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "job_retention_limit_names_jobs_to_release",
+          "native_domain_regressions"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "job-discard-hidden-after-restart",
+    "file": "toonz/sources/toonz/automation_jobs.cpp",
+    "native": true,
+    "find": "    if (!id.startsWith(own) && !discardedRecord(stored))",
+    "replace": "    if (!id.startsWith(own))",
+    "why": "A discarded job is not listed again by a later worker of the workspace.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "job_discard_survives_restart"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "job-discard-removes-render-files",
+    "file": "toonz/sources/toonz/automation_render.cpp",
+    "native": true,
+    "find": "    return removeJobDirectory(directory);",
+    "replace": "    return 0;",
+    "why": "A discarded render's private directory, artifacts and claim are removed and their bytes reported.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "job_discard_releases_a_completed_render"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "receipts-never-drop-unjournaled",
+    "file": "toonz/sources/toonz/automation_dispatch.cpp",
+    "native": true,
+    "find": "  if (receipt.durable) m_droppable.push_back(operationId);",
+    "replace": "  m_droppable.push_back(operationId);",
+    "why": "An in-memory receipt the journal does not hold is never dropped; without a journal the receipt limit refuses with its reason.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "native_domain_regressions"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-subset-label",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "complete = bool(cells) and counts[\"not_tested\"] == 0 and stale == 0",
+    "replace": "complete = bool(cells)",
+    "why": "A platform is complete only when every cell ran and came from its latest run.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-tolerance-cap",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "        if tolerance[name] > cap:",
+    "replace": "        if False:",
+    "why": "A tolerance above the format's cap could hide a driver or codec difference.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-pass-within-tolerance",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "observed.get(name, float(\"inf\")) > tolerance[name]",
+    "replace": "observed.get(name, float(\"inf\")) > 1e18",
+    "why": "A passed cell's observed difference must be inside its own tolerance.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-missing-cell",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "for key in sorted(wanted - set(present))",
+    "replace": "for key in sorted(set())",
+    "why": "A type, format or platform without a cell is reported, never silently missing.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-negative-test-required",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "for tool in sorted(lacking - set(listed))",
+    "replace": "for tool in []",
+    "why": "A released tool without a negative test must be written or listed.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-stale-gap",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "for tool in sorted(set(listed) & (tools - lacking))",
+    "replace": "for tool in []",
+    "why": "A listed gap that now has a negative test must be deleted.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-document-current",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "if path.read_text(encoding=\"utf-8\") != expected:",
+    "replace": "if False:",
+    "why": "The stored document must equal the generated one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-negative-call-counts",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "NEGATIVE_CALL.search(_call_name(node.func))",
+    "replace": "NEGATIVE_CALL.search('failure')",
+    "why": "Only a call that expects a refusal is a negative test: a success call must not count.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-movie-reference",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "png.get(\"reference\") != cell.get(\"reference\")",
+    "replace": "False",
+    "why": "A movie cell must have been compared with the PNG render recorded for the type.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-png-exact",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "observed[\"differing_pixels\"] = max(observed[\"differing_pixels\"], 1)",
+    "replace": "pass",
+    "why": "A PNG whose pixels differ from the stored reference fails.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-cell-fails-outside-tolerance",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "over = [name for name in limits if observed[name] > limits[name]]",
+    "replace": "over = []",
+    "why": "A measurement outside its tolerance makes the cell failed.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-no-media-is-unavailable",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "return {\"status\": \"unavailable\", \"reason\": measured[\"skipped\"]}",
+    "replace": "return {\"status\": \"passed\"}",
+    "why": "A run without media tools must not pass a movie cell.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-movie-decode-exact",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "measured[\"decoded_digest\"] != references[\"decoded\"]",
+    "replace": "False",
+    "why": "A movie whose decoded bytes differ from the stored decode fails.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-movie-blind-is-unverified",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "tolerance[\"block_error\"] >= near[\"nearest_other_block_error\"]",
+    "replace": "False",
+    "why": "A movie tolerance that cannot tell the picture from another type's must not pass.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-block-metric",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "\"block_error\": round(max(block_errors(expected, decoded, size)), 3),",
+    "replace": "\"block_error\": 0.0,",
+    "why": "The movie is scored by its worst block, so a small wrong region is seen.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-tolerance-margin",
+    "file": "ci-scripts/mcp_fx_matrix_cases.py",
+    "find": "return float(math.ceil(value * MARGIN) + 1)",
+    "replace": "return 1000.0",
+    "why": "A movie cell states a tolerance from its observed error with a margin, not a broad one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-passed-separates",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "blind = cell[\"tolerance\"][\"block_error\"] >= near",
+    "replace": "blind = False",
+    "why": "A passed movie cell's tolerance must be smaller than the distance to another picture.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "fx-matrix-unverified-is-run",
+    "file": "ci-scripts/mcp_fx_matrix.py",
+    "find": "stale = sum(1 for cell in cells if cell[\"status\"] in MEASURED and cell[\"run\"] != latest)",
+    "replace": "stale = 0",
+    "why": "Cells from an older run make the platform incomplete.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_fx_matrix.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-probe-value",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "    if tuple(probe[\"rgba\"]) != here[0]:",
+    "replace": "    if False:",
+    "why": "A pixel the construction says must hold a value must hold it in the baseline.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-probe-animation",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "        if gap < probe[\"min_difference\"]:",
+    "replace": "        if False:",
+    "why": "An effect that must change a pixel between two frames must.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-coverage-kinds",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "        if kind not in kinds",
+    "replace": "        if False",
+    "why": "The baselines must show a vector, a Toonz raster and a PNG column and an effect.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-coverage-effect-types",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "    if len(types) < MINIMUM_EFFECT_TYPES:",
+    "replace": "    if False:",
+    "why": "The corpus must carry several effect types.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-coverage-animated",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "    if not animated:",
+    "replace": "    if False:",
+    "why": "Some probe must show an effect changing a pixel between frames.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-effects-declared",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "    if declared != scene_effects(root, name):",
+    "replace": "    if False:",
+    "why": "A scene's declared effects must be the ones its file holds.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "corpus-comparison-case-exists",
+    "file": "ci-scripts/mcp_corpus_compare.py",
+    "find": "                if f\"def {case}(\" not in cases",
+    "replace": "                if False",
+    "why": "A comparison said to be made must name a case that exists.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_corpus.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-failed-runs-excluded",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "if trial.outcome == OK]",
+    "replace": "if True]",
+    "why": "Failed, canceled and timed-out trials never enter a speed figure.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-no-pooling",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "    if len(keys) != 1:",
+    "replace": "    if False:",
+    "why": "Cold and warm, or baseline and candidate, trials are never pooled.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-noise-band",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "band = max(NOISE_FACTOR * max(base.noise, cand.noise), RESOLUTION_SECONDS)",
+    "replace": "band = 0.0",
+    "why": "A difference inside the noise is not reported as one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-minimum-trials",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "    if min(base.counted, cand.counted) < MINIMUM_TRIALS:",
+    "replace": "    if False:",
+    "why": "Too few finished trials make a comparison invalid.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-host-differs",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "        if baseline.get(key) != candidate.get(key)",
+    "replace": "        if False",
+    "why": "Runs on different hardware cannot be compared.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-fixtures-differ",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "    if baseline[\"fixtures\"] != candidate[\"fixtures\"]:",
+    "replace": "    if False:",
+    "why": "Runs on different fixtures cannot be compared.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-cold-warm",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "    if temperatures[0] != temperatures[1]:",
+    "replace": "    if False:",
+    "why": "A cold run is never compared with a warm one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-simultaneous-peak",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "simultaneous = max(simultaneous, sum(entry[\"rss\"] for entry in instant))",
+    "replace": "simultaneous = max(simultaneous, 0)",
+    "why": "The simultaneous tree peak is the largest sum seen at one instant.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-sum-of-peaks-labelled",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "\"sum_of_individual_peaks_bytes\": sum(peaks.values()),",
+    "replace": "\"sum_of_individual_peaks_bytes\": simultaneous,",
+    "why": "The sum of every process's own peak is kept apart from the simultaneous peak.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-budget-not-in-force",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "\"agreed\": False,",
+    "replace": "\"agreed\": True,",
+    "why": "A proposed budget is never in force until the owner agrees.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-budget-over-detected",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "\"over budget\" if summary.median > seconds else \"within budget\"",
+    "replace": "\"within budget\"",
+    "why": "A median over an advisory budget is reported.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-budget-not-gate",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "\"advisory\": True,",
+    "replace": "\"advisory\": False,",
+    "why": "A budget is advisory: it is labelled so in every report.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "shot-oracle-landmarks",
+    "file": "ci-scripts/mcp_shot.py",
+    "find": "        actual = pixels[y * width + x]\n        require(actual == expected,",
+    "replace": "        actual = pixels[y * width + x]\n        require(True or actual == expected,",
+    "why": "The oracle checks the authored landmarks, so a sky drawn over the harbor fails.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "shot_that_renders_wrongly_fails_the_independent_oracle"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "shot-oracle-courier",
+    "file": "ci-scripts/mcp_shot.py",
+    "find": "require(core == INK,",
+    "replace": "require(True or core == INK,",
+    "why": "The oracle checks where the courier is, so a dropped or misplaced courier fails.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "shot_that_renders_wrongly_fails_the_independent_oracle"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "shot-oracle-gradient",
+    "file": "ci-scripts/mcp_shot.py",
+    "find": "require(lower[1] >= upper[1] + 4, f\"Frame {frame} sky lost its top-to-bottom gradient\")",
+    "replace": "require(True, \"\")",
+    "why": "The oracle checks the sky's direction, so an upside-down sky fails.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "shot_that_renders_wrongly_fails_the_independent_oracle"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "shot-refusal-leaves-draft",
+    "file": "ci-scripts/mcp_shot_failure_cases.py",
+    "find": "    response = shot.worker.call(method, request)\n",
+    "replace": "    response = shot.worker.call(method, request)\n    if document is not None:\n        sneaky = {\"document_id\": document, \"expected_revision\": shot.revisions[document]}\n        shot.worker.call(\"scene.settings\", {**sneaky, \"operation_id\": f\"s-{shot.operations}\", \"frame_rate\": 31})\n",
+    "why": "A refused edit that changed the draft is noticed.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "shot_edit_failures_end_typed_and_change_nothing"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-key-speed-handle-bound",
+    "file": "toonz/sources/toonz/automation_fx_profile.cpp",
+    "find": "    if (key.m_type != TDoubleKeyframe::SpeedInOut || index + 1 == count)\n      continue;",
+    "replace": "    if (true || key.m_type != TDoubleKeyframe::SpeedInOut || index + 1 == count)\n      continue;",
+    "native": true,
+    "why": "A speed segment stays in bounds only when both handle points do; without the check a curve can leave the admitted range between keys.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "native_domain_regressions",
+          "fx_rich_keys_per_channel",
+          "generated_effect_key_sequences_match_the_independent_model"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-key-curve-lock",
+    "file": "toonz/sources/toonz/automation_fx.cpp",
+    "find": "  if (!channel.curve->isEditorLocked()) return;",
+    "replace": "  if (true || !channel.curve->isEditorLocked()) return;",
+    "native": true,
+    "why": "Every animation key write to an effect curve the editor locked is refused with curve_locked before any change.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "native_domain_regressions"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-key-linked-members-reported",
+    "file": "toonz/sources/toonz/automation_scene.cpp",
+    "find": "  if (isFx(target)) automationAddFxAffected(document, target.fx.fx, result);",
+    "replace": "  if (false && isFx(target)) automationAddFxAffected(document, target.fx.fx, result);",
+    "native": true,
+    "why": "A key write to one linked effect changes every member, and its result must say so.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "fx_key_writes_through_links_and_refusals"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-key-model-handle-bound",
+    "file": "ci-scripts/mcp_property_effects.py",
+    "find": "        if first.interpolation == \"speed_in_out\" and first.outgoing is not None:",
+    "replace": "        if False and first.interpolation == \"speed_in_out\" and first.outgoing is not None:",
+    "why": "The independent model must refuse a speed handle outside the bounds, or it agrees with a worker that admits one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_property_effects.py"
+      },
+      {
+        "kind": "acceptance",
+        "names": [
+          "generated_effect_key_sequences_match_the_independent_model"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-graph-linked-parameters-constraint",
+    "file": "toonz/sources/toonz/automation_fx.cpp",
+    "find": "  if (linked.isObject())\n    add(\"linked_parameters\"",
+    "replace": "  if (false && linked.isObject())\n    add(\"linked_parameters\"",
+    "native": true,
+    "why": "fx.graph tells a caller that a parameter write to a linked effect is a write to its whole group.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "fx_linked_edit_reports_every_member"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-delta-sub-sheet-refused",
+    "file": "toonz/sources/toonz/automation_fx_journal.cpp",
+    "find": "  resolveSheetPath(document, path);\n  throw Error(\"delta_unavailable\",",
+    "replace": "  resolveSheetPath(document, path);\n  if (false) throw Error(\"delta_unavailable\",",
+    "native": true,
+    "why": "The journal tracks the top sheet only; a delta for a sub-sheet would claim tracking it does not have.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "read_only_inventory_tells_instances_from_definitions"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-parameter-get-linked-constraint",
+    "file": "toonz/sources/toonz/automation_fx.cpp",
+    "find": "  if (linked.isObject())\n    return QJsonObject{{\"kind\", \"linked_parameters\"},",
+    "replace": "  if (false && linked.isObject())\n    return QJsonObject{{\"kind\", \"linked_parameters\"},",
+    "native": true,
+    "why": "fx.parameter.get says that a write to a linked effect's parameter changes every member of its group.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "fx_parameter_descriptors_separate_defaults_bounds_and_units"
         ]
       }
     ]

@@ -16,6 +16,51 @@ AUDIT = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(AUDIT)
 REPO = "example/animation"
 
+ICON_LIFECYCLE_FAILURE = (
+    "Failure: native-ui-integration: FAIL: icon lifecycle: "
+    "Native scene retirement timer did not finish\n\n"
+    "Recent phases:\n"
+    "icon-lifecycle-native: Quit Cancel begin\n"
+    "icon-lifecycle-native: Quit Cancel decision returned closed=0 "
+    "(decision after {cancel} ms, close returned after {close} ms)\n"
+    "icon-lifecycle-native: Quit Discard with replacement begin\n"
+    "icon-lifecycle-native: Quit Discard with replacement decision returned closed=1 "
+    "(decision after 15 ms, close returned after {slow} ms)\n\n"
+    "Failure context:\n"
+    "native-ui-integration: FAIL: icon lifecycle: Native scene retirement timer did not finish\n\n"
+    "Native application exited with status 1 (0x00000001)."
+)
+
+WINDOWS_CRASH_REPORT = """Failure: Native application exited with status 1 (0x00000001).
+
+Recent phases:
+native-ui-integration: checkpoint: entering native application event loop
+native-ui-integration: checkpoint: entered native fixture callback
+
+Failure context:
+Crash Reason: EXCEPTION_ACCESS_VIOLATION
+
+==== Backtrace ====
+  3> RtlDispatchException [0x7ffea5f262ce] <ntdll.dll>
+  4> TModifierTangents::modifyTrack {modifiertangents.cpp:110} <tnztools.dll>
+  5> TInputModifier::modifyTracks {inputmanager.cpp:67} <tnztools.dll>
+==== End ====
+
+Native application exited with status 1 (0x00000001)."""
+
+SANITIZER_HEAP_USE_AFTER_FREE = (
+    "heap-use-after-free on address 0x516000bbd7d8 at pc 0x7fefa5d591a1 bp 0x7ffc708e4330 "
+    "sp 0x7ffc708e4320 #0 0x7fefa5d591a0 in TStageObject::getId() const "
+    "toonz/sources/toonzlib/tstageobject.cpp:627 #1 0x7fefa79d3c3c in "
+    "StageObjectChannelGroup::data(int) const toonz/sources/toonzqt/functiontreeviewer.cpp:1011"
+)
+SANITIZER_TYPE_MISMATCH = (
+    "new-delete-type-mismatch on 0x50200009c390 in thread T0: #0 0x7f5057eb724f in operator "
+    "delete(void*, unsigned long) ../../../../src/libsanitizer/asan/asan_new_delete.cpp:172 "
+    "#1 0x7f5051e67c04 in FunctionSelection::~FunctionSelection() "
+    "toonz/sources/toonzqt/functionselection.cpp:61"
+)
+
 
 def note(message, level="failure", **fields):
     return {"message": message, "annotation_level": level, "path": ".github", **fields}
@@ -101,6 +146,220 @@ class ClassificationTests(unittest.TestCase):
         ):
             with self.subTest(text=text):
                 self.assertEqual(AUDIT.hint(text)[0], "unknown")
+
+
+class NativeCrashClassificationTests(unittest.TestCase):
+    def test_windows_structured_exceptions_are_native_crashes(self):
+        for text in (
+            "Crash Reason: EXCEPTION_ACCESS_VIOLATION",
+            "EXCEPTION_STACK_OVERFLOW at 0x00007ff6061f7f57",
+            "Unhandled EXCEPTION_ILLEGAL_INSTRUCTION in worker",
+            "Exception code: STATUS_STACK_BUFFER_OVERRUN",
+            "Last event: Access violation - code c0000005 (first chance)",
+            "Stack overflow in thread 3",
+            "Native application exited with status 3221225477 (0xC0000005)",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(AUDIT.hint(text)[0], "native crash")
+
+    def test_crash_handler_report_marks_a_status_1_exit_as_a_crash(self):
+        text = "[Native UI regression] " + AUDIT.clean(WINDOWS_CRASH_REPORT)
+        self.assertEqual(AUDIT.hint(text)[0], "native crash")
+        frames_only = "[Native UI regression] Native application exited with status 1 "
+        frames_only += "(0x00000001). 4> TModifierTangents::modifyTrack "
+        frames_only += "{modifiertangents.cpp:110} <tnztools.dll>"
+        self.assertEqual(AUDIT.hint(frames_only)[0], "native crash")
+
+    def test_timed_out_diagnostic_with_stack_frames_stays_a_timeout(self):
+        text = (
+            "[Native UI regression - secondary diagnostic: workflow-switch] Failure: Isolated "
+            "diagnostic timed out after 120 seconds. Recent phases: native-ui-integration: "
+            "checkpoint: workflow rejected-request checks passed Output tail: "
+            "9> runArtistWorkflowBenchmark {artistworkflowbenchmark.cpp:167} <OpenToonz.exe>"
+        )
+        self.assertEqual(AUDIT.hint(text)[0], "timeout")
+
+    def test_exit_status_from_a_signal_is_a_native_crash(self):
+        for status in (
+            "-6 (0xFFFFFFFA)",
+            "-4 (0xFFFFFFFC)",
+            "-7",
+            "-8",
+            "-1073741819",
+        ):
+            text = f"[Native UI regression] Native application exited with status {status}."
+            with self.subTest(status=status):
+                self.assertEqual(AUDIT.hint(text)[0], "native crash")
+        text = "Independent native diagnostic: workflow-ui exited with status -6 (0xFFFFFFFA)."
+        self.assertEqual(AUDIT.hint(text)[0], "native crash")
+
+    def test_plain_failure_exit_without_a_crash_report_is_not_a_crash(self):
+        for text in (
+            "Native application exited with status 1 (0x00000001).",
+            "Native application exited with status 0 (0x00000000).",
+            "Native application exited with status -1 (0xFFFFFFFF).",
+            "Original timeout CDB exited with status 0.",
+            "native-ui-integration: FAIL: icon lifecycle: Native scene retirement timer unfinished",
+        ):
+            with self.subTest(text=text):
+                self.assertNotEqual(AUDIT.hint(text)[0], "native crash")
+
+    def test_native_ui_regression_status_1_without_report_stays_a_test_failure(self):
+        text = "[Native UI regression] " + AUDIT.clean(
+            ICON_LIFECYCLE_FAILURE.format(cancel=24, close=32, slow=10527)
+        )
+        self.assertEqual(AUDIT.hint(text)[0], "a test failed")
+
+    def test_posix_signals_other_than_segv_are_native_crashes(self):
+        for text in ("SIGABRT", "SIGBUS received", "Terminated by SIGILL", "SIGFPE in worker"):
+            with self.subTest(text=text):
+                self.assertEqual(AUDIT.hint(text)[0], "native crash")
+
+
+class OtherClassificationTests(unittest.TestCase):
+    def test_sanitizer_reports_are_not_unknown(self):
+        for text in (SANITIZER_HEAP_USE_AFTER_FREE, SANITIZER_TYPE_MISMATCH):
+            with self.subTest(text=text[:30]):
+                self.assertEqual(AUDIT.hint(f"[AddressSanitizer] {text}")[0], "sanitizer error")
+        self.assertEqual(
+            AUDIT.hint("SUMMARY: AddressSanitizer: 48 byte(s) leaked in 3 allocation(s).")[0],
+            "sanitizer error",
+        )
+        self.assertEqual(
+            AUDIT.hint("tcolorstyles.cpp:82:14: runtime error: load of misaligned address")[0],
+            "sanitizer error",
+        )
+
+    def test_a_test_failure_in_a_sanitizer_job_is_not_a_sanitizer_report(self):
+        text = "[Native UI under AddressSanitizer] " + AUDIT.clean(
+            ICON_LIFECYCLE_FAILURE.format(cancel=24, close=32, slow=10527)
+        )
+        self.assertEqual(AUDIT.hint(text)[0], "a test failed")
+
+    def test_fail_marker_and_python_tracebacks_are_test_failures(self):
+        for text in (
+            "native-ui-integration: FAIL: raster paste: External paste changed its pixels",
+            (
+                "[__main__.NativeAcceptance.test_movie] Traceback (most recent call last): "
+                'File "ci-scripts/mcp_acceptance.py", line 74, in test_movie'
+            ),
+            "[Native 120-frame shot] AssertionError: Movie ffmpeg failed",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(AUDIT.hint(text)[0], "a test failed")
+
+    def test_ninja_failed_target_is_a_compile_error(self):
+        text = "[Failed build target] FAILED: [code=1] toonz/CMakeFiles/OpenToonz.dir/a.cpp.o"
+        self.assertEqual(AUDIT.hint(text)[0], "compile or link error")
+        self.assertNotEqual(
+            AUDIT.hint("Packaged brush: step failed: command returned 1")[0],
+            "compile or link error",
+        )
+
+
+class SignatureTests(unittest.TestCase):
+    def sig(self, text, place=""):
+        return AUDIT.signature(AUDIT.clean(text), place)
+
+    def test_same_test_message_matches_across_timings_and_platforms(self):
+        first = self.sig(
+            "[Native UI regression] "
+            + ICON_LIFECYCLE_FAILURE.format(cancel=753, close=1000, slow=11241)
+        )
+        second = self.sig(
+            "[Native UI regression] "
+            + ICON_LIFECYCLE_FAILURE.format(cancel=24, close=32, slow=10527)
+        )
+        self.assertEqual(first, second)
+        self.assertEqual(
+            first,
+            "[Native UI regression] native-ui-integration: FAIL: icon lifecycle: "
+            "Native scene retirement timer did not finish",
+        )
+
+    def test_different_test_messages_differ(self):
+        sigs = {
+            self.sig(
+                "[Native UI regression] Failure: native-ui-integration: FAIL: raster paste: A"
+            ),
+            self.sig(
+                "[Native UI regression] Failure: native-ui-integration: FAIL: raster paste: B"
+            ),
+            self.sig("[Other check] Failure: native-ui-integration: FAIL: raster paste: A"),
+        }
+        self.assertEqual(len(sigs), 3)
+
+    def test_crash_signature_names_the_last_phase_and_top_frame(self):
+        text = "[Native UI regression] " + WINDOWS_CRASH_REPORT
+        self.assertEqual(
+            self.sig(text),
+            "[Native UI regression] Native application exited with status 1 (0x00000001). "
+            "(last phase: native-ui-integration; top frame: TModifierTangents::modifyTrack)",
+        )
+        moved = text.replace("[0x7ffea5f262ce]", "[0x7ffe11112222]").replace(":110}", ":111}")
+        self.assertEqual(self.sig(moved), self.sig(text))
+
+    def test_exit_status_is_part_of_the_signature(self):
+        template = "[Native UI regression] Failure: Native application exited with status {}."
+        self.assertNotEqual(
+            self.sig(template.format("-11 (0xFFFFFFF5)")),
+            self.sig(template.format("-6 (0xFFFFFFFA)")),
+        )
+
+    def test_numbers_durations_addresses_hashes_and_paths_are_normalised(self):
+        first = (
+            "[Qt 6 test pythonengine failed] Test project toonz/build Start 47: pythonengine "
+            "1/1 Test #47: pythonengine ......***Failed 0.11 sec "
+            "heap at 0x7fefa5d591a1 commit 9061ae82f1c3 "
+            "/home/runner/work/groundzero/groundzero/toonz/sources/toonzlib/scene.cpp:627 "
+            "D:\\a\\groundzero\\toonz\\build\\scene.cpp(512,36) at 2026-11-17T13:39:11Z"
+        )
+        second = (
+            "[Qt 6 test pythonengine failed] Test project toonz/build Start 53: pythonengine "
+            "1/1 Test #53: pythonengine ......***Failed 0.59 sec "
+            "heap at 0x55aa00112233 commit 415150890a7d "
+            "/Users/runner/work/groundzero/groundzero/toonz/sources/toonzlib/scene.cpp:12 "
+            "D:\\a\\other\\toonz\\build\\scene.cpp(9,4) at 2026-11-18T01:02:03Z"
+        )
+        self.assertEqual(self.sig(first), self.sig(second))
+        self.assertIn("scene.cpp", self.sig(first))
+        self.assertNotIn("home", self.sig(first))
+        self.assertNotIn("0.11", self.sig(first))
+
+    def test_ordinary_words_with_slashes_and_identifiers_with_digits_survive(self):
+        text = "icon-lifecycle-native: canceled/accepted New on Qt5Core.dll x86_64"
+        self.assertEqual(self.sig(text), text)
+
+    def test_generic_wrappers_have_no_signature(self):
+        self.assertEqual(self.sig("Process completed with exit code 1."), "")
+        self.assertEqual(self.sig("[Windows] Process completed with exit code 8."), "")
+
+    def test_source_location_is_kept_as_a_file_name(self):
+        self.assertEqual(
+            self.sig("no member named 'draw'", "toonz/sources/tools/tool.cpp:23"),
+            "tool.cpp no member named 'draw'",
+        )
+
+    def test_sanitizer_report_signature_ignores_addresses(self):
+        first = self.sig(f"[AddressSanitizer] {SANITIZER_TYPE_MISMATCH}")
+        second = self.sig(
+            "[AddressSanitizer] "
+            + SANITIZER_TYPE_MISMATCH.replace("0x50200009c390", "0x5020000a0430").replace(
+                "0x7f5057eb724f", "0x7f2092cb724f"
+            )
+        )
+        self.assertEqual(first, second)
+        self.assertIn("FunctionSelection::~FunctionSelection()", first)
+
+    def test_repeated_search_path_listing_is_collapsed(self):
+        text = "[Qt 6 test deformer failed] Could not find executable deformer_test Looked in: "
+        listing = self.sig(text + "deformer_test " * 3 + "Debug")
+        self.assertEqual(listing, self.sig(text + "deformer_test " * 9 + "Debug"))
+
+    def test_long_messages_are_cut_at_a_word(self):
+        result = self.sig("[Build] " + " ".join(f"word{i}x" for i in range(100)))
+        self.assertLessEqual(len(result), AUDIT.SIGNATURE_LENGTH + 4)
+        self.assertRegex(result, r" word\d+x \.\.\.$")
 
 
 class AnnotationTests(unittest.TestCase):
@@ -255,6 +514,78 @@ class RecentAuditTests(unittest.TestCase):
         self.assertIn("Native app: native crash", output.getvalue())
         self.assertIn("Native app: timeout", output.getvalue())
         self.assertIn("check-runs/99/annotations", api.call_args.args[0])
+
+    def recent_output(self, runs, job_notes):
+        """Run audit_recent over runs that each have one failed job with the given notes."""
+        responses = [{"workflow_runs": runs}]
+        for index, notes in enumerate(job_notes):
+            job = {
+                "id": index,
+                "name": "Windows" if index % 2 else "macOS",
+                "conclusion": "failure",
+                "check_run_url": f"https://api.github.com/repos/{REPO}/check-runs/{index + 90}",
+            }
+            responses += [{"jobs": [job]}, notes]
+        output = io.StringIO()
+        with (
+            mock.patch.dict(os.environ, {"CI_AUDIT_REPO": REPO}),
+            mock.patch.object(AUDIT, "gh", side_effect=responses),
+            contextlib.redirect_stdout(output),
+        ):
+            self.assertEqual(AUDIT.audit_recent(len(runs)), 0)
+        return output.getvalue()
+
+    def test_same_failure_on_two_branches_is_listed_as_a_recurring_signature(self):
+        runs = [
+            {"id": 1, "name": "Checks", "head_branch": "fix/a", "created_at": "2026-11-12"},
+            {"id": 2, "name": "Checks", "head_branch": "fix/b", "created_at": "2026-11-17"},
+            {"id": 3, "name": "Checks", "head_branch": "fix/b", "created_at": "2026-11-18"},
+        ]
+        icon = ICON_LIFECYCLE_FAILURE
+        notes = [
+            [note(icon.format(cancel=753, close=1000, slow=11241), title="Native UI regression")],
+            [note(icon.format(cancel=24, close=32, slow=10527), title="Native UI regression")],
+            [
+                note(
+                    "Failure: native-ui-integration: FAIL: raster paste",
+                    title="Native UI regression",
+                )
+            ],
+        ]
+        text = self.recent_output(runs, notes)
+        self.assertIn("Failure signatures that recur across runs:", text)
+        self.assertRegex(
+            text,
+            r"(?m)^\s+2x  \[Native UI regression\] native-ui-integration: FAIL: icon lifecycle: "
+            r"Native scene retirement timer did not finish$",
+        )
+        self.assertIn("2 branch(es), latest 2026-11-17; jobs: Windows, macOS", text)
+        self.assertNotIn("raster paste", text.split("Failure signatures")[1])
+        self.assertIn("Checks / macOS: a test failed", text)
+
+    def test_windows_access_violation_is_grouped_as_a_native_crash(self):
+        runs = [
+            {"id": 1, "name": "Windows Build", "head_branch": "x", "created_at": "2026-11-16"},
+        ]
+        crash = WINDOWS_CRASH_REPORT
+        text = self.recent_output(runs, [[note(crash, title="Native UI regression")]])
+        self.assertIn("Windows Build / macOS: native crash", text)
+        self.assertNotIn("unknown", text)
+
+    def test_signatures_in_one_run_only_do_not_recur(self):
+        runs = [{"id": 1, "name": "Checks", "head_branch": "x", "created_at": "2026-11-16"}]
+        notes = [[note("one failure"), note("another failure"), note("one failure")]]
+        text = self.recent_output(runs, notes)
+        self.assertIn("none: every distinct failure message appears in one run only", text)
+
+    def test_generic_wrapper_annotations_do_not_form_a_recurring_signature(self):
+        runs = [
+            {"id": 1, "name": "Checks", "head_branch": "a", "created_at": "2026-11-15"},
+            {"id": 2, "name": "Checks", "head_branch": "b", "created_at": "2026-11-16"},
+        ]
+        notes = [[note("Process completed with exit code 1.")]] * 2
+        text = self.recent_output(runs, notes)
+        self.assertIn("none: every distinct failure message", text)
 
 
 class CommandLineTests(unittest.TestCase):

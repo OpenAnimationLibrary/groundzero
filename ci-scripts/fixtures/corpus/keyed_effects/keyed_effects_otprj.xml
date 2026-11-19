@@ -1,0 +1,12 @@
+<project>
+  <version>
+    70 1 
+  </version>
+  <folders>
+    <folder name="inputs" path="inputs"/>
+    <folder name="drawings" path="drawings"/>
+    <folder name="scenes" path="scenes"/>
+    <folder name="extras" path="extras"/>
+    <folder name="outputs" path="outputs"/>
+  </folders>
+</project>

@@ -607,7 +607,8 @@
       "fx.graph",
       "fx.catalog",
       "fx.parameter.get",
-      "fx.recipe.list"
+      "fx.recipe.list",
+      "fx.graph.delta"
      ]
     },
     "create": {
@@ -626,7 +627,11 @@
       "fx.disconnect",
       "fx.terminal.set",
       "fx.output.select",
-      "live.fx.set_scalar_value"
+      "live.fx.set_scalar_value",
+      "fx.layout.set",
+      "fx.link.add",
+      "fx.link.remove",
+      "fx.port_group.set"
      ]
     },
     "duplicate": {
@@ -655,6 +660,53 @@
       "scene.open"
      ],
      "evidence": "mcp_fx_authoring_cases.py"
+    }
+   }
+  },
+  {
+   "id": "fx_schematic_group",
+   "name": "FX schematic group",
+   "cells": {
+    "inspect": {
+     "tools": [
+      "fx.graph",
+      "fx.graph.delta"
+     ]
+    },
+    "create": {
+     "tools": [
+      "fx.group.create"
+     ]
+    },
+    "modify": {
+     "tools": [
+      "fx.group.rename"
+     ]
+    },
+    "duplicate": {
+     "disposition": "unsupported",
+     "reason": "a group is a label on its members; the editor has no group copy"
+    },
+    "reorder": {
+     "disposition": "unsupported",
+     "reason": "nesting follows creation order; a new group is always the outermost"
+    },
+    "remove": {
+     "tools": [
+      "fx.group.remove"
+     ]
+    },
+    "persist": {
+     "tools": [
+      "scene.save_copy"
+     ],
+     "evidence": "mcp_fx_group_cases.py"
+    },
+    "recover": {
+     "tools": [
+      "scene.open"
+     ],
+     "evidence": "mcp_fx_group_cases.py"
     }
    }
   },

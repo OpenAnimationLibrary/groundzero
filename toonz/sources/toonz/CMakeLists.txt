@@ -203,6 +203,7 @@ set(HEADERS
     automation_jobs.h
     automation_journal.h
     automation_fx_profile.h
+    automation_fx_journal.h
     automation_path.h
     automation_audio.h
     automation_rig.h
@@ -352,6 +353,9 @@ set(SOURCES
     automation_intake_formats.cpp
     automation_output.cpp
     automation_fx.cpp
+    automation_fx_journal.cpp
+    automation_fx_groups.cpp
+    automation_fx_link.cpp
     automation_fx_preflight.cpp
     automation_fx_profile.cpp
     automation_fx_recipes.cpp

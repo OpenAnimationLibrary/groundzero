@@ -13,7 +13,12 @@ The default command checks the corpus without a worker and is part of the static
 - a baseline rendered from scene files that have since changed fails;
 - baselines whose set hash has no matching entry in `history` fail, so they cannot be replaced
   quietly;
-- a comparison policy must be valid (see `mcp_native_oracle.Policy`).
+- a comparison policy must be valid (see `mcp_native_oracle.Policy`);
+- the effects a scene declares must be the effects its scene file holds;
+- every probe (a pixel the construction of the scene says must hold a value, or an effect that
+  must change a pixel between two frames) must hold in the baselines, and the corpus as a whole
+  must show a vector column, a Toonz raster column, a PNG column and an animated effect in its
+  baselines: a scene whose columns are all hidden under an opaque PNG proves nothing about them.
 
 `compare SCENE FOLDER` compares a folder of rendered frames with a scene's baselines. A missing
 baseline or a missing frame is a failure, never a pass and never a new baseline.
@@ -29,11 +34,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
-from mcp_native_oracle import Difference, OracleError, Policy, compare_files
+from mcp_native_oracle import Difference, OracleError, Policy, compare_files, decode_file
 
 SCRIPTS = Path(__file__).resolve().parent
 CORPUS = SCRIPTS / "fixtures" / "corpus"
@@ -42,6 +48,12 @@ BASELINES = CORPUS / "baselines"
 SCHEMA_VERSION = 1
 MINIMUM_REASON = 20
 PROVENANCE_KINDS = {"generated_by_script"}
+PROBE_KINDS = ("vector", "toonz_raster", "png", "background", "effect")
+REQUIRED_PROBE_KINDS = ("vector", "toonz_raster", "png", "effect")
+MINIMUM_EFFECT_TYPES = 6
+COMPARISONS = ("bridge_disabled", "bridge_enabled", "assisted_save_reopen")
+EFFECT_TAG = re.compile(r"<([A-Za-z][A-Za-z0-9_]*Fx) id='\d+'>")
+STRUCTURAL_PREFIX = "Toonz_"
 
 
 def sha256_file(path: Path) -> str:
@@ -98,7 +110,102 @@ def policy_of(scene: dict[str, Any]) -> Policy:
     return Policy(**scene["policy"])
 
 
-def _scene_problems(root: Path, name: str, scene: dict[str, Any], frames: int) -> list[str]:
+def scene_effects(root: Path, name: str) -> list[str]:
+    """The effect types a scene's file declares, without the nodes the scene always has."""
+    text = (root / name / "scenes" / "shot.tnz").read_text(encoding="utf-8")
+    return sorted(
+        {tag for tag in EFFECT_TAG.findall(text) if not tag.startswith(STRUCTURAL_PREFIX)}
+    )
+
+
+def _pixel(root: Path, name: str, frame: int, x: int, y: int) -> tuple[int, int, int, int]:
+    width, _height, pixels = decode_file(root / "baselines" / name / f"frame.{frame + 1:04d}.png")
+    return pixels[y * width + x]
+
+
+def _probe_problems(
+    root: Path, name: str, scene: dict[str, Any], manifest: dict[str, Any]
+) -> list[str]:
+    """Check each probe of a scene against its baselines."""
+    found = []
+    window, size = manifest["frames"], manifest["frames"]["width"]
+    for index, probe in enumerate(scene.get("probes", [])):
+        where = f"{name} probe {index} ({probe.get('what', 'no description')})"
+        frames = probe.get("frames") or [probe.get("frame")]
+        if probe.get("kind") not in PROBE_KINDS or not probe.get("what", "").strip():
+            found.append(f"{where}: needs a kind of {list(PROBE_KINDS)} and a description")
+            continue
+        if not all(isinstance(f, int) and window["first"] <= f <= window["last"] for f in frames):
+            found.append(f"{where}: frame outside the baselines")
+            continue
+        if not (0 <= probe["x"] < size and 0 <= probe["y"] < window["height"]):
+            found.append(f"{where}: pixel outside the image")
+            continue
+        try:
+            found += [f"{where}: {problem}" for problem in _probe_value(root, name, probe, frames)]
+        except OracleError as error:
+            found.append(f"{where}: {error}")
+    return found
+
+
+def _probe_value(root: Path, name: str, probe: dict[str, Any], frames: list[int]) -> list[str]:
+    here = [_pixel(root, name, frame, probe["x"], probe["y"]) for frame in frames]
+    if "min_difference" in probe:
+        gap = max(abs(here[0][i] - here[1][i]) for i in range(4)) if len(here) == 2 else -1
+        if gap < probe["min_difference"]:
+            return [
+                f"the pixel changes by {gap} between frames {frames}, not {probe['min_difference']}"
+            ]
+        return []
+    if tuple(probe["rgba"]) != here[0]:
+        return [f"the baseline holds {list(here[0])} at the pixel, not {probe['rgba']}"]
+    return []
+
+
+def _comparison_problems(manifest: dict[str, Any]) -> list[str]:
+    """Each comparison the corpus is meant to support is either backed by cases or says why not."""
+    cases = (SCRIPTS / "mcp_corpus_cases.py").read_text(encoding="utf-8")
+    found = []
+    stated = manifest.get("comparisons", {})
+    for name in COMPARISONS:
+        entry = stated.get(name)
+        if entry is None:
+            found.append(f"comparisons: no statement for {name}")
+        elif entry.get("status") == "compared":
+            found += [
+                f"comparisons {name}: names case {case}, which mcp_corpus_cases.py does not define"
+                for case in entry.get("cases", []) or [""]
+                if f"def {case}(" not in cases
+            ]
+        elif entry.get("status") == "not_built":
+            if len(entry.get("reason", "").strip()) < MINIMUM_REASON * 2:
+                found.append(f"comparisons {name}: not built, and the reason is missing or short")
+        else:
+            found.append(f"comparisons {name}: status must be compared or not_built")
+    return found
+
+
+def _coverage_problems(manifest: dict[str, Any]) -> list[str]:
+    """The corpus must show every kind of column, and animated effects, in its baselines."""
+    scenes = manifest["scenes"].values()
+    kinds = {probe["kind"] for scene in scenes for probe in scene.get("probes", [])}
+    found = [
+        f"no probe shows a {kind} in a baseline: the corpus would not notice it vanish"
+        for kind in REQUIRED_PROBE_KINDS
+        if kind not in kinds
+    ]
+    types = {kind for scene in scenes for kind in scene.get("effects", [])}
+    if len(types) < MINIMUM_EFFECT_TYPES:
+        found.append(f"the scenes use {len(types)} effect types, fewer than {MINIMUM_EFFECT_TYPES}")
+    animated = [p for scene in scenes for p in scene.get("probes", []) if "frames" in p]
+    if not animated:
+        found.append("no probe shows an effect changing a pixel between frames")
+    return found
+
+
+def _scene_problems(
+    root: Path, name: str, scene: dict[str, Any], frames: int, manifest: dict[str, Any]
+) -> list[str]:
     found = []
     actual = scene_files(root, name)
     for path in sorted(set(scene["files"]) | set(actual)):
@@ -112,6 +219,12 @@ def _scene_problems(root: Path, name: str, scene: dict[str, Any], frames: int) -
         found.append(f"{name}: scene_sha256 does not match its file list")
     found += [f"{name}: {reason}" for reason in policy_of(scene).problems()]
     found += _baseline_problems(root, name, scene, frames)
+    declared = scene.get("effects", [])
+    if declared != scene_effects(root, name):
+        found.append(
+            f"{name}: declares effects {declared}, its scene file holds {scene_effects(root, name)}"
+        )
+    found += _probe_problems(root, name, scene, manifest)
     return found
 
 
@@ -174,7 +287,8 @@ def check(root: Path = CORPUS) -> list[str]:
         if name not in expected
     ]
     for name, scene in manifest["scenes"].items():
-        found += _scene_problems(root, name, scene, count)
+        found += _scene_problems(root, name, scene, count, manifest)
+    found += _coverage_problems(manifest) + _comparison_problems(manifest)
     return found + _history_problems(manifest)
 
 

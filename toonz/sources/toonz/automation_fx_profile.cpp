@@ -1,4 +1,5 @@
 #include "automation.h"
+#include "automation_animation.h"
 #include "automation_fx_profile.h"
 
 #include "tdoublekeyframe.h"
@@ -152,6 +153,16 @@ const ParameterBound* findBound(const TypeProfile& profile,
   return nullptr;
 }
 
+// Parameters a cross-parameter constraint reads. The separation check is
+// exact on linear segments only, so they keep linear keys with step 1.
+bool constrainedParameter(const TypeProfile& profile, const std::string& name) {
+  for (const char* constraint : profile.constraints)
+    if (std::string(constraint) == kSeparation &&
+        (name == "startPoint" || name == "endPoint"))
+      return true;
+  return false;
+}
+
 QJsonObject rangeSchema(double minimum, double maximum, bool integer) {
   return {{"type", integer ? "integer" : "number"},
           {"minimum", minimum},
@@ -257,40 +268,105 @@ void clampCurve(TDoubleParam* curve, const QJsonObject& schema) {
   }
 }
 
-void validateCurve(TDoubleParam* curve, const QJsonObject& schema) {
-  if (curve->getKeyframeCount() > kMaximumKeys)
-    throw Error("RESOURCE_LIMIT", "Effect parameter exceeds 4096 scalar keys.");
-  validateAutomationFxNumber(curve->getDefaultValue(), schema);
+// Where a curve sits, for refusals: the parameter, the channel name
+// animation.channels publishes, and whether the parameter keeps linear keys.
+struct CurveScope final {
+  QString parameter;
+  QString channel;
+  bool linearOnly = false;
+};
+
+CurveScope componentScope(const CurveScope& scope, TParamSet* set, int index) {
+  return {
+      scope.parameter,
+      scope.parameter + "." + QString::fromStdString(set->getParamName(index)),
+      scope.linearOnly};
+}
+
+// Validates value against schema; a refusal names the channel and, for a key
+// or a speed handle, its frame. Handles are points of the curve's convex hull,
+// not stored values, so only their range is checked.
+void requireCurveValue(double value, QJsonObject schema,
+                       const CurveScope& scope, const QJsonValue& frame,
+                       bool handle = false) {
+  if (handle) schema["type"] = "number";
+  try {
+    validateAutomationFxNumber(value, schema);
+  } catch (Error& error) {
+    error.details.insert("parameter", scope.parameter);
+    error.details.insert("channel", scope.channel);
+    if (!frame.isNull()) error.details.insert("frame", frame);
+    if (handle) error.details.insert("field", "speed_handle");
+    throw;
+  }
+}
+
+void requireLinearKeys(TDoubleParam* curve, const CurveScope& scope) {
   for (int index = 0; index < curve->getKeyframeCount(); ++index) {
     const TDoubleKeyframe& key = curve->getKeyframe(index);
-    validateAutomationFxNumber(key.m_value, schema);
     const auto previous =
         index == 0 ? TDoubleKeyframe::None : TDoubleKeyframe::Linear;
     if (key.m_type != TDoubleKeyframe::Linear || key.m_prevType != previous ||
         key.m_step != 1)
       throw Error("UNSUPPORTED_PARAMETER",
-                  "Admitted FX accept only scalar linear animation keys.");
+                  "This parameter's constraint is checked on linear segments, "
+                  "so it accepts only linear keys with step 1.",
+                  {{"parameter", scope.parameter},
+                   {"channel", scope.channel},
+                   {"frame", key.m_frame}});
+  }
+}
+
+// An admitted curve holds keys the animation tools can write (constant,
+// linear, ease_in_out, speed_in_out; no cycle) whose values, and the handle
+// points of every speed segment, lie in the admitted bounds: ease and constant
+// segments stay between their key values and a speed segment inside the hull
+// of its four points, so the whole curve stays in bounds at every frame.
+void validateCurve(TDoubleParam* curve, const QJsonObject& schema,
+                   const CurveScope& scope) {
+  if (curve->getKeyframeCount() > kMaximumKeys)
+    throw Error("RESOURCE_LIMIT", "Effect parameter exceeds 4096 scalar keys.");
+  requireCurveValue(curve->getDefaultValue(), schema, scope, QJsonValue());
+  if (scope.linearOnly) requireLinearKeys(curve, scope);
+  const QString reason = animationUnsupportedReason(*curve);
+  if (!reason.isEmpty())
+    throw Error("UNSUPPORTED_PARAMETER",
+                "Effect keys must be ones the animation tools write: " + reason,
+                {{"parameter", scope.parameter}, {"channel", scope.channel}});
+  const int count = curve->getKeyframeCount();
+  for (int index = 0; index < count; ++index) {
+    const TDoubleKeyframe& key = curve->getKeyframe(index);
+    requireCurveValue(key.m_value, schema, scope, key.m_frame);
+    if (key.m_type != TDoubleKeyframe::SpeedInOut || index + 1 == count)
+      continue;
+    const TDoubleKeyframe& next = curve->getKeyframe(index + 1);
+    requireCurveValue(key.m_value + key.m_speedOut.y, schema, scope,
+                      key.m_frame, true);
+    requireCurveValue(next.m_value + next.m_speedIn.y, schema, scope,
+                      next.m_frame, true);
   }
 }
 
 // Reads the channels the native color evaluates: disabling the matte replaces
 // the matte curve with one that the parameter set's children do not list.
-void validatePixel(TPixelParam* pixel) {
+void validatePixel(TPixelParam* pixel, const CurveScope& scope) {
   const QJsonObject unit{{"type", "number"}, {"minimum", 0}, {"maximum", 1}};
-  for (TDoubleParam* curve :
-       {pixel->getRed().getPointer(), pixel->getGreen().getPointer(),
-        pixel->getBlue().getPointer()})
-    validateCurve(curve, unit);
+  for (int index = 0; index < 3; ++index)
+    validateCurve(channel(pixel, index), unit,
+                  componentScope(scope, pixel, index));
+  const CurveScope matte = componentScope(scope, pixel, 3);
   if (pixel->isMatteEnabled())
-    return validateCurve(pixel->getMatte().getPointer(), unit);
+    return validateCurve(pixel->getMatte().getPointer(), unit, matte);
   // A disabled matte stores 255.0 natively and is read clamped to 255.
   try {
     validateCurve(pixel->getMatte().getPointer(),
-                  {{"type", "number"}, {"minimum", 1}, {"maximum", 255}});
+                  {{"type", "number"}, {"minimum", 1}, {"maximum", 255}},
+                  matte);
   } catch (const Error& error) {
     if (error.code != "OUT_OF_RANGE") throw;
     throw Error("OUT_OF_RANGE",
-                "This color has no native matte; its alpha must be 255.");
+                "This color has no native matte; its alpha must be 255.",
+                error.details);
   }
 }
 
@@ -304,16 +380,18 @@ void validateDiscrete(TParam* param, const QJsonObject& schema) {
                 "Parameter value is not a native enumeration choice.");
 }
 
-void validateStored(TParam* param, const QJsonObject& schema) {
+void validateStored(TParam* param, const QJsonObject& schema,
+                    const CurveScope& scope) {
   if (auto* number = dynamic_cast<TDoubleParam*>(param))
-    return validateCurve(number, schema);
+    return validateCurve(number, schema, scope);
   if (auto* point = dynamic_cast<TPointParam*>(param)) {
-    validateCurve(channel(point, 0), schema.value("items").toObject());
-    validateCurve(channel(point, 1), schema.value("items").toObject());
+    for (int axis = 0; axis < 2; ++axis)
+      validateCurve(channel(point, axis), schema.value("items").toObject(),
+                    componentScope(scope, point, axis));
     return;
   }
   if (auto* pixel = dynamic_cast<TPixelParam*>(param))
-    return validatePixel(pixel);
+    return validatePixel(pixel, scope);
   validateDiscrete(param, schema);
 }
 
@@ -417,6 +495,151 @@ QJsonObject automationFxParameterSchema(TFx* fx, TParam* param,
   return discreteSchema(param);
 }
 
+QJsonObject automationFxChannelSchema(TFx* fx, TParam* param,
+                                      const std::string& name, int component) {
+  const QJsonObject schema = automationFxParameterSchema(fx, param, name);
+  if (schema.isEmpty() || component < 0) return schema;
+  if (dynamic_cast<TPixelParam*>(param))
+    return {{"type", "number"}, {"minimum", 0}, {"maximum", 1}};
+  return schema.value("items").toObject();
+}
+
+bool automationFxLinearOnly(TFx* fx, const std::string& name) {
+  return constrainedParameter(requireProfile(fx), name);
+}
+
+namespace {
+
+// A native side at the type's extreme is unbounded (null).
+QJsonValue nativeSide(double value) {
+  return std::abs(value) >= 1e300 ? QJsonValue() : QJsonValue(value);
+}
+
+QJsonValue rangeObject(const QJsonValue& minimum, const QJsonValue& maximum) {
+  return QJsonObject{{"minimum", minimum}, {"maximum", maximum}};
+}
+
+TDoubleParam* firstCurve(TParam* param) {
+  if (auto* number = dynamic_cast<TDoubleParam*>(param)) return number;
+  if (auto* point = dynamic_cast<TPointParam*>(param)) return channel(point, 0);
+  if (auto* pixel = dynamic_cast<TPixelParam*>(param)) return channel(pixel, 0);
+  return nullptr;
+}
+
+QString parameterKind(TParam* param) {
+  if (auto* number = dynamic_cast<TDoubleParam*>(param))
+    return number->getUIChoices().empty() ? "number" : "integer_choice";
+  if (dynamic_cast<TIntParam*>(param)) return "integer";
+  if (dynamic_cast<TEnumParam*>(param)) return "enum";
+  if (dynamic_cast<TBoolParam*>(param)) return "boolean";
+  if (dynamic_cast<TPixelParam*>(param)) return "color";
+  if (dynamic_cast<TPointParam*>(param)) return "point";
+  return "unsupported";
+}
+
+QJsonValue defaultValue(TParam* param) {
+  if (auto* number = dynamic_cast<TDoubleParam*>(param))
+    return number->getDefaultValue();
+  if (auto* pixel = dynamic_cast<TPixelParam*>(param)) {
+    const TPixel32 color = pixel->getDefaultValue();
+    return QJsonArray{color.r, color.g, color.b, color.m};
+  }
+  if (auto* point = dynamic_cast<TPointParam*>(param)) {
+    const TPointD value = point->getDefaultValue();
+    return QJsonArray{value.x, value.y};
+  }
+  if (auto* integer = dynamic_cast<TIntParam*>(param))
+    return integer->getDefaultValue();
+  if (auto* enumeration = dynamic_cast<TEnumParam*>(param))
+    return enumeration->getDefaultValue();
+  if (auto* boolean = dynamic_cast<TBoolParam*>(param))
+    return boolean->getDefaultValue();
+  return QJsonValue();
+}
+
+QJsonValue nativeBounds(TParam* param) {
+  if (auto* integer = dynamic_cast<TIntParam*>(param)) {
+    int minimum = 0, maximum = 0;
+    integer->getValueRange(minimum, maximum);
+    return rangeObject(nativeSide(minimum <= -2147483647 ? -1e300 : minimum),
+                       nativeSide(maximum >= 2147483647 ? 1e300 : maximum));
+  }
+  TDoubleParam* curve = firstCurve(param);
+  double minimum = 0, maximum = 0, step = 0;
+  if (!curve || dynamic_cast<TPixelParam*>(param) ||
+      !curve->getValueRange(minimum, maximum, step))
+    return QJsonValue();
+  return rangeObject(nativeSide(minimum), nativeSide(maximum));
+}
+
+QJsonValue sliderBounds(TParam* param) {
+  TDoubleParam* curve = firstCurve(param);
+  double minimum = 0, maximum = 0;
+  if (!curve || dynamic_cast<TPixelParam*>(param) ||
+      !curve->getUISliderRange(minimum, maximum))
+    return QJsonValue();
+  return rangeObject(minimum, maximum);
+}
+
+QJsonValue admittedBounds(const QJsonObject& schema) {
+  const QJsonObject numbers = schema.value("type") == "array"
+                                  ? schema.value("items").toObject()
+                                  : schema;
+  if (!numbers.contains("minimum") || numbers.contains("enum"))
+    return QJsonValue();
+  return rangeObject(numbers.value("minimum"), numbers.value("maximum"));
+}
+
+QJsonArray choices(TParam* param) {
+  QJsonArray result;
+  if (auto* enumeration = dynamic_cast<TEnumParam*>(param))
+    for (int index = 0; index < enumeration->getItemCount(); ++index) {
+      int value;
+      std::string caption;
+      enumeration->getItem(index, value, caption);
+      result.append(QJsonObject{{"id", value},
+                                {"label", QString::fromStdString(caption)}});
+    }
+  if (auto* number = dynamic_cast<TDoubleParam*>(param)) {
+    const auto& labels = number->getUIChoices();
+    for (int index = 0; index < static_cast<int>(labels.size()); ++index)
+      result.append(QJsonObject{
+          {"id", index}, {"label", QString::fromStdString(labels[index])}});
+  }
+  return result;
+}
+
+}  // namespace
+
+QJsonObject automationFxParameterFacts(TFx* fx, TParam* param,
+                                       const std::string& name) {
+  const QJsonObject schema  = automationFxParameterSchema(fx, param, name);
+  const char* source        = schema.isEmpty()                      ? "none"
+                              : findBound(requireProfile(fx), name) ? "profile"
+                                                                    : "native";
+  TDoubleParam* curve       = firstCurve(param);
+  const std::string measure = curve ? curve->getMeasureName() : std::string();
+  QJsonObject result{
+      {"kind", parameterKind(param)},
+      {"default", defaultValue(param)},
+      {"bounds", QJsonObject{{"admitted", admittedBounds(schema)},
+                             {"native", nativeBounds(param)},
+                             {"slider", sliderBounds(param)},
+                             {"source", source}}},
+      {"measure",
+       curve ? QJsonValue(QString::fromStdString(measure)) : QJsonValue()},
+      {"unit", !curve ? QJsonValue()
+               : measure.empty()
+                   ? QJsonValue("scalar")
+                   : QJsonValue("native_" + QString::fromStdString(measure))}};
+  const QJsonArray menu = choices(param);
+  if (!menu.isEmpty()) {
+    result.insert("choices", menu);
+    result.insert("label_is_identity", false);
+  }
+  return result;
+}
+
 void validateAutomationFxNumber(const QJsonValue& value,
                                 const QJsonObject& schema) {
   if (!value.isDouble() || !std::isfinite(value.toDouble()))
@@ -455,7 +678,10 @@ void validateAutomationFxProfile(TFx* fx) {
       throw Error("UNSUPPORTED_PARAMETER",
                   "Admitted effect has a parameter outside the profile.",
                   {{"parameter", QString::fromStdString(entry->getName())}});
-    validateStored(entry->getParam(), schema);
+    const QString name = QString::fromStdString(entry->getName());
+    validateStored(
+        entry->getParam(), schema,
+        {name, name, constrainedParameter(profile, entry->getName())});
   }
   for (const char* constraint : profile.constraints)
     if (std::string(constraint) == kSeparation) requireGradientSeparation(fx);
@@ -495,7 +721,10 @@ bool automationFxProfileViolations(TFx* fx, QStringList& violations) {
     try {
       if (schema.isEmpty())
         throw Error("UNSUPPORTED_PARAMETER", "Parameter outside the profile.");
-      validateStored(entry->getParam(), schema);
+      const QString name = QString::fromStdString(entry->getName());
+      validateStored(
+          entry->getParam(), schema,
+          {name, name, constrainedParameter(*profile, entry->getName())});
     } catch (const Error&) {
       if (violations.size() < 16)
         violations.append(QString::fromStdString(entry->getName()).left(128));
@@ -526,11 +755,10 @@ QJsonObject automationFxProfileDescription(const QString& type) {
   for (const char* constraint : profile->constraints)
     constraints.append(constraintDescription(constraint));
   for (const char* port : profile->requiredInputs) inputs.append(port);
-  return {{"seed_parameters", QJsonArray{}},
-          {"constraints", constraints},
-          {"extent_parameters", extents},
-          {"required_inputs", inputs},
-          {"replay_class", "stateless"}};
+  return {
+      {"profile_version", profile->version}, {"seed_parameters", QJsonArray{}},
+      {"constraints", constraints},          {"extent_parameters", extents},
+      {"required_inputs", inputs},           {"replay_class", "stateless"}};
 }
 
 QJsonArray automationFxProfileDiagnostics(TFx* fx) {
@@ -553,6 +781,14 @@ std::vector<AutomationFxExtent> automationFxExtents(const std::string& type) {
         extents.push_back(
             {bound.name, bound.extentCoefficient, bound.extentPixels});
   return extents;
+}
+
+int automationFxMaxGroupPorts(const std::string& type) {
+  // The image combinations composite their Source group in port order
+  // (common/tfx/binaryFx.cpp); 64 bounds one node's inputs.
+  static const std::set<std::string> combinations{"overFx", "multFx",
+                                                  "screenFx", "blendFx"};
+  return combinations.count(type) ? 64 : 0;
 }
 
 bool automationFxNeedsPositiveDeterminant(const std::string& type) {

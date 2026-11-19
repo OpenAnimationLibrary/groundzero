@@ -66,12 +66,12 @@ class TFMTChunk final : public TWAVChunk {
 public:
   static TINT32 LENGTH;
 
-  USHORT m_encodingType;  // PCM, ...
-  USHORT m_chans;         // number of channels
-  TUINT32 m_sampleRate;
-  TUINT32 m_avgBytesPerSecond;
-  USHORT m_bytesPerSample;
-  USHORT m_bitPerSample;
+  USHORT m_encodingType       = 0;  // PCM, ...
+  USHORT m_chans              = 0;  // number of channels
+  TUINT32 m_sampleRate        = 0;
+  TUINT32 m_avgBytesPerSecond = 0;
+  USHORT m_bytesPerSample     = 0;
+  USHORT m_bitPerSample       = 0;
 
   TFMTChunk(TINT32 length) : TWAVChunk("fmt ", length) {}
 
@@ -82,6 +82,7 @@ public:
     is.read((char *)&m_avgBytesPerSecond, sizeof(m_avgBytesPerSecond));
     is.read((char *)&m_bytesPerSample, sizeof(m_bytesPerSample));
     is.read((char *)&m_bitPerSample, sizeof(m_bitPerSample));
+    if (is.fail()) return false;
 
     if (!TNZ_LITTLE_ENDIAN) {
       m_encodingType      = swapUshort(m_encodingType);
@@ -92,7 +93,6 @@ public:
       m_bitPerSample      = swapUshort(m_bitPerSample);
     }
 
-    assert(m_length >= 16);
     if (m_length > 16) is.seekg((long)is.tellg() + m_length - 16);
     return true;
   }
@@ -142,11 +142,12 @@ public:
   TDATAChunk(TINT32 length) : TWAVChunk("data", length) {}
 
   bool read(Tifstream &is) override {
+    if (m_length < 0) return false;
+
     // allocate sample buffer
     m_samples.reset(new UCHAR[m_length]);
-    if (!m_samples) return false;
     is.read((char *)m_samples.get(), m_length);
-    return true;
+    return !is.fail();
   }
 
   bool write(Tofstream &os) {
@@ -179,6 +180,10 @@ TSoundTrackP TSoundTrackReaderWav::load() {
 
   if (!is) throw TException(m_path.getWideString() + L" : File doesn't exist");
 
+  is.seekg(0, std::ios::end);
+  const std::streamoff fileSize = is.tellg();
+  is.seekg(0, std::ios::beg);
+
   // read chunk name
   is.read((char *)&chunkName, sizeof(chunkName) - 1);
   chunkName[4] = '\0';
@@ -191,6 +196,8 @@ TSoundTrackP TSoundTrackReaderWav::load() {
   // read RIFFType
   is.read((char *)&RIFFType, sizeof(RIFFType) - 1);
   RIFFType[4] = '\0';
+
+  if (is.fail()) throw TException("The WAV file is damaged: its header is cut");
 
   // for .wav files, RIFFType MUST be "WAVE"
   if ((std::string(RIFFType, 4) != "WAVE"))
@@ -208,17 +215,32 @@ TSoundTrackP TSoundTrackReaderWav::load() {
 
     if (!ret) break;
 
+    // A chunk with a negative size cannot be skipped, and a fmt or data chunk
+    // that runs past the end of the file has no data to read.
+    if (length < 0)
+      throw TException("The WAV file is damaged: a chunk has a negative size");
+    const std::streamoff bodyStart = is.tellg();
+    const bool wanted              = name == "fmt " || name == "data";
+    if (bodyStart + length > fileSize) {
+      if (wanted)
+        throw TException(
+            "The WAV file is damaged: a chunk is longer than the file");
+      break;
+    }
+
     // only read chunks we care about, i.e., FMT and DATA
 
     if (name == "fmt ") {
+      if (length < 16)
+        throw TException("The WAV file is damaged: the fmt chunk is too short");
+
       // read FMT chunk data
       fmtChunk.reset(new TFMTChunk(length));
-      fmtChunk->read(is);
+      if (!fmtChunk->read(is))
+        throw TException("The WAV file is damaged: the fmt chunk is cut");
 
       // consider pad byte at end of chunk if length is odd
-      if (length & 1) {
-        is.seekg((long)is.tellg() + 1);
-      }
+      is.seekg(bodyStart + length + (length & 1));
     } else if (name == "data") {
       // If we already have a data chunk, delete it before creating new
       // one This handles the case where there might be multiple data chunks
@@ -228,24 +250,28 @@ TSoundTrackP TSoundTrackReaderWav::load() {
 
       // read DATA chunk data
       dataChunk.reset(new TDATAChunk(length));
-      dataChunk->read(is);
+      if (!dataChunk->read(is))
+        throw TException("The WAV file is damaged: the data chunk is cut");
 
       // consider pad byte at end of chunk if length is odd
-      if (length & 1) {
-        is.seekg((long)is.tellg() + 1);
-      }
+      is.seekg(bodyStart + length + (length & 1));
     } else {
       // skip to next chunk by moving forward by length bytes
-      if (length & 1)
-        is.seekg((long)is.tellg() + (long)length + 1);
-      else
-        is.seekg((long)is.tellg() + (long)length);
+      is.seekg(bodyStart + length + (length & 1));
     }
   }
 
   TSoundTrackP track = 0;
 
   if (fmtChunk && dataChunk) {
+    // A frame holds one sample of each channel; the block size of the file must
+    // say so, or the data would be copied with a size the track does not have.
+    const int frameBytes = (fmtChunk->m_bitPerSample / 8) * fmtChunk->m_chans;
+    if (fmtChunk->m_bitPerSample % 8 || frameBytes == 0 ||
+        fmtChunk->m_bytesPerSample != frameBytes)
+      throw TException(
+          "The WAV file is damaged: its block size does not match its "
+          "channels and sample size");
     TINT32 sampleCount = dataChunk->m_length / fmtChunk->m_bytesPerSample;
     int sampleType     = 0;
 
@@ -258,6 +284,9 @@ TSoundTrackP TSoundTrackReaderWav::load() {
       track = TSoundTrack::create((int)fmtChunk->m_sampleRate,
                                   fmtChunk->m_bitPerSample, fmtChunk->m_chans,
                                   sampleCount, sampleType);
+
+    if (track && !track->getRawData())
+      throw TException("Not enough memory to load the WAV file");
 
     if (track) {
       if (!TNZ_LITTLE_ENDIAN) {

@@ -1280,6 +1280,66 @@
      }
     }
    ]
+  },
+  "fx_grouped": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.group.create",
+     "args": {
+      "fx_ids": [
+       "$blur",
+       "$card"
+      ],
+      "name": "Pair"
+     },
+     "save": {
+      "group": "group.group_id"
+     }
+    }
+   ]
+  },
+  "fx_blurs": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "STD_blurFx",
+      "name": "Blur2"
+     },
+     "save": {
+      "blur2": "fx_id"
+     }
+    }
+   ]
+  },
+  "fx_linked_blurs": {
+   "extends": "fx_blurs",
+   "steps": [
+    {
+     "tool": "fx.link.add",
+     "args": {
+      "fx_id": "$blur2",
+      "linked_to_fx_id": "$blur"
+     }
+    }
+   ]
+  },
+  "fx_over": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "overFx",
+      "name": "Over"
+     },
+     "save": {
+      "over": "fx_id"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -8216,6 +8276,255 @@
     "args": {
      "job_id": "$job"
     }
+   }
+  },
+  "fx.group.create": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fxs",
+   "changes": "a new outermost schematic group",
+   "success": {
+    "args": {
+     "fx_ids": [
+      "$blur",
+      "$card"
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_ids": [
+       "$blur",
+       "$blur"
+      ]
+     },
+     "code": "invalid_group"
+    }
+   ],
+   "no_noop": "Every call adds another group, so there is no value to repeat."
+  },
+  "fx.group.remove": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_grouped",
+   "changes": "removes one schematic group",
+   "success": {
+    "args": {
+     "group_id": "$group"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "group_id": "fxgroup_00000000-0000-0000-0000-000000000000"
+     },
+     "code": "unknown_group"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "unknown_group",
+    "documented": "The group is gone after the first call, so a repeat is refused."
+   }
+  },
+  "fx.group.rename": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_grouped",
+   "changes": "the name of a schematic group",
+   "success": {
+    "args": {
+     "group_id": "$group",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "group_id": "fxgroup_00000000-0000-0000-0000-000000000000",
+      "name": "X"
+     },
+     "code": "unknown_group"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.layout.set": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fxs",
+   "changes": "schematic positions of effects",
+   "success": {
+    "args": {
+     "positions": [
+      {
+       "fx_id": "$blur",
+       "position": {
+        "x": 10,
+        "y": 20
+       }
+      }
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "positions": [
+       {
+        "fx_id": "$blur",
+        "position": {
+         "x": 10000000.0,
+         "y": 0
+        }
+       }
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.link.add": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_blurs",
+   "changes": "links an effect's parameters to another effect's",
+   "success": {
+    "args": {
+     "fx_id": "$blur2",
+     "linked_to_fx_id": "$blur"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "linked_to_fx_id": "$card"
+     },
+     "code": "link_incompatible"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "An effect already in the group is a no-op."
+   }
+  },
+  "fx.link.remove": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_linked_blurs",
+   "changes": "gives a linked effect its own parameters",
+   "success": {
+    "args": {
+     "fx_id": "$blur2"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "An unlinked effect is a no-op."
+   }
+  },
+  "fx.port_group.set": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_over",
+   "changes": "the sources and ports of a dynamic port group",
+   "success": {
+    "args": {
+     "fx_id": "$over",
+     "group": "Source",
+     "sources": [
+      "$card",
+      "$blur",
+      "$card"
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$over",
+      "group": "Light",
+      "sources": []
+     },
+     "code": "unknown_port_group"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Sources equal to the current ones leave the group alone."
    }
   }
  },

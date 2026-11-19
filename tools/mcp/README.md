@@ -389,12 +389,32 @@ admitted ranges are narrower than the native ones: blur and glow radii are limit
 to 0–200, HSV percentage scales to 0–400 and multiply offsets to −255–255; multiply
 truncates fractional offsets toward zero in its native integer kernel. Parameters
 with native menu choices accept integers only, and a color without a native matte
-requires alpha 255. Every admitted effect uses its catalog `native_fx_version` and
-scalar linear animation keys. These bounds also apply to presets, macro members,
-scene packages and render snapshots, so a scene saved with a value outside them does
-not reopen. Each catalog entry also lists `extent_parameters`, `constraints`,
-`required_inputs`, `seed_parameters` and `replay_class`. There is no live editor
-connection or undo history in this profile.
+requires alpha 255. Every admitted effect uses its catalog `native_fx_version`; its curves
+hold constant, linear, ease or speed keys whose values, and the handle points of every speed
+segment, stay inside these bounds (the start and end points of the linear gradient keep
+linear keys with step 1, since their separation constraint is checked on linear segments).
+`fx.parameter.set_key` writes one linear key to every channel of a parameter and is refused
+inside a speed or ease segment; `fx.parameter.set_key` on a parameter that cannot
+animate (a menu choice or a switch) is `NOT_ANIMATABLE`: use `fx.parameter.set`. These
+bounds also apply to presets, macro members, scene packages and render snapshots, so a
+scene saved with a value outside them does not reopen. A connection the native graph
+does not take is undone: the port keeps its previous source and `fx.connect` fails with
+`NATIVE_FAILURE`, `reason: silent_refusal`, `restored` and `previous_source_fx_id`,
+never turning the link into a disconnection. Each catalog entry also lists `extent_parameters`, `constraints`,
+`required_inputs`, `seed_parameters`, `replay_class`, `profile_version`, `origin`
+(`kind: builtin` and the native `plugin_id`) and `hidden`; `menu_categories` is
+`not_reported` (the editor's menu layout is not in the worker's runtime). Each parameter of
+the catalog and of `fx.parameter.get`, `set` and `set_key` describes its `kind` (`number`,
+`integer_choice`, `integer`, `enum`, `boolean`, `color`, `point` or `unsupported`), its
+`default` (color components 0 to 255), `bounds` with `admitted` (what the worker accepts),
+`native` and `slider` ranges (a null side is unbounded) and their `source`, its `measure`
+and `unit` (as `animation.channels` names it), and for menus `choices` of `{id, label}`
+where the id is the value. `fx.parameter.get` also gives the result's `revision`, `type` and
+`native_fx_version`, and per parameter `sample {frame, value}`, `animated` and
+`edit_constraint`: null, `locked_column` (via the column), `outside_profile`,
+`unsupported_type`, or `linked_parameters` (via the group: a write changes every member).
+Parameters still carry `value` and `keyframes`; their removal waits for the next protocol
+version. There is no live editor connection or undo history in this profile.
 
 A linear gradient's start and end points must be equal or at least 0.001 apart at
 every frame, keys included. A violation fails with `PARAMETER_CONSTRAINT`, naming
@@ -459,6 +479,70 @@ parameters, names, enable state, presets, or deleting the macro. A macro exposes
 at most 128 inputs, and its container and members count toward the 4096-node graph
 limit. Scene packages and render snapshots verify member parameter state and
 boundary connections through native save/reopen before publication.
+
+Every FX write (`fx.create`, `fx.delete`, `fx.connect`, `fx.disconnect`, `fx.terminal.set`,
+`fx.output.select`, `fx.parameter.set`, `fx.parameter.set_key`, `fx.rename`, `fx.enabled.set`,
+`fx.duplicate`, `fx.preset.apply`, `fx.macro.*`, the `fx-graph` tools, and the animation key
+writes that can address an effect channel: `animation.set_keys`, `delete_keys`, `move_keys`,
+`duplicate_keys`, `insert_breakdown`, `retime_curve` and `copy_curve`) returns
+`graph_delta`: `null` when the call changed nothing and kept the revision, otherwise what its
+step changed in the top sheet's graph, from the worker's own before-and-after snapshots
+rather than from the tool's description of itself. Entries are `current_output`, `node`
+(`created`, `removed` or `changed` with `aspects` and `parameters_changed`), `edge`,
+`terminal`, `linked_group` and `group`, each with `cause` `requested` (named by the call) or
+`implicit` (for example the terminal link `fx.delete` clears or `fx.macro.create` moves); at
+most 512, with `truncated` and `total_entries`. An exact retry returns the recorded delta.
+`fx.graph.delta {document_id, from_revision}` returns the net change from that revision to
+the current one, paged with `offset`, `limit` (≤512) and `expected_revision`; an effect
+created and removed inside the range is listed as `transient`. The worker keeps the last
+1024 steps and 2 MiB per document (`fx.graph`'s `delta_window` says how far back); older
+revisions, sub-sheets and one step over 256 KiB answer `delta_unavailable` with the reason,
+and `fx.graph` stays the fallback. Every result names `evidence_kind: "structural"`: a delta
+says what changed in the graph, not what a render looks like.
+
+`fx.graph` lists effects in creation order, 64 a page by default (`limit` up to 512, page
+at most 1 MiB): repeat with `offset` set to `next_offset` and `expected_revision` set to the
+first page's `revision` until `next_offset` is null; a changed document answers
+`stale_revision`. Each page reports `total_effects`, `node_count` and `limits`. Effects
+carry `position` (`null` when the editor places the node itself), `group_ids` (innermost
+first), `linked_group_id` and `edit_constraints` (`locked_column`, `outside_profile`), and
+the page lists the `groups` (id, name, members, member count, enclosing group) and
+`linked_groups` that have a member on it. The `fx-graph`
+toolset edits the schematic: `fx.group.create` makes a new outermost group of 2–512 effects
+(a macro brings its members) with the editor's default name `Group <n>`, refusing
+duplicates, the Xsheet node and outputs, a selection that would split an existing group
+(`invalid_group` with `reason`), stacks deeper than 16 and more than 1024 groups;
+`fx.group.remove` ungroups and `fx.group.rename` renames one group everywhere it is
+carried; `fx.layout.set` sets up to 256 positions within ±1,000,000, or `null` to unplace,
+keeping six significant digits as the scene file does. None of them changes a connection or
+a render. Packages record positions, group stacks and names, parameter links and grown port
+groups with the macro fingerprint, so `scene.save_copy` and `scene.open` refuse a scene that
+would not read back the same. A grouped
+effect cannot join a macro (`INVALID_MACRO`, `reason: grouped_member`); `fx.rename` also
+renames a macro, and a new macro takes its root's position.
+
+`fx.link.add {fx_id, linked_to_fx_id}` links an effect's parameters to another effect of the
+same type, version and parameters, as the editor's linked effects: it takes that group's
+values and keys (`overwritten_parameters` names the ones that differed), keeps its own
+connections, name and placement, and refuses an effect already in another group
+(`already_linked`), a different type (`link_incompatible`), the Xsheet node, outputs, macros
+and level columns (`unsupported_link`) and groups over 64. Every parameter edit of a member
+(`fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, and the animation key writes
+on an effect channel) then changes them all, is
+refused when any member's column is locked, and reports `affected_fx_ids` and
+`linked_group_id`. `fx.link.remove` gives one member its own copy with equal values;
+deleting a member unlinks it first; `fx.duplicate` always makes an independent copy. Links
+survive save and reopen. A parameter whose curve the editor locked refuses every write with
+`locked` (`reason: curve_locked`, naming the channel).
+
+Over, multiply, screen and blend have a dynamic `Source` port group (catalog and graph
+`port_groups`: prefix, minimum 2, maximum 64; each port names its `group` and position).
+`fx.port_group.set {fx_id, group, sources}` sets its sources in order, index 0 being the
+first port, the top of an over's stack; the group takes the editor's form, one empty port
+after the sources and at least the minimum, adding ports named `Source<n>` and removing
+them from the end. `fx.connect` to a port the group no longer has is `UNKNOWN_PORT` with
+`port_group` and `use: fx.port_group.set`. A grown group copies into macros and reopens in
+order.
 
 PNG inputs support up to 8 bits per channel, 8192 pixels per axis, and 16,777,216
 pixels per image. Vector drawings are limited to 4096 strokes and 32768 control
@@ -646,7 +730,7 @@ published channels, Plastic deformation, and hook tracker regions are outside th
 profile, and these tools have no live-editor or undo counterpart.
 
 `animation.insert_breakdown` is the editor's Set Breakdown Key on a stage base channel
-(not `path_position`, weights or offset layers): it adds a key at an integer `frame`
+(not `path_position`, weights or offset layers) or an effect channel: it adds a key at an integer `frame`
 strictly between two keys, with either `favour_percent` (-100 to 200) of the way from the
 previous key's value to the next one's, or an explicit `value`. The new key takes the
 segment's interpolation and step. A speed segment is cut so its shape is kept before the
@@ -657,7 +741,8 @@ outside the keys, or sits on a curve with expression, file, similar-shape or cyc
 is refused and nothing changes.
 
 `animation.move_keys` and `animation.duplicate_keys` take `frames` (existing key frames),
-`frame_offset` (whole frames, negative allowed) and `value_offset` on a stage base channel.
+`frame_offset` (whole frames, negative allowed) and `value_offset` on a stage base channel
+or an effect channel.
 A move keeps every moved key's interpolation, step and handles and changes only its frame
 and value; it keeps the key order, so it is refused when a key would land on or cross
 another key (`key_exists`, `order_changed`), leave its frames or values out of bounds, or
@@ -689,8 +774,22 @@ parameter component of the effect, named parameter-dot-component for pixel and p
 parameters, such as the Red component of a color), or `column_id` (the `time_remap`
 curve of a level column, with `remap_enabled`). `animation.keys` and `animation.sample`
 read the same targets by passing `fx_id` or `column_id` with the descriptor's `channel` and
-`unit`. Effect parameter and remap curves are read only here (`writable` is false): edit an
-effect parameter with `fx.parameter.set_key`; remap curves have no edit tool. A curve with
+`unit`. Remap curves are read only (`writable` false, `edit_via` null).
+
+Effect channels take the same key edits as stage channels: `animation.set_keys`,
+`delete_keys`, `move_keys`, `duplicate_keys`, `insert_breakdown`, `retime_curve` and
+`copy_curve` (on either side) accept `fx_id` with a `channel` and `unit` that
+`animation.channels` lists, in place of `object_id` (naming both is `invalid_params`; macros
+are `unsupported_target`; `animation.set_cycle` stays on stage channels). A channel's
+descriptor gives `edit_via` `animation.set_keys`, `writable`, its `interpolations` and its
+admitted `value_bounds` (color channels are native fractions 0 to 1). Every key value, and
+both handle points of every speed segment, must lie in those bounds, or the write is
+`OUT_OF_RANGE` with `fx_id`, `parameter`, `channel` and `frame` and nothing changes; an ease
+or constant segment stays between its keys and a speed segment inside the hull of its
+points, so the curve stays in bounds at every frame. Each result adds `affected_fx_ids`
+(every member of the effect's linked group) and `linked_group_id`, and the write is refused
+when a member's column or the curve is locked (`locked`, `reason: curve_locked`). Deleting
+an effect's keys leaves its other channels and its default value unchanged. A curve with
 expression, file or similar-shape keys is listed with its keys marked unsupported, without
 their text, and `animation.sample` refuses it with `unsupported_interpolation`.
 
@@ -1623,7 +1722,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (130):
+- `core` toolset (131):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1633,33 +1732,36 @@ the adapter and the live editor bridge add the rest.
   `column.update`, `drawing.analysis.submit`, `drawing.clone`, `drawing.create`,
   `drawing.inspect`, `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`,
   `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`,
-  `fx.macro.create`, `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`,
-  `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`,
-  `fx.terminal.set`, `job.cancel`, `job.discard`, `job.list`, `job.result`, `job.status`,
-  `journal.status`, `level.create`, `level.import`, `level.inspect`, `motion_path.create`,
-  `motion_path.delete`, `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`,
-  `motion_path.rename`, `motion_path.update`, `object.create`, `object.parent`,
-  `object.path.attach`, `object.path.detach`, `operation.list`, `operation.status`,
-  `package.remove`, `palette.clone_style`, `palette.create_style`, `palette.inspect`,
-  `palette.page.create`, `palette.page.move`, `palette.page.remove`, `palette.page.rename`,
-  `palette.pages`, `palette.rename_style`, `palette.style.move`, `palette.update_style`,
-  `project.create`, `project.duplicate`, `project.inspect`, `project.list`, `project.scenes`,
-  `raster.export_png`, `raster.import_png`, `raster.patch`, `raster.read_pixels`,
-  `render.capabilities`, `render.preflight`, `render.preview`, `render.submit`,
-  `review.compare.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
-  `scene.dependencies`, `scene.discard`, `scene.import_editable`, `scene.import_plan`,
-  `scene.inventory`, `scene.open`, `scene.open_read_only`, `scene.package_info`,
-  `scene.save_copy`, `scene.save_preflight`, `scene.settings`, `scene.source_status`,
-  `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`, `vector.edit`,
-  `vector.export_svg`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
-  `vector.inspect`, `vector.opacity.inspect`, `vector.opacity.profile.set`,
-  `vector.opacity.set`, `vector.order.move`, `vector.select`, `vector.structure`,
-  `vector.text.create`, `vector.transform`
+  `fx.graph.delta`, `fx.macro.create`, `fx.macro.expand`, `fx.output.select`,
+  `fx.parameter.get`, `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`,
+  `fx.preset.save`, `fx.rename`, `fx.terminal.set`, `job.cancel`, `job.discard`, `job.list`,
+  `job.result`, `job.status`, `journal.status`, `level.create`, `level.import`, `level.inspect`,
+  `motion_path.create`, `motion_path.delete`, `motion_path.duplicate`, `motion_path.inspect`,
+  `motion_path.list`, `motion_path.rename`, `motion_path.update`, `object.create`,
+  `object.parent`, `object.path.attach`, `object.path.detach`, `operation.list`,
+  `operation.status`, `package.remove`, `palette.clone_style`, `palette.create_style`,
+  `palette.inspect`, `palette.page.create`, `palette.page.move`, `palette.page.remove`,
+  `palette.page.rename`, `palette.pages`, `palette.rename_style`, `palette.style.move`,
+  `palette.update_style`, `project.create`, `project.duplicate`, `project.inspect`,
+  `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
+  `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
+  `render.submit`, `review.compare.submit`, `runtime.inspect`, `scene.check.submit`,
+  `scene.create`, `scene.dependencies`, `scene.discard`, `scene.import_editable`,
+  `scene.import_plan`, `scene.inventory`, `scene.open`, `scene.open_read_only`,
+  `scene.package_info`, `scene.save_copy`, `scene.save_preflight`, `scene.settings`,
+  `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
+  `vector.edit`, `vector.export_svg`, `vector.fill`, `vector.group.create`,
+  `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
+  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
+  `vector.structure`, `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
 - `fx-finishing` toolset (1):
   `fx.recipe.list`
+- `fx-graph` toolset (7):
+  `fx.group.create`, `fx.group.remove`, `fx.group.rename`, `fx.layout.set`, `fx.link.add`,
+  `fx.link.remove`, `fx.port_group.set`
 - `intake` toolset (3):
   `intake.import`, `intake.preflight`, `intake.provenance`
 - `lipsync` toolset (3):

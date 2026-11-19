@@ -2,6 +2,7 @@
 #include "automation_dispatch.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
+#include "automation_fx_journal.h"
 #include "automation_live_protocol.h"
 
 #include "tdoubleparam.h"
@@ -27,12 +28,18 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshzeraryfxcolumn.h"
 
+#include <QElapsedTimer>
+
+#include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <functional>
 #include <memory>
 #include <new>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 #include <type_traits>
 
 namespace GroundzeroAutomation {
@@ -775,6 +782,322 @@ void testAssetBudget(Context& context) {
   context.removeDocument(document.id);
 }
 
+// One write as the dispatcher runs it: journal prepared, revision advanced
+// when the handler began a change, step recorded.
+QJsonObject journaledCall(Context& context, Document& document,
+                          const QString& method, QJsonObject params = {}) {
+  prepareFxGraphJournal(context, document.id);
+  context.resetMutationStarted();
+  params["document_id"] = document.id;
+  QJsonObject result    = executeFx(context, method, params).toObject();
+  const bool advanced   = context.mutationStarted();
+  if (advanced) ++document.revision;
+  recordFxGraphStep(context, document.id, method, params, advanced, &result);
+  return result;
+}
+
+QJsonObject deltaFrom(Document& document, quint64 revision) {
+  return automationFxGraphDelta(document,
+                                {{"document_id", document.id},
+                                 {"from_revision", QString::number(revision)}})
+      .toObject();
+}
+
+void requireDeltaError(Document& document, quint64 revision,
+                       const QString& reason) {
+  try {
+    deltaFrom(document, revision);
+  } catch (const Error& error) {
+    require(error.details.value("reason") == reason,
+            "fx.graph.delta must name why a delta is unavailable");
+    return;
+  }
+  throw std::runtime_error("fx.graph.delta accepted an unavailable range");
+}
+
+void testGraphJournalSteps(Context& context) {
+  Document& document  = context.addDocument(std::make_unique<ToonzScene>());
+  const quint64 start = document.revision;
+  const QJsonObject created =
+      journaledCall(context, document, "fx.create", {{"type", "STD_blurFx"}});
+  const QString blur       = created.value("fx_id").toString();
+  const QJsonObject step   = created.value("graph_delta").toObject();
+  const QJsonArray entries = step.value("entries").toArray();
+  require(entries.size() == 1 &&
+              entries[0].toObject().value("change") == "created" &&
+              entries[0].toObject().value("cause") == "requested",
+          "fx.create must report its node as a requested creation");
+  const QJsonObject same = journaledCall(
+      context, document, "fx.rename",
+      {{"fx_id", blur},
+       {"name", QString::fromStdWString(document.fx(blur)->getName())}});
+  require(same.value("graph_delta").isNull(),
+          "A no-op write must report a null graph delta");
+  journaledCall(context, document, "fx.parameter.set",
+                {{"fx_id", blur}, {"parameter", "value"}, {"value", 3}});
+  journaledCall(context, document, "fx.parameter.set",
+                {{"fx_id", blur}, {"parameter", "value"}, {"value", 0}});
+  const QJsonArray net = deltaFrom(document, start).value("changes").toArray();
+  require(net.size() == 1 && net[0].toObject().value("change") == "created" &&
+              net[0].toObject().value("parameters_changed").toArray().isEmpty(),
+          "A net delta must fold intermediate parameter changes away");
+  journaledCall(context, document, "fx.delete", {{"fx_id", blur}});
+  const QJsonArray gone = deltaFrom(document, start).value("changes").toArray();
+  require(gone.size() == 1 && gone[0].toObject().value("change") == "transient",
+          "An effect created and deleted inside a window is transient");
+  requireDeltaError(document, document.revision + 1, "future_revision");
+  context.removeDocument(document.id);
+}
+
+void testGraphJournalWindow(Context& context) {
+  Document& document  = context.addDocument(std::make_unique<ToonzScene>());
+  const quint64 start = document.revision;
+  const QString blur =
+      journaledCall(context, document, "fx.create", {{"type", "STD_blurFx"}})
+          .value("fx_id")
+          .toString();
+  for (int index = 0; index < 1030; ++index)
+    journaledCall(context, document, "fx.parameter.set",
+                  {{"fx_id", blur},
+                   {"parameter", "value"},
+                   {"value", index % 2 ? 1 : 2}});
+  requireDeltaError(document, start, "window_exceeded");
+  const QJsonObject window = automationFxDeltaWindow(document);
+  require(window.value("retained_steps").toInt() == 1024 &&
+              window.value("oldest_from_revision").toString() ==
+                  QString::number(document.revision - 1024),
+          "The journal must keep exactly its last 1024 steps");
+  require(deltaFrom(document, document.revision - 1024)
+                  .value("total_changes")
+                  .toInt() == 0,
+          "A delta at the oldest retained revision must stay available");
+  require(deltaFrom(document, document.revision - 1)
+                  .value("total_changes")
+                  .toInt() == 1,
+          "A one-step delta must report the parameter change");
+  context.removeDocument(document.id);
+}
+
+qint64 medianMicroseconds(std::vector<qint64> times) {
+  std::sort(times.begin(), times.end());
+  return times[times.size() / 2];
+}
+
+// A write whose effect declaration says it cannot change the FX graph, as
+// the dispatcher records it.
+qint64 unchangedStepMicroseconds(Context& context, Document& document) {
+  QElapsedTimer timer;
+  timer.start();
+  ++document.revision;
+  QJsonObject result;
+  recordFxGraphStep(context, document.id, "level.create", {}, true, &result);
+  return timer.nsecsElapsed() / 1000;
+}
+
+// P-2: the cost of one recorded step at the document's FX node limit, for an
+// FX write and for a write that cannot change the graph (the shipping path,
+// without the test-build check).
+void testGraphJournalCost(Context& context) {
+  Document& document = context.addDocument(std::make_unique<ToonzScene>());
+  QString blur;
+  for (int index = 0; index < 4090; ++index)
+    blur = call(context, document, "fx.create", {{"type", "STD_blurFx"}})
+               .value("fx_id")
+               .toString();
+  QElapsedTimer baseline;
+  baseline.start();
+  prepareFxGraphJournal(context, document.id);
+  const qint64 baselineMicroseconds = baseline.nsecsElapsed() / 1000;
+  std::vector<qint64> fxTimes, otherTimes;
+  setFxJournalVerification(false);
+  for (int index = 0; index < 21; ++index) {
+    QElapsedTimer timer;
+    timer.start();
+    journaledCall(context, document, "fx.parameter.set",
+                  {{"fx_id", blur},
+                   {"parameter", "value"},
+                   {"value", index % 2 ? 1 : 2}});
+    fxTimes.push_back(timer.nsecsElapsed() / 1000);
+    otherTimes.push_back(unchangedStepMicroseconds(context, document));
+  }
+  setFxJournalVerification(true);
+  std::fprintf(
+      stderr,
+      "fx journal at %d effects: baseline %lld us; FX write median "
+      "%lld us, worst %lld us; other write median %lld us\n",
+      4090, static_cast<long long>(baselineMicroseconds),
+      static_cast<long long>(medianMicroseconds(fxTimes)),
+      static_cast<long long>(*std::max_element(fxTimes.begin(), fxTimes.end())),
+      static_cast<long long>(medianMicroseconds(otherTimes)));
+  require(medianMicroseconds(fxTimes) < 50000,
+          "A journal step at the FX node limit must stay near 20 ms");
+  require(medianMicroseconds(otherTimes) < 1000,
+          "A write that cannot change the graph must not snapshot it");
+  context.removeDocument(document.id);
+}
+
+// K2: a curve the editor locked refuses every parameter write before any
+// change; unlocking admits the same call.
+// K2 on the animation key tools: each refuses a locked effect curve with
+// curve_locked before any change, and the same call passes once unlocked.
+void testCurveLockRefusesKeyTools(Context& context, Document& document,
+                                  const QString& blur, TDoubleParam* value) {
+  const QJsonObject target{{"document_id", document.id},
+                           {"fx_id", blur},
+                           {"channel", "value"},
+                           {"unit", "native_fxLength"}};
+  QJsonObject keys = target;
+  keys["keys"]     = QJsonArray{
+      QJsonObject{{"frame", 0}, {"value", 1}, {"interpolation", "linear"}},
+      QJsonObject{{"frame", 8}, {"value", 9}, {"interpolation", "linear"}}};
+  executeScene(context, "animation.set_keys", keys);
+  QJsonObject frames          = target;
+  frames["frames"]            = QJsonArray{8};
+  frames["frame_offset"]      = 2;
+  QJsonObject breakdown       = target;
+  breakdown["frame"]          = 4;
+  breakdown["favour_percent"] = 50;
+  QJsonObject retime          = target;
+  retime["origin_frame"]      = 0;
+  retime["shift_frames"]      = 1;
+  retime["scale"] = QJsonObject{{"numerator", 1}, {"denominator", 1}};
+  QJsonObject copy{{"document_id", document.id},
+                   {"source", QJsonObject{{"fx_id", blur},
+                                          {"channel", "value"},
+                                          {"unit", "native_fxLength"}}},
+                   {"destination", QJsonObject{{"fx_id", blur},
+                                               {"channel", "value"},
+                                               {"unit", "native_fxLength"}}}};
+  const std::vector<std::pair<QString, QJsonObject>> calls{
+      {"animation.set_keys", keys},
+      {"animation.delete_keys", frames},
+      {"animation.move_keys", frames},
+      {"animation.duplicate_keys", frames},
+      {"animation.insert_breakdown", breakdown},
+      {"animation.retime_curve", retime},
+      {"animation.copy_curve", copy}};
+  value->setEditorLocked(true);
+  for (const auto& call : calls) {
+    context.resetMutationStarted();
+    try {
+      executeScene(context, call.first, call.second);
+      throw std::runtime_error("A key tool changed a locked effect curve");
+    } catch (const Error& error) {
+      require(
+          error.code == "locked" &&
+              error.details.value("reason") == "curve_locked" &&
+              error.details.value("channel") == "value" &&
+              !context.mutationStarted(),
+          "A key tool must refuse a locked effect curve before changing it");
+    }
+    require(value->getKeyframeCount() == 2 && value->getValue(8) == 9,
+            "A refused key tool must leave the locked curve unchanged");
+  }
+  value->setEditorLocked(false);
+  executeScene(context, "animation.move_keys", frames);
+  require(value->isKeyframe(10) && !value->isKeyframe(8),
+          "An unlocked effect curve must accept the refused move");
+}
+
+void testCurveLockRefusesEdits(Context& context, Document& document) {
+  const QString blur = create(context, document, "STD_blurFx");
+  auto* value        = dynamic_cast<TDoubleParam*>(
+      document.fx(blur)->getParams()->getParam("value"));
+  const double before = value->getDefaultValue();
+  value->setEditorLocked(true);
+  const QJsonObject set{{"fx_id", blur}, {"parameter", "value"}, {"value", 4}};
+  QJsonObject key = set;
+  key["frame"]    = 2;
+  expectError(context, "locked",
+              [&] { call(context, document, "fx.parameter.set", set); });
+  expectError(context, "locked",
+              [&] { call(context, document, "fx.parameter.set_key", key); });
+  require(value->getDefaultValue() == before && !value->hasKeyframes(),
+          "A locked curve must not change");
+  value->setEditorLocked(false);
+  call(context, document, "fx.parameter.set", set);
+  require(value->getDefaultValue() == 4,
+          "An unlocked curve must accept the refused write");
+  const QString card = create(context, document, "colorCardFx");
+  auto* wrapper      = dynamic_cast<TZeraryColumnFx*>(document.fx(card));
+  auto* color        = dynamic_cast<TPixelParam*>(
+      wrapper->getZeraryFx()->getParams()->getParam("color"));
+  color->getGreen()->setEditorLocked(true);
+  try {
+    call(context, document, "fx.parameter.set",
+         {{"fx_id", card},
+          {"parameter", "color"},
+          {"value", QJsonArray{1, 2, 3, 255}}});
+    throw std::runtime_error("A locked color channel accepted a write");
+  } catch (const Error& error) {
+    require(error.code == "locked" &&
+                error.details.value("reason") == "curve_locked" &&
+                error.details.value("channel").toString().startsWith("color."),
+            "A locked channel must be named in the refusal");
+  }
+  color->getGreen()->setEditorLocked(false);
+  testCurveLockRefusesKeyTools(context, document, blur, value);
+}
+
+// One speed segment of a blur value from 0 to 200 with the given handles, and
+// an ease segment back, through animation.set_keys.
+QJsonArray boundedKeys(double outFrames, double outValue, double inFrames,
+                       double inValue) {
+  return {
+      QJsonObject{{"frame", 0},
+                  {"value", 0},
+                  {"interpolation", "speed_in_out"},
+                  {"outgoing", QJsonObject{{"frame_delta", outFrames},
+                                           {"value_delta", outValue}}}},
+      QJsonObject{{"frame", 12},
+                  {"value", 200},
+                  {"interpolation", "ease_in_out"},
+                  {"incoming", QJsonObject{{"kind", "speed"},
+                                           {"frame_delta", -inFrames},
+                                           {"value_delta", inValue}}},
+                  {"outgoing", QJsonObject{{"frames", 5}}}},
+      QJsonObject{{"frame", 24},
+                  {"value", 0},
+                  {"interpolation", "linear"},
+                  {"incoming", QJsonObject{{"kind", "ease"}, {"frames", 7}}}}};
+}
+
+// P-FL-2: a rich effect curve whose keys and speed handles are inside the
+// admitted bounds evaluates inside them at every frame and sub-frame, and a
+// handle one unit outside is refused.
+void testRichFxCurvesStayInBounds(Context& context, Document& document) {
+  const QString blur = create(context, document, "STD_blurFx");
+  auto* value        = dynamic_cast<TDoubleParam*>(
+      document.fx(blur)->getParams()->getParam("value"));
+  QJsonObject request{{"document_id", document.id},
+                      {"fx_id", blur},
+                      {"channel", "value"},
+                      {"unit", "native_fxLength"}};
+  for (const double outFrames : {0.0, 3.0, 6.0, 12.0})
+    for (const double outValue : {0.0, 100.0, 200.0})
+      for (const double inFrames : {0.0, 4.0, 12.0 - outFrames})
+        for (const double inValue : {-200.0, -50.0, 0.0}) {
+          request["keys"] = boundedKeys(outFrames, outValue, inFrames, inValue);
+          executeScene(context, "animation.set_keys", request);
+          for (int step = 0; step <= 24 * 8; ++step) {
+            const double sampled = value->getValue(step / 8.0);
+            require(sampled >= 0 && sampled <= 200,
+                    "A bounded rich curve must evaluate inside its bounds");
+          }
+        }
+  request["keys"] = boundedKeys(3, 201, 4, -50);
+  try {
+    executeScene(context, "animation.set_keys", request);
+    throw std::runtime_error("A speed handle outside the bounds was admitted");
+  } catch (const Error& error) {
+    require(error.code == "OUT_OF_RANGE" &&
+                error.details.value("fx_id") == blur &&
+                error.details.value("channel") == "value" &&
+                error.details.value("frame") == 0,
+            "A handle outside the bounds must be OUT_OF_RANGE at its key");
+  }
+}
+
 }  // namespace
 
 void runAutomationFxTests(Context& context) {
@@ -797,8 +1120,13 @@ void runAutomationFxTests(Context& context) {
   testGraphValidation(context, document);
   testGraphOwnership(context, document);
   testAdmission(context, document);
+  testCurveLockRefusesEdits(context, document);
+  testRichFxCurvesStayInBounds(context, document);
   context.removeDocument(document.id);
   testAssetBudget(context);
+  testGraphJournalSteps(context);
+  testGraphJournalWindow(context);
+  testGraphJournalCost(context);
   runAutomationDispatcherTests(context);
   Live::runAutomationLiveProtocolTests();
   Live::runAutomationLiveRaceTests();

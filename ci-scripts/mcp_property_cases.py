@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
-from mcp_known_violations import settle
 from mcp_property_curves import Key, key_record, sample
+from mcp_property_effects import EFFECT_OPERATIONS, FX_CHANNEL, FX_TYPE, FX_UNIT, generate_effects
 from mcp_property_model import (
     CELL_HORIZON,
     CHANNEL_UNITS,
@@ -48,6 +48,9 @@ if TYPE_CHECKING:
 # and every refusal it answers, every retime kind and replace mapping, and a reopened scene that
 # holds cells. A test keeps the cover.
 DEFAULT_SEEDS = (87, 10, 56, 271, 94, 16, 245, 34, 399, 237, 276, 9, 21, 154, 157, 11, 92, 1, 7)
+# The same for effect-channel sequences: every effect operation, an OUT_OF_RANGE refusal, a
+# refusal of the curve rules and a reopened scene that holds effect keys.
+EFFECT_SEEDS = (13, 45, 183, 121, 90)
 DEFAULT_LENGTH = 24
 TOLERANCE = 1e-9
 LOG_NAME = "property-sequences.ndjson"
@@ -171,6 +174,7 @@ class Session:
             "column_object": {},
             "camera": {},
             "group": {},
+            "fx": {},
         }
         self.document = self._call_create()
         self._learn_cameras()
@@ -300,8 +304,28 @@ class Session:
             },
             "columns": [self._column(item, names) for item in summary["columns"]],
             "pegs": sorted(item["name"] for item in pegs),
-            "curves": self._curves(pegs),
+            "curves": {**self._curves(pegs), **self._effect_curves()},
         }
+
+    def _effects(self) -> dict[str, str]:
+        """The modelled effects of the scene, by name, with their handles."""
+        graph = self.read("fx.graph", {})
+        return {item["name"]: item["fx_id"] for item in graph["effects"] if item["type"] == FX_TYPE}
+
+    def _effect_curves(self) -> dict[str, Any]:
+        curves = {}
+        for name, effect in self._effects().items():
+            target = {"fx_id": effect, "channel": FX_CHANNEL, "unit": FX_UNIT}
+            record = self.read("animation.keys", target)
+            if not record["keys"]:
+                continue
+            values = self.read("animation.sample", {**target, "frames": SAMPLE_FRAMES})
+            curves[f"{name}/{FX_CHANNEL}"] = {
+                "keys": [observed_row(key) for key in record["keys"]],
+                "cycle": record["cycle"],
+                "samples": [item["value"] for item in values["values"]],
+            }
+        return curves
 
     def _column(self, item: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
         cells = self.read(
@@ -340,7 +364,7 @@ class Session:
 
     def step(self, index: int, step: dict[str, Any]) -> Failure | None:
         """Apply one step to the model and the worker, then compare everything."""
-        operation = OPERATIONS[step["op"]]
+        operation = ALL_OPERATIONS[step["op"]]
         before = self.case.revisions[self.document]
         error = operation.effect(self.model, step["args"])
         tool, params = operation.request(step["args"], self.handles)
@@ -377,7 +401,7 @@ class Session:
         result = response["result"]
         if "revision" in result and result.get("document_id") == self.document:
             self.case.revisions[self.document] = result["revision"]
-        OPERATIONS[step["op"]].learn(step["args"], result, self.handles)
+        ALL_OPERATIONS[step["op"]].learn(step["args"], result, self.handles)
         return []
 
     def _reopen(self, saved: dict[str, Any]) -> None:
@@ -396,6 +420,10 @@ class Session:
             for item in summary["objects"]
             if item["kind"] == "pegbar"
         }
+        self.handles["fx"] = self._effects()
+
+
+ALL_OPERATIONS = {**OPERATIONS, **EFFECT_OPERATIONS}
 
 
 def replay(case: NativeAcceptance, steps: list[dict[str, Any]]) -> Failure | None:
@@ -481,6 +509,21 @@ def generated_sequences_match_the_independent_model(case: NativeAcceptance) -> N
     for seed in seeds_to_run():
         with case.subTest(seed=seed):
             check_sequence(case, seed, generate(seed, length_to_run()))
+
+
+@acceptance_case
+def generated_effect_key_sequences_match_the_independent_model(case: NativeAcceptance) -> None:
+    """Replay seeded sequences of key edits on effect channels and compare with the model.
+
+    The animation key tools write a blur's value channel as they write a stage channel; after
+    every step its keys and samples must equal what the model computed, and every write the
+    model finds outside the admitted range must be refused as OUT_OF_RANGE with nothing
+    changed. `GZ_PROPERTY_SEEDS` and `GZ_PROPERTY_LENGTH` choose the sequences here too.
+    """
+    seeds = seeds_to_run() if os.environ.get("GZ_PROPERTY_SEEDS") else list(EFFECT_SEEDS)
+    for seed in seeds:
+        with case.subTest(seed=seed):
+            check_sequence(case, seed, generate_effects(seed, length_to_run()))
 
 
 def _seeded(case: NativeAcceptance, kind: str) -> list[tuple[int, random.Random]]:
@@ -770,6 +813,16 @@ def names_beyond_the_length_limit_are_refused_by_the_schema(case: NativeAcceptan
                 case.schema_failure(tool, request)
 
 
+def _example_string(schema: dict[str, Any]) -> str:
+    """The first sample string that its schema's pattern accepts whole."""
+    if "pattern" not in schema:
+        return "ab"
+    for candidate in ("a", "0", "fxgroup_00000000-0000-0000-0000-000000000000"):
+        if re.fullmatch(schema["pattern"], candidate):
+            return candidate
+    return "a"
+
+
 def _example(schema: dict[str, Any]) -> Any:
     """A value that satisfies the part of a schema these tools use."""
     kind = schema.get("type")
@@ -785,7 +838,7 @@ def _example(schema: dict[str, Any]) -> Any:
     if kind == "array":
         return [_example(schema["items"])] * schema.get("minItems", 0)
     if kind == "string":
-        return "ab" if "pattern" not in schema else "a"
+        return _example_string(schema)
     if kind in {"integer", "number"}:
         return schema.get("minimum", 1)
     return False
@@ -970,8 +1023,8 @@ def trailing_empty_columns_are_not_saved_and_inner_ones_are(case: NativeAcceptan
 def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptance) -> None:
     """Sample speed segments with handles of every length against the Bezier, by hand.
 
-    A segment whose frame axis is a quadratic in the Bezier parameter, that is where three times
-    the outgoing length minus the incoming length is twice the span, is the known violation.
+    The last two rows have a frame axis that is a quadratic in the Bezier parameter (three
+    times the outgoing length minus the incoming length is twice the span).
     """
     document = case.create()
     peg = case.mutate("object.create", document, name="Peg", kind="pegbar")["object_id"]
@@ -979,13 +1032,13 @@ def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptan
     # Handles as long as the span make the frame axis stationary at frame 9: every parameter
     # near 0.5 reaches it, so the editor's closed form and the model's bisection pick values of
     # the parameter 4e-6 apart and the curve differs by about 3e-4 there.
-    for outgoing, incoming, expected_match, tolerance in (
-        (4, -1, True, 1e-5),
-        (0, -3, True, 1e-5),
-        (6, -6, True, 1e-3),
-        (4, -0.001, True, 1e-5),
-        (4, 0, False, 1e-5),
-        (0, -4, False, 1e-5),
+    for outgoing, incoming, tolerance in (
+        (4, -1, 1e-5),
+        (0, -3, 1e-5),
+        (6, -6, 1e-3),
+        (4, -0.001, 1e-5),
+        (4, 0, 1e-5),
+        (0, -4, 1e-5),
     ):
         target = {"object_id": peg, "channel": "x", "unit": "inch"}
         keys = [
@@ -1000,13 +1053,5 @@ def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptan
         close = all(
             abs(a["value"] - b) < tolerance for a, b in zip(got["values"], exact, strict=True)
         )
-        if expected_match:
-            case.assertTrue(close, (outgoing, incoming))
-        else:
-            settle(
-                case,
-                "KV-9",
-                "matches the Bezier" if close else "does not match the Bezier",
-                "matches the Bezier",
-            )
+        case.assertTrue(close, (outgoing, incoming))
         case.mutate("animation.delete_keys", document, **target, frames=[6, 12])

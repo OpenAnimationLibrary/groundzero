@@ -1,0 +1,2811 @@
+{
+ "schema_version": 1,
+ "formats": [
+  {
+   "id": "png_sequence",
+   "job_format": "png",
+   "profile": "rgba8-png",
+   "census_format": "png",
+   "compared": "decoded RGBA of frame 6 at 256 x 256 with the reference stored for the type on the platform",
+   "cap": "color 0, alpha 0, differing pixels 0 (lossless: any difference on one platform is a defect)"
+  },
+  {
+   "id": "mp4",
+   "job_format": "mp4",
+   "profile": "opaque8-mp4",
+   "census_format": "mp4",
+   "compared": "frame 6 at 256 x 256 decoded by an independent ffmpeg, composited on black: its worst 32 pixel block and whole-frame mean against the PNG render, and its bytes against the stored decode (determinism only)",
+   "cap": "worst block 16 and mean 6 code values against the PNG render (a cell states its own, from its observed error with a 25 percent margin); 0 bytes against the stored decode"
+  },
+  {
+   "id": "exr_half",
+   "job_format": "exr",
+   "profile": "rgba-half-exr",
+   "census_format": "exr",
+   "compared": "not compared yet: no case decodes the half EXR frame against the PNG render",
+   "cap": "color 1 and alpha 1 code value after conversion to straight 8-bit; no cell has run"
+  },
+  {
+   "id": "exr_float",
+   "job_format": "exr",
+   "profile": "rgba-float-exr",
+   "census_format": "exr",
+   "compared": "not compared yet: no case decodes the float EXR frame against the PNG render",
+   "cap": "color 1 and alpha 1 code value after conversion to straight 8-bit; no cell has run"
+  }
+ ],
+ "platforms": {
+  "macOS": {
+   "latest_run": "macOS-20261119-125254"
+  },
+  "Linux": {
+   "latest_run": null
+  },
+  "Windows": {
+   "latest_run": null
+  }
+ },
+ "runs": {
+  "macOS-20261119-125254": {
+   "platform": "macOS",
+   "recorded": "2026-11-19 12:52:54",
+   "reason": "First full recorded run of the render matrix on macOS at 256 pixels, to establish references",
+   "covered": "31 of 31 types",
+   "identity": {
+    "build": "groundzero 1.8 digest 360befa2ca1316d98e3e49500253cb3907d3158611caa9023fb6437104a4e653",
+    "operating_system": "macos 27.2",
+    "cpu": "arm64 (built for arm64)",
+    "qt": "built 5.15.19, running 5.15.19",
+    "graphics_backend": "cocoa, probe {'elapsed_ms': 585, 'renderer': 'Apple M2 Max', 'renderer_class': 'hardware', 'result': 'context_ready', 'vendor': 'Apple', 'version': '2.1 Metal - 91.7'}",
+    "plugins": "policy builtin_only",
+    "fonts": "usable True",
+    "media_tools": "ffmpeg not configured, sha256 2ce81b92499c1b6b96eb060c69723114bd0da13f1bfbd9da26dee24d099e644a",
+    "codec": "mp4 encoder libx264, available True",
+    "render_profiles": "rgba8-png, opaque8-mp4"
+   }
+  }
+ },
+ "cells": {
+  "colorCardFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "8484fe38033a096663c175ff1364beb3d8fdb164981fffd8b2fda28d77ad5c17",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "8484fe38033a096663c175ff1364beb3d8fdb164981fffd8b2fda28d77ad5c17",
+     "decoded_reference": "0853cbadc538ab3df21e6650f03b596706476a485d366f17bdcb1dfc1819fff7",
+     "separation": {
+      "nearest_other_block_error": 85.0,
+      "nearest_other_type": "STD_targetSpotFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 2.0,
+      "mean_error": 2.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 0.667,
+      "block_error": 0.667,
+      "max_error": 1,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "overFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "d8c33aea81b4716d01f707b65cbdecac882b1afb5ce7f9fd3b2ca81a7fd802cd",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "d8c33aea81b4716d01f707b65cbdecac882b1afb5ce7f9fd3b2ca81a7fd802cd",
+     "decoded_reference": "fd4ccabb049b861bacb265a06812b370b9f88cfae4105e9d4427b6e600ac959b",
+     "separation": {
+      "nearest_other_block_error": 7.77,
+      "nearest_other_type": "blendFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.376,
+      "block_error": 3.416,
+      "max_error": 52,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_iwa_LinearGradientFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "4afec06dab0a747d3304877dcbc0a6f9124b80d52447bb5d00e7f9aacac359e3",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "4afec06dab0a747d3304877dcbc0a6f9124b80d52447bb5d00e7f9aacac359e3",
+     "decoded_reference": "38986b798406c58bb3c316496b25c29840c56fc4f4d94e93fb393917edafd193",
+     "separation": {
+      "nearest_other_block_error": 95.465,
+      "nearest_other_type": "outFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 3.0,
+      "mean_error": 2.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 0.78,
+      "block_error": 1.348,
+      "max_error": 6,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_radialGradientFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f154eb863b397b2b61e3490641a8cfce716062020af88b7c23ed7d129ac3beef",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f154eb863b397b2b61e3490641a8cfce716062020af88b7c23ed7d129ac3beef",
+     "decoded_reference": "347dc9aed3181ba239e48ddb45647deee340b9859718a0df85573b3cd385e7b3",
+     "separation": {
+      "nearest_other_block_error": 94.89,
+      "nearest_other_type": "outFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 4.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 0.847,
+      "block_error": 1.621,
+      "max_error": 11,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_blurFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "a1d2aca23e83189b6a2fb7e18438eec09aaf7eb923a721d5e28b406d9ca385de",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "a1d2aca23e83189b6a2fb7e18438eec09aaf7eb923a721d5e28b406d9ca385de",
+     "decoded_reference": "55456a44ff83ac223706940d6d636cfdc756d52ce57f946eb7217c339965bfdc",
+     "separation": {
+      "nearest_other_block_error": 28.707,
+      "nearest_other_type": "STD_backlitFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.388,
+      "block_error": 3.372,
+      "max_error": 29,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_glowFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "eff6f6c7da6090b780b1cd30d9ad05d5593f616deb726aa5a1ba4ac430536505",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "eff6f6c7da6090b780b1cd30d9ad05d5593f616deb726aa5a1ba4ac430536505",
+     "decoded_reference": "7a276b792fae61aab99bf029d779463603b94fe42f81603bbbfa9df2ae9f7cc1",
+     "separation": {
+      "nearest_other_block_error": 21.367,
+      "nearest_other_type": "STD_backlitFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 4.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.947,
+      "block_error": 3.99,
+      "max_error": 54,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_brightContFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "d0bd34e4f7735a6f5fe578f2088dc620ab8dcddfa664c81d988a65ef6e5c2195",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "d0bd34e4f7735a6f5fe578f2088dc620ab8dcddfa664c81d988a65ef6e5c2195",
+     "decoded_reference": "a1f3460aa59007d676cfd4da273c8ee5ec21a930636b5fb9ae6e7d5f452c8edb",
+     "separation": {
+      "nearest_other_block_error": 36.624,
+      "nearest_other_type": "STD_glowFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.558,
+      "block_error": 3.357,
+      "max_error": 62,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_hsvScaleFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "ea452f298654d4f5a2b368deaf28d5aa949665f76f7b4e15299c89bcee82241e",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "ea452f298654d4f5a2b368deaf28d5aa949665f76f7b4e15299c89bcee82241e",
+     "decoded_reference": "da2b800ff298b4fcd322dac9d060b05dd23598ec033283b0b06e0c0118111f02",
+     "separation": {
+      "nearest_other_block_error": 101.333,
+      "nearest_other_type": "multFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 4.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.689,
+      "block_error": 3.368,
+      "max_error": 46,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "multFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "8584a5f710c80867e778812d205796b0e3517f9efcfacce14ecbad74a8e6f133",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "8584a5f710c80867e778812d205796b0e3517f9efcfacce14ecbad74a8e6f133",
+     "decoded_reference": "de8160d2da170e4f2af3fc2b19c6fc487b0b80da9c50c90801dbc0579c8ab6e5",
+     "separation": {
+      "nearest_other_block_error": 43.0,
+      "nearest_other_type": "STD_blurFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.086,
+      "block_error": 3.812,
+      "max_error": 47,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "screenFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "bd0b2f4a66f25f866a4d2f541c052e6ba636b92164a946465726d95359f675d5",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "bd0b2f4a66f25f866a4d2f541c052e6ba636b92164a946465726d95359f675d5",
+     "decoded_reference": "f1e0154ed702cca2c78fcbf592f5666552922a65959343cd4b9f0f95b022523e",
+     "separation": {
+      "nearest_other_block_error": 9.225,
+      "nearest_other_type": "overFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.203,
+      "block_error": 3.368,
+      "max_error": 54,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "inFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "37cf8270a994db48afb76d406123c53939b04ddcfa491446f691282b7150612f",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "37cf8270a994db48afb76d406123c53939b04ddcfa491446f691282b7150612f",
+     "decoded_reference": "ff0577c5dae6429b78bbb9a3c10cc5a0a09c17526d09d695638d1f636f581412",
+     "separation": {
+      "nearest_other_block_error": 8.35,
+      "nearest_other_type": "STD_sharpenFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 4.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.697,
+      "block_error": 3.658,
+      "max_error": 71,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "outFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "70652591b8f3c2e24af416131ebfcedb0ee2a6321eff42e01d2fe62e3d1d475b",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "70652591b8f3c2e24af416131ebfcedb0ee2a6321eff42e01d2fe62e3d1d475b",
+     "decoded_reference": "7e00da673a35cac0d5c06a06bbd8fb5f08123bb9f7e905915a19d97ec7949e67",
+     "separation": {
+      "nearest_other_block_error": 20.675,
+      "nearest_other_type": "STD_solarizeFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 3.0,
+      "mean_error": 2.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 0.367,
+      "block_error": 1.422,
+      "max_error": 28,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "invertFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "6d4cd66210615283494b27238c71b99c50b501475a3e23837e694de11009e205",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "6d4cd66210615283494b27238c71b99c50b501475a3e23837e694de11009e205",
+     "decoded_reference": "b3eb77ada3e8f9308f6bb2b0e9f7720b4a546888d01d7d1f049e9fae8fd076f6",
+     "separation": {
+      "nearest_other_block_error": 136.0,
+      "nearest_other_type": "STD_hsvScaleFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 7.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.515,
+      "block_error": 4.045,
+      "max_error": 52,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "blendFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "48b2c809aa03c1665db34082c20c6f9679c5ff58aabc1a8ae4e5a3b94361c58e",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "48b2c809aa03c1665db34082c20c6f9679c5ff58aabc1a8ae4e5a3b94361c58e",
+     "decoded_reference": "c82e9f660179d5ff0b298d30d5125bc6d166ebd70760768e9d260946fcb4fe5c",
+     "separation": {
+      "nearest_other_block_error": 3.277,
+      "nearest_other_type": "STD_backlitFx"
+     },
+     "status": "unverified",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.396,
+      "block_error": 3.276,
+      "max_error": 45,
+      "decoded_differing_bytes": 0
+     },
+     "reason": "the block tolerance 6.0 does not separate this picture from STD_backlitFx's (block error 3.277); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_iwa_BloomFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "1e19469d8027ce9870cfbff2e488d807cb60ca896e11ec9caf82e602fb7adc88",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "1e19469d8027ce9870cfbff2e488d807cb60ca896e11ec9caf82e602fb7adc88",
+     "decoded_reference": "dd7dcb30d93b7bc610da6d721cd8bd3d19dbc1a2164d5e34245fb34291375793",
+     "separation": {
+      "nearest_other_block_error": 67.106,
+      "nearest_other_type": "STD_lightWrapFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 4.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.205,
+      "block_error": 2.397,
+      "max_error": 32,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_lightWrapFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "b64bf80493efce7256b8606daeddcc4ee822c4d775833176bd47cce718015039",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "b64bf80493efce7256b8606daeddcc4ee822c4d775833176bd47cce718015039",
+     "decoded_reference": "7769b11b166431ea720eae624c4a1d6567d2407b75844e5eb8d77d6390c12f75",
+     "separation": {
+      "nearest_other_block_error": 46.608,
+      "nearest_other_type": "STD_brightContFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.597,
+      "block_error": 3.615,
+      "max_error": 51,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_backlitFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "d5215fcbb328895f32863aab13def5f10f3835e3e1c0d98a0cba14bd80cf4fee",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "d5215fcbb328895f32863aab13def5f10f3835e3e1c0d98a0cba14bd80cf4fee",
+     "decoded_reference": "c80e27cf952c9f6124c70ec3ca2f3f5a9b63a4cb1349356ae58cbb787c267497",
+     "separation": {
+      "nearest_other_block_error": 3.491,
+      "nearest_other_type": "blendFx"
+     },
+     "status": "unverified",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.6,
+      "block_error": 3.402,
+      "max_error": 54,
+      "decoded_differing_bytes": 0
+     },
+     "reason": "the block tolerance 6.0 does not separate this picture from blendFx's (block error 3.491); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_bodyHighLightFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "806d3dec25837d75b549611d38e5b630cb22f8dc8d6efd3139aa51d5342be8a7",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "806d3dec25837d75b549611d38e5b630cb22f8dc8d6efd3139aa51d5342be8a7",
+     "decoded_reference": "332ab2cbefb4a7d21a0b91f8b054807205faf796366f04a7fedab0d92b067b37",
+     "separation": {
+      "nearest_other_block_error": 25.132,
+      "nearest_other_type": "STD_glowFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 4.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.749,
+      "block_error": 3.877,
+      "max_error": 54,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_lightSpotFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "fec82db09bb14134b139eaf484d04c36107fd5f179de16badcfc4de5aa1fbc82",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "fec82db09bb14134b139eaf484d04c36107fd5f179de16badcfc4de5aa1fbc82",
+     "decoded_reference": "950a1c3c695760a5009deec90ed0239f17920e92f98b41b531d16ea696cec3be",
+     "separation": {
+      "nearest_other_block_error": 112.658,
+      "nearest_other_type": "STD_iwa_LinearGradientFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.345,
+      "block_error": 3.734,
+      "max_error": 75,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_targetSpotFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "ce58283b05c1517d80be9c589ada9a2e6e7782b64c6d2d46fe8a4cff78a39c7e",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "ce58283b05c1517d80be9c589ada9a2e6e7782b64c6d2d46fe8a4cff78a39c7e",
+     "decoded_reference": "7c3d75326a42b6fbd117ef58a7ecbafb5a0fe1634efb68fe9396ff986bb6cdb7",
+     "separation": {
+      "nearest_other_block_error": 84.667,
+      "nearest_other_type": "colorCardFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 3.0,
+      "mean_error": 2.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 0.592,
+      "block_error": 1.327,
+      "max_error": 3,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_directionalBlurFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "b23fcc1d24bdca331a43c4536ec6186ca1dd39582ff7e280d2097cf17d6bb519",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "b23fcc1d24bdca331a43c4536ec6186ca1dd39582ff7e280d2097cf17d6bb519",
+     "decoded_reference": "466d948518940fa6a72396fc6f69fdfb729c5bf8d64559b2d5a48c9477e02a77",
+     "separation": {
+      "nearest_other_block_error": 83.793,
+      "nearest_other_type": "multFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 7.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.585,
+      "block_error": 4.392,
+      "max_error": 60,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_localBlurFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "cf646a98cfe5204d9e2d3912908388a5beb96a39c29267a135db9095fad88263",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "cf646a98cfe5204d9e2d3912908388a5beb96a39c29267a135db9095fad88263",
+     "decoded_reference": "c0c4af6fd1b8f30c7c6647f74ffe574749eb77774e448d9da5df3a213455f125",
+     "separation": {
+      "nearest_other_block_error": 73.129,
+      "nearest_other_type": "multFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.41,
+      "block_error": 3.681,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_posterizeFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "bc8edabc5b58790e084623af0ca381da5c9d273928b5f434c1e8924cdd659575",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "bc8edabc5b58790e084623af0ca381da5c9d273928b5f434c1e8924cdd659575",
+     "decoded_reference": "e004fb02c9e13c545947ce8a8709cc21d91a9a069721728f2a9aa20cd2b507fe",
+     "separation": {
+      "nearest_other_block_error": 35.858,
+      "nearest_other_type": "STD_solarizeFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 15.0,
+      "mean_error": 4.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 2.31,
+      "block_error": 10.756,
+      "max_error": 194,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_solarizeFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "bcc4e628329b777fea6826206db4596931270fd9bd0753ef959c0a5e2c960416",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "bcc4e628329b777fea6826206db4596931270fd9bd0753ef959c0a5e2c960416",
+     "decoded_reference": "431790378117c6622877754feb9c420908848a0bb39494a58e27812f068b4f48",
+     "separation": {
+      "nearest_other_block_error": 20.883,
+      "nearest_other_type": "outFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 7.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.528,
+      "block_error": 4.547,
+      "max_error": 96,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_sharpenFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "c94413e06e20880b39f71282bb2fd1c4257403e5853c996fb401ffc0cc15952e",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "c94413e06e20880b39f71282bb2fd1c4257403e5853c996fb401ffc0cc15952e",
+     "decoded_reference": "3ede224b43a8d39de2746f824c20ce62ce26f44a53ed1e6002acaed5de553c8c",
+     "separation": {
+      "nearest_other_block_error": 3.505,
+      "nearest_other_type": "blendFx"
+     },
+     "status": "unverified",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.528,
+      "block_error": 3.743,
+      "max_error": 60,
+      "decoded_differing_bytes": 0
+     },
+     "reason": "the block tolerance 6.0 does not separate this picture from blendFx's (block error 3.505); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_embossFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "1cb30ec9c93c325b4a0e0ff3ca4b0e68d7b34938752e2c7a512c4cddb6a3fa7f",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "1cb30ec9c93c325b4a0e0ff3ca4b0e68d7b34938752e2c7a512c4cddb6a3fa7f",
+     "decoded_reference": "35c236ca23a8555fcd0d1c812d30eceb16dde19e60897bf6101079c7d35f876c",
+     "separation": {
+      "nearest_other_block_error": 121.656,
+      "nearest_other_type": "STD_hsvScaleFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 5.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.155,
+      "block_error": 2.75,
+      "max_error": 35,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_erodeDilateFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "1c5df1417876d0557e307d1153de917d0ebc32695351befb7ad648fb8c78fa42",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "1c5df1417876d0557e307d1153de917d0ebc32695351befb7ad648fb8c78fa42",
+     "decoded_reference": "2d9d2c7aaeb42ee73be959a692d31aab3ff2e4dff32cbc63b6a47f41d94bc3f6",
+     "separation": {
+      "nearest_other_block_error": 56.725,
+      "nearest_other_type": "STD_matteChokeFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 0.938,
+      "block_error": 3.351,
+      "max_error": 71,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_matteChokeFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "b5ce2a29e40a53985e251c3f05cfa3931d543b93d2332b91c55b15ad6b596129",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "b5ce2a29e40a53985e251c3f05cfa3931d543b93d2332b91c55b15ad6b596129",
+     "decoded_reference": "6e862dfe1a5d29368b12082cdeafcde59c012fbc4cc8a80604bd0a2ec05d7823",
+     "separation": {
+      "nearest_other_block_error": 57.011,
+      "nearest_other_type": "STD_erodeDilateFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.216,
+      "block_error": 3.595,
+      "max_error": 47,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_channelMixerFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "05e3647400afc22b8fb8bfff48b500962e469e3ea78f97d16d16b92ce4cf2c38",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "05e3647400afc22b8fb8bfff48b500962e469e3ea78f97d16d16b92ce4cf2c38",
+     "decoded_reference": "3b1f8e369aec7648de03df473e992b6346973803a8c618857d184209d485df9a",
+     "separation": {
+      "nearest_other_block_error": 85.0,
+      "nearest_other_type": "STD_sharpenFx"
+     },
+     "status": "passed",
+     "tolerance": {
+      "block_error": 6.0,
+      "mean_error": 3.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.415,
+      "block_error": 3.619,
+      "max_error": 58,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_gammaFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "156ba165edc92850eae2699236e77dcdd40764fc98f6b25f09fd764bd63feaac",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "156ba165edc92850eae2699236e77dcdd40764fc98f6b25f09fd764bd63feaac",
+     "decoded_reference": "89ef3012a20409f9453b2ecaadc648504bffafd2247fc7e2a6f45c24af368675",
+     "separation": {
+      "nearest_other_block_error": 5.659,
+      "nearest_other_type": "screenFx"
+     },
+     "status": "unverified",
+     "tolerance": {
+      "block_error": 8.0,
+      "mean_error": 4.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 1.881,
+      "block_error": 5.595,
+      "max_error": 80,
+      "decoded_differing_bytes": 0
+     },
+     "reason": "the block tolerance 8.0 does not separate this picture from screenFx's (block error 5.659); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_iwa_AdjustExposureFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "a7a2c1b988f1fe59bd3b3b51835472d9f8f801d7d432617cbbac9cca57e46596",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "a7a2c1b988f1fe59bd3b3b51835472d9f8f801d7d432617cbbac9cca57e46596",
+     "decoded_reference": "3e67d9263b4fa96f7ee0e5a99c18dd67e20a68eb2c33bec72e2e9d73d69de38a",
+     "separation": {
+      "nearest_other_block_error": 5.533,
+      "nearest_other_type": "screenFx"
+     },
+     "status": "unverified",
+     "tolerance": {
+      "block_error": 15.0,
+      "mean_error": 5.0,
+      "decoded_differing_bytes": 0,
+      "why": "set per cell from the recorded run: the observed error times 1.25, rounded up, plus one code value; the largest of 16 pixel blocks bounds a misplaced or missing effect, the mean error the whole frame; the decoded bytes must equal the stored decode (determinism only)"
+     },
+     "observed": {
+      "mean_error": 2.572,
+      "block_error": 10.733,
+      "max_error": 140,
+      "decoded_differing_bytes": 0
+     },
+     "reason": "the block tolerance 15.0 does not separate this picture from screenFx's (block error 5.533); the movie cannot confirm it, the PNG cell of the type is the check",
+     "run": "macOS-20261119-125254"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_half": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "exr_float": {
+    "macOS": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  }
+ },
+ "negative_test_gaps": {
+  "live.status": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested in tools/mcp/src/live.test.ts (not read by this check)",
+  "live.inspect": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested in tools/mcp/src/live.test.ts (not read by this check)",
+  "live.stage.set_key_value": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested in tools/mcp/src/live.test.ts (not read by this check)",
+  "live.fx.set_scalar_value": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested by the ctest mcp_live_protocol suite (automation_live_protocol_test.cpp)",
+  "live.receipt": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested by the ctest mcp_live_protocol and mcp_live_race suites",
+  "live.capabilities": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; it takes no input and no suite asserts a refusal for it"
+ }
+}
