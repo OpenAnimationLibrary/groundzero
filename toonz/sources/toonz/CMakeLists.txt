@@ -1291,7 +1291,7 @@ if(BUILD_UI_PORT_TESTS)
             automation_live_transport.cpp tests/automation_live_security_test.cpp)
         target_include_directories(mcp_live_security_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
         target_compile_definitions(mcp_live_security_test PRIVATE
-            AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
+            AUTOMATION_IDENTITY_EXECUTABLE_ONLY AUTOMATION_SECURITY_TEST_USER)
         set_target_properties(mcp_live_security_test PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
         target_link_libraries(mcp_live_security_test PRIVATE

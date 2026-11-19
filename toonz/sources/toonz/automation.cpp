@@ -727,7 +727,15 @@ void tearDownWorker(Context& context,
   retirePolls();
   if (settled) context.jobs.reset();
   closeSceneHosts(context);
-  TImageCache::instance()->clear(true);
+  try {
+    TImageCache::instance()->clear(true);
+  } catch (const TException& error) {
+    // The cache folder cannot be removed when the volume under it is gone.
+    std::cerr
+        << "automation-worker: image cache cleanup failed: "
+        << QString::fromStdWString(error.getMessage()).trimmed().toStdString()
+        << '\n';
+  }
 }
 
 int executeWorker(QApplication& application, QFile& output,

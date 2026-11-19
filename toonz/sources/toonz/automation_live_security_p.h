@@ -27,6 +27,11 @@ std::unique_ptr<PrivateFiles> openPrivateFiles(const QString& path,
 QByteArray randomBytes(int count);
 void verifyPeer(qintptr descriptor, bool client);
 void closeAccepted(qintptr descriptor) noexcept;
+#ifdef AUTOMATION_SECURITY_TEST_USER
+// Test builds of the security code only: the user every ownership and peer
+// check compares against, or -1 for the effective user.
+void pretendUser(long user);
+#endif
 QString endpointName(const QString& directory, const QString& randomName);
 
 }  // namespace SecurityDetail

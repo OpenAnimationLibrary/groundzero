@@ -1,4 +1,5 @@
 #include "automation_live_security.h"
+#include "automation_live_security_p.h"
 
 #include <sys/stat.h>
 #include <unistd.h>
@@ -17,6 +18,7 @@
 #include <QThread>
 #include <QtEndian>
 #include <cstdio>
+#include <functional>
 #include <stdexcept>
 
 #include "automation_build_identity.h"
@@ -37,6 +39,70 @@ void deniedRead(const QString& path) {
     return;
   }
   throw std::runtime_error("Insecure grant admitted");
+}
+// A different user cannot be created on a one-account machine. The first part
+// uses a directory root really owns; the rest makes the security code compare
+// against another user's identity, so that this user's own objects look
+// foreign to each ownership and credential check that is reached after the
+// directory checks.
+class PretendUser final {
+public:
+  explicit PretendUser(long user) { SecurityDetail::pretendUser(user); }
+  ~PretendUser() { SecurityDetail::pretendUser(-1); }
+};
+void requireRefusal(const std::function<void()>& attempt, const char* reason,
+                    const SecuritySession& publisher) {
+  try {
+    attempt();
+  } catch (const Error& error) {
+    require(error.code == "live_security" && error.message.contains(reason),
+            "A foreign user's object was refused for the wrong reason");
+    require(!error.message.contains(QString::fromLatin1(publisher.token())) &&
+                !error.message.contains(publisher.endpoint()),
+            "A refusal named the token or the endpoint");
+    return;
+  }
+  throw std::runtime_error("A foreign user's object was admitted");
+}
+void foreignUser(SecuritySession& publisher, const QString& path) {
+#ifdef Q_OS_MACOS
+  const QString system = "/private/etc/gz-live-foreign.json";
+#else
+  const QString system = "/etc/gz-live-foreign.json";
+#endif
+  requireRefusal([&] { SecuritySession::read(system); }, "owned by this user",
+                 publisher);
+  requireRefusal([&] { SecuritySession(system, "edit"); }, "owned by this user",
+                 publisher);
+  require(!QFileInfo::exists(system), "A grant was created in a root's folder");
+  const long other = long(geteuid()) + 1;
+  {
+    PretendUser pretend(other);
+    requireRefusal([&] { SecuritySession::read(path); },
+                   "belongs to another user", publisher);
+  }
+  const auto reader = SecuritySession::read(path);
+  QLocalSocket client;
+  client.connectToServer(publisher.endpoint());
+  require(client.waitForConnected(3000), "The fixture client did not connect");
+  qintptr accepted = -1;
+  QElapsedTimer timer;
+  timer.start();
+  while (accepted < 0 && timer.elapsed() < 3000) {
+    accepted = publisher.acceptDescriptor();
+    if (accepted < 0) QThread::msleep(10);
+  }
+  require(accepted >= 0, "The fixture client was never accepted");
+  publisher.verifyClient(accepted);
+  reader->verifyServer(client.socketDescriptor());
+  {
+    PretendUser pretend(other);
+    requireRefusal([&] { publisher.verifyClient(accepted); },
+                   "peer does not have", publisher);
+    requireRefusal([&] { reader->verifyServer(client.socketDescriptor()); },
+                   "socket owned by the current user", publisher);
+  }
+  closeAcceptedDescriptor(accepted);
 }
 QByteArray readFrame(QIODevice& stream) {
   QByteArray bytes;
@@ -544,6 +610,7 @@ int main(int argc, char* argv[]) {
     buildMismatchBeforeConnect(publisher, path, root);
     protocolMismatchBeforeConnect(publisher, path, root);
     fileAdmission(publisher, path, root);
+    foreignUser(publisher, path);
     transportAuthentication(root);
     reusedProcessId(root);
 #ifdef Q_OS_MACOS
