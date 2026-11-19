@@ -1265,7 +1265,11 @@ if(BUILD_UI_PORT_TESTS)
         add_test(NAME mcp_path_authority COMMAND ${CMAKE_COMMAND} -E env
             "PATH=${mcp_path_runtime_path}" "$<TARGET_FILE:mcp_path_test>")
     else()
-        add_test(NAME mcp_path_authority COMMAND mcp_path_test)
+        # The build-tree RPATH ($ORIGIN/../lib/opentoonz) fits bin/, not
+        # mcp-tests/, so name the folder of the toonz libraries explicitly.
+        add_test(NAME mcp_path_authority COMMAND ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=$<TARGET_FILE_DIR:toonzlib>"
+            "$<TARGET_FILE:mcp_path_test>")
     endif()
     set_tests_properties(mcp_path_authority PROPERTIES TIMEOUT 30)
     add_dependencies(OpenToonz mcp_path_test)
