@@ -923,7 +923,9 @@ protected:
   }
 
   QJsonObject budget() const override {
-    return {{"max_drawings", 0},
+    // The job record's budget has no zero drawing bound; this check reads
+    // no drawing of the document.
+    return {{"max_drawings", 1},
             {"max_strokes", 0},
             {"max_pixels", 0},
             {"max_files", m_maxFiles},

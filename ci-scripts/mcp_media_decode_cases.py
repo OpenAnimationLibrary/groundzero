@@ -29,8 +29,8 @@ def _level(identifier: int, name: str, path: str) -> str:
 
 
 def _media_scene(case: NativeAcceptance) -> Path:
-    """A scene whose PNG sequence has a good, a truncated, an unreadable, a crashing and
-    an oversized frame, beside a movie level."""
+    """A scene whose PNG sequence has good, truncated, unreadable, crashing and oversized
+    frames, beside a movie level."""
     base = base_package(case)
     folder = case.inputs / "media-corpus"
     shutil.copytree(base / "assets", folder / "assets")
@@ -42,6 +42,7 @@ def _media_scene(case: NativeAcceptance) -> Path:
     (assets / "seq.0004.png").write_bytes(CRASH_MARKER + good)
     with (assets / "seq.0005.png").open("wb") as large:
         large.truncate(TOO_LARGE)
+    (assets / "seq.0006.png").write_bytes(good)
     (assets / "clip.mov").write_bytes(b"\0\0\0\x14ftypqt  ")
     os.chmod(assets / "seq.0003.png", 0)
     levels = _level(SEQUENCE_ID, "Seq", "$scenefolder/assets/seq..png") + _level(
@@ -91,6 +92,7 @@ def media_decode_classifies_files(case: NativeAcceptance) -> None:
         "seq.0003.png": "unreadable",
         "seq.0004.png": "crashed",
         "seq.0005.png": "too_large",
+        "seq.0006.png": "decoded",
         "clip.mov": "unsupported_format",
     }
     for name, outcome in expected.items():
@@ -106,7 +108,9 @@ def media_decode_classifies_files(case: NativeAcceptance) -> None:
     summary = call(case, case.worker, "scene.summary", {"document_id": document})
     case.assertEqual(summary["document_id"], document)
     status = call(case, case.worker, "job.status", {"job_id": job["job_id"]})
-    case.assertGreaterEqual(status["analysis"]["cost"]["helpers_started"], 2)
+    # The batch helper crashes on frame 4; frames 4 and 6, which it did not
+    # answer, are decoded again one per helper.
+    case.assertGreaterEqual(status["analysis"]["cost"]["helpers_started"], 3)
 
 
 @acceptance_case

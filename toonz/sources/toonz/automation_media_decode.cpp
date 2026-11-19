@@ -16,6 +16,7 @@
 #include <QJsonObject>
 #include <QtEndian>
 
+#include <array>
 #include <cstdlib>
 
 namespace GroundzeroAutomation {
@@ -111,8 +112,63 @@ QJsonObject decodeLevel(const TFilePath& path) {
   return row;
 }
 
-// An image file: its header and the full image.
-QJsonObject decodeImage(const TFilePath& path) {
+quint32 crc32(const char* data, qint64 size) {
+  static const std::array<quint32, 256> table = [] {
+    std::array<quint32, 256> values{};
+    for (quint32 index = 0; index < 256; ++index) {
+      quint32 value = index;
+      for (int bit = 0; bit < 8; ++bit)
+        value = value & 1 ? 0xedb88320u ^ (value >> 1) : value >> 1;
+      values[index] = value;
+    }
+    return values;
+  }();
+  quint32 crc = 0xffffffffu;
+  for (qint64 index = 0; index < size; ++index)
+    crc = table[(crc ^ uchar(data[index])) & 0xff] ^ (crc >> 8);
+  return crc ^ 0xffffffffu;
+}
+
+// Every PNG chunk complete with a matching CRC, ending with IEND: the native
+// reader decodes what it can of a damaged stream and returns the rest blank.
+QString pngDamage(const QByteArray& bytes) {
+  if (!bytes.startsWith("\x89PNG\r\n\x1a\n")) return "No PNG signature.";
+  for (qint64 at = 8; at + 12 <= bytes.size();) {
+    const qint64 size = qFromBigEndian<quint32>(
+        reinterpret_cast<const uchar*>(bytes.constData() + at));
+    if (at + 12 + size > bytes.size()) return "A PNG chunk is truncated.";
+    const quint32 stored = qFromBigEndian<quint32>(
+        reinterpret_cast<const uchar*>(bytes.constData() + at + 8 + size));
+    if (crc32(bytes.constData() + at + 4, size + 4) != stored)
+      return "A PNG chunk fails its CRC.";
+    if (bytes.mid(at + 4, 4) == "IEND") return {};
+    at += 12 + size;
+  }
+  return "The PNG has no IEND chunk.";
+}
+
+// The container checks native readers skip: a JPEG must carry its EOI
+// marker and a BMP must hold the size its header declares.
+QString containerDamage(const QString& path, const QString& format) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) return "The copy cannot be read.";
+  const QByteArray bytes = file.readAll();
+  if (format == "png") return pngDamage(bytes);
+  if ((format == "jpg" || format == "jpeg") &&
+      (!bytes.startsWith("\xff\xd8") || bytes.lastIndexOf("\xff\xd9") < 2))
+    return "The JPEG stream has no EOI marker.";
+  if (format == "bmp" &&
+      (bytes.size() < 6 || !bytes.startsWith("BM") ||
+       qFromLittleEndian<quint32>(reinterpret_cast<const uchar*>(
+           bytes.constData() + 2)) > quint32(bytes.size())))
+    return "The BMP is shorter than its header declares.";
+  return {};
+}
+
+// An image file: its container, its header and the full image.
+QJsonObject decodeImage(const TFilePath& path, const QString& format) {
+  const QString damage = containerDamage(path.getQString(), format);
+  if (!damage.isEmpty()) return corrupt(damage);
   TImageP image;
   if (!TImageReader::load(path, image) || !image)
     return corrupt("The image cannot be decoded.");
@@ -140,7 +196,7 @@ QJsonObject decode(const QString& path, const QString& format) {
   try {
     if (soundFormat(format)) return decodeSound(file);
     if (levelFormat(format)) return decodeLevel(file);
-    return decodeImage(file);
+    return decodeImage(file, format);
   } catch (const TException& error) {
     return corrupt(QString::fromStdWString(error.getMessage()));
   } catch (const std::exception& error) {
