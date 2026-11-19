@@ -479,5 +479,65 @@
         "pattern": "test_mcp_perf_stats.py"
       }
     ]
+  },
+  {
+    "id": "shot-oracle-landmarks",
+    "file": "ci-scripts/mcp_shot.py",
+    "find": "        actual = pixels[y * width + x]\n        require(actual == expected,",
+    "replace": "        actual = pixels[y * width + x]\n        require(True or actual == expected,",
+    "why": "The oracle checks the authored landmarks, so a sky drawn over the harbor fails.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "shot_that_renders_wrongly_fails_the_independent_oracle"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "shot-oracle-courier",
+    "file": "ci-scripts/mcp_shot.py",
+    "find": "require(core == INK,",
+    "replace": "require(True or core == INK,",
+    "why": "The oracle checks where the courier is, so a dropped or misplaced courier fails.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "shot_that_renders_wrongly_fails_the_independent_oracle"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "shot-oracle-gradient",
+    "file": "ci-scripts/mcp_shot.py",
+    "find": "require(lower[1] >= upper[1] + 4, f\"Frame {frame} sky lost its top-to-bottom gradient\")",
+    "replace": "require(True, \"\")",
+    "why": "The oracle checks the sky's direction, so an upside-down sky fails.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "shot_that_renders_wrongly_fails_the_independent_oracle"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "shot-refusal-leaves-draft",
+    "file": "ci-scripts/mcp_shot_failure_cases.py",
+    "find": "    response = shot.worker.call(method, request)\n",
+    "replace": "    response = shot.worker.call(method, request)\n    if document is not None:\n        sneaky = {\"document_id\": document, \"expected_revision\": shot.revisions[document]}\n        shot.worker.call(\"scene.settings\", {**sneaky, \"operation_id\": f\"s-{shot.operations}\", \"frame_rate\": 31})\n",
+    "why": "A refused edit that changed the draft is noticed.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "shot_edit_failures_end_typed_and_change_nothing"
+        ]
+      }
+    ]
   }
 ]
