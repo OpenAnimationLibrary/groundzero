@@ -13,7 +13,10 @@ class TDoubleParam;
 namespace GroundzeroAutomation {
 
 struct AnimationKeyEdit final {
+  // Replacement or new records, ascending by frame.
   std::vector<TDoubleKeyframe> keys;
+  // Key frames removed before the records are written.
+  std::vector<int> deletedFrames;
   bool changed = false;
 };
 
@@ -84,7 +87,23 @@ void validateAnimationKeyDeletion(const TDoubleParam& curve,
 AnimationKeyEdit prepareAnimationBreakdown(const TDoubleParam& curve,
                                            const QJsonObject& request);
 
-// Write the prepared records to the curve.
+// Prepare a shift of whole key records by frame_offset frames and value_offset.
+// The key order is kept and every unselected key is left unchanged; a shift
+// that would cross or land on another key, leave a handle outside its segment
+// or change a key's incoming control kind is refused.
+AnimationKeyEdit prepareAnimationKeyMove(const TDoubleParam& curve,
+                                         const std::vector<int>& frames,
+                                         int frameOffset, double valueOffset);
+
+// Prepare verbatim copies of key records at frame_offset frames and
+// value_offset. No existing key is replaced and no key's incoming control kind
+// changes.
+AnimationKeyEdit prepareAnimationKeyDuplicate(const TDoubleParam& curve,
+                                              const std::vector<int>& frames,
+                                              int frameOffset,
+                                              double valueOffset = 0);
+
+// Delete the prepared frames, then write the prepared records to the curve.
 void applyAnimationKeyEdit(TDoubleParam& curve, const AnimationKeyEdit& edit);
 
 // Return an empty string for supported content, or its concrete admission

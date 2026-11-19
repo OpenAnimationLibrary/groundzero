@@ -1601,6 +1601,51 @@
     "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
    }
   },
+  "animation.duplicate_keys": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "adds copies of existing keys of one channel curve",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "frames": [
+      10
+     ],
+     "frame_offset": 10
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "frames": [
+       10
+      ],
+      "frame_offset": -10
+     },
+     "code": "invalid_argument"
+    }
+   ],
+   "no_noop": "A repeat copies onto the key the first call created, so it is rejected as invalid_argument; the rule applies: a rejected call changes nothing."
+  },
   "animation.insert_breakdown": {
    "group": "animation",
    "kind": "document",
@@ -1641,6 +1686,52 @@
     }
    ],
    "no_noop": "A repeat names a frame that is now a key, so it is rejected as invalid_argument; the rule applies: a rejected call changes nothing."
+  },
+  "animation.move_keys": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "moves existing keys of one channel curve by frames and value",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "frames": [
+      10
+     ],
+     "frame_offset": 5,
+     "value_offset": 1
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "frames": [
+       10
+      ],
+      "frame_offset": -10
+     },
+     "code": "invalid_argument"
+    }
+   ],
+   "no_noop": "A repeat shifts the same frames again; the same operation_id replays the recorded result. A zero shift is a no-op that leaves the revision (native domain test moveRefusals)."
   },
   "animation.copy_curve": {
    "group": "animation",

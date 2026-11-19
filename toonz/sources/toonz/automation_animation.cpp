@@ -31,6 +31,12 @@ struct ProposedKey final {
               {{"frame", frame}, {"field", field}});
 }
 
+[[noreturn]] void refuse(const QString& reason, const QString& message,
+                         double frame, const QString& field) {
+  throw Error("invalid_argument", message,
+              {{"frame", frame}, {"field", field}, {"reason", reason}});
+}
+
 double number(const QJsonObject& object, const QString& field, double minimum,
               double maximum, double frame) {
   const auto value    = object.value(field);
@@ -269,10 +275,10 @@ void validateTransition(const TDoubleParam& original, const TDoubleParam& next,
     if (deleting && index == 0) continue;
     const auto& before = exactKey(original, key.m_frame);
     if (controlKind(before.m_prevType) != controlKind(key.m_prevType))
-      invalid(
-          "Supply this end key's incoming control when changing its segment "
-          "kind.",
-          key.m_frame, "incoming");
+      refuse("incoming_kind_changed",
+             "Supply this end key's incoming control when changing its "
+             "segment kind.",
+             key.m_frame, "incoming");
   }
 }
 
@@ -458,12 +464,6 @@ TDoubleKeyframe retimedKey(TDoubleKeyframe key, const TimeMapping& mapping) {
   return key;
 }
 
-[[noreturn]] void refuse(const QString& reason, const QString& message,
-                         double frame, const QString& field) {
-  throw Error("invalid_argument", message,
-              {{"frame", frame}, {"field", field}, {"reason", reason}});
-}
-
 struct BreakdownRequest final {
   int frame;
   bool favoured;
@@ -516,6 +516,71 @@ SplitSegment splitSegment(const TDoubleKeyframe& previous,
   }
   key.m_linkedHandles = controlKind(previous.m_type) == IncomingKind::None;
   return split;
+}
+
+// Validates a curve built by an edit, naming a handle that no longer fits its
+// segment as a reason.
+void validateProspective(const TDoubleParam& curve) {
+  try {
+    validateCurve(curve);
+  } catch (Error& error) {
+    if (error.code == "invalid_argument" &&
+        error.details.value("field") == "controls")
+      error.details.insert("reason", "controls");
+    throw;
+  }
+}
+
+void requireWritable(const TDoubleParam& curve) {
+  if (curve.isEditorLocked())
+    throw Error("locked", "The animation channel is locked.");
+}
+
+std::vector<int> selectedIndices(const TDoubleParam& curve,
+                                 const std::vector<int>& frames) {
+  if (frames.empty() || frames.size() > MaxAnimationKeys)
+    throw Error("resource_limit", "frames must name 1 through 10000 keys.");
+  std::vector<int> result;
+  QSet<int> seen;
+  for (const int frame : frames) {
+    if (!curve.isKeyframe(frame))
+      throw Error("missing_key", "Every requested key must exist.",
+                  {{"frame", frame}});
+    if (seen.contains(frame))
+      refuse("duplicate_frame", "frames must not repeat a key.", frame,
+             "frames");
+    seen.insert(frame);
+    result.push_back(curve.getClosestKeyframe(frame));
+  }
+  std::sort(result.begin(), result.end());
+  return result;
+}
+
+void requireOffsets(int frameOffset, double valueOffset) {
+  if (std::abs(frameOffset) > MaxAnimationFrame)
+    refuse("frame_out_of_range", "frame_offset leaves the frame range.", 0,
+           "frame_offset");
+  if (!std::isfinite(valueOffset) ||
+      std::abs(valueOffset) > 2 * MaxAnimationValue)
+    refuse("value_out_of_bounds", "value_offset leaves the bounds.", 0,
+           "value_offset");
+}
+
+// The record shifted by the offsets, within the profile's frame and value
+// bounds.
+TDoubleKeyframe shifted(TDoubleKeyframe record, int frameOffset,
+                        double valueOffset) {
+  const double frame = record.m_frame + frameOffset;
+  if (frame < 0 || frame > MaxAnimationFrame)
+    refuse("frame_out_of_range", "A shifted key leaves the frame range.",
+           record.m_frame, "frame_offset");
+  record.m_frame = frame;
+  record.m_value += valueOffset;
+  if (!std::isfinite(record.m_value) ||
+      std::abs(record.m_value) > MaxAnimationValue)
+    refuse("value_out_of_bounds", "A shifted key leaves the value bounds.",
+           frame, "value_offset");
+  return record;
 }
 
 }  // namespace
@@ -582,13 +647,87 @@ AnimationKeyEdit prepareAnimationBreakdown(const TDoubleParam& curve,
   std::sort(result.keys.begin(), result.keys.end());
   TDoubleParamP prospective(new TDoubleParam(curve));
   applyAnimationKeyEdit(*prospective, result);
-  validateCurve(*prospective);
+  validateProspective(*prospective);
   validateTransition(curve, *prospective, {read.frame});
   result.changed = true;
   return result;
 }
 
+AnimationKeyEdit prepareAnimationKeyMove(const TDoubleParam& curve,
+                                         const std::vector<int>& frames,
+                                         int frameOffset, double valueOffset) {
+  requireWritable(curve);
+  validateCurve(curve);
+  const auto indices = selectedIndices(curve, frames);
+  requireOffsets(frameOffset, valueOffset);
+  AnimationKeyEdit result;
+  if (frameOffset == 0 && valueOffset == 0) return result;
+  QSet<int> oldFrames, newFrames;
+  std::vector<double> order;
+  for (int index = 0; index < curve.getKeyframeCount(); ++index) {
+    auto record = curve.getKeyframe(index);
+    if (std::binary_search(indices.begin(), indices.end(), index)) {
+      oldFrames.insert(static_cast<int>(record.m_frame));
+      record = shifted(record, frameOffset, valueOffset);
+      newFrames.insert(static_cast<int>(record.m_frame));
+      result.keys.push_back(record);
+    }
+    if (!order.empty() && record.m_frame <= order.back())
+      refuse(record.m_frame == order.back() ? "key_exists" : "order_changed",
+             "A moved key may not land on or cross another key.",
+             record.m_frame, "frame_offset");
+    order.push_back(record.m_frame);
+  }
+  for (const int frame : oldFrames)
+    if (!newFrames.contains(frame)) result.deletedFrames.push_back(frame);
+  std::sort(result.deletedFrames.begin(), result.deletedFrames.end());
+  std::sort(result.keys.begin(), result.keys.end());
+  TDoubleParamP prospective(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*prospective, result);
+  validateProspective(*prospective);
+  validateTransition(curve, *prospective, newFrames);
+  result.changed = true;
+  return result;
+}
+
+AnimationKeyEdit prepareAnimationKeyDuplicate(const TDoubleParam& curve,
+                                              const std::vector<int>& frames,
+                                              int frameOffset,
+                                              double valueOffset) {
+  requireWritable(curve);
+  validateCurve(curve);
+  const auto indices = selectedIndices(curve, frames);
+  requireOffsets(frameOffset, valueOffset);
+  AnimationKeyEdit result;
+  QSet<int> created;
+  std::map<int, IncomingKind> sourceKinds;
+  for (const int index : indices) {
+    const auto& source = curve.getKeyframe(index);
+    auto record        = shifted(source, frameOffset, valueOffset);
+    if (curve.isKeyframe(record.m_frame))
+      refuse("key_exists", "A copy may not land on an existing key.",
+             record.m_frame, "frame_offset");
+    created.insert(static_cast<int>(record.m_frame));
+    sourceKinds[static_cast<int>(record.m_frame)] =
+        controlKind(source.m_prevType);
+    result.keys.push_back(record);
+  }
+  TDoubleParamP prospective(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*prospective, result);
+  validateProspective(*prospective);
+  validateTransition(curve, *prospective, created);
+  for (const auto& [frame, kind] : sourceKinds)
+    if (controlKind(exactKey(*prospective, frame).m_prevType) != kind)
+      refuse("incoming_kind_changed",
+             "A copy would change its incoming control kind; use "
+             "animation.set_keys to state it.",
+             frame, "incoming");
+  result.changed = true;
+  return result;
+}
+
 void applyAnimationKeyEdit(TDoubleParam& curve, const AnimationKeyEdit& edit) {
+  for (const int frame : edit.deletedFrames) curve.deleteKeyframe(frame);
   for (const auto& key : edit.keys) curve.setKeyframe(key);
 }
 

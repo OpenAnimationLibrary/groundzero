@@ -11,6 +11,13 @@
     "handler": "deleteKeys",
     "read": []
   },
+  "animation.duplicate_keys": {
+    "handler": "duplicateKeys",
+    "read": [
+      "frame",
+      "created_frames"
+    ]
+  },
   "animation.insert_breakdown": {
     "handler": "insertBreakdown",
     "read": [
@@ -20,6 +27,13 @@
   "animation.keys": {
     "handler": "inspectKeys",
     "read": []
+  },
+  "animation.move_keys": {
+    "handler": "moveKeys",
+    "read": [
+      "frame",
+      "moved_frames"
+    ]
   },
   "animation.retime_curve": {
     "handler": "retimeAnimationCurve",

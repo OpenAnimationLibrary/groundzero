@@ -801,6 +801,254 @@ void breakdownRespectsTheKeyLimit() {
            [&]() { prepareAnimationBreakdown(*curve, breakdown(1, 50)); });
 }
 
+// ---- Key move and key duplicate ------------------------------------------
+
+using Frames = std::vector<int>;
+
+TDoubleParamP appliedMove(const TDoubleParam& curve, const Frames& frames,
+                          int frameOffset, double valueOffset) {
+  TDoubleParamP edited(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*edited, prepareAnimationKeyMove(
+                                     curve, frames, frameOffset, valueOffset));
+  return edited;
+}
+
+TDoubleParamP appliedDuplicate(const TDoubleParam& curve, const Frames& frames,
+                               int frameOffset, double valueOffset = 0) {
+  TDoubleParamP edited(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*edited, prepareAnimationKeyDuplicate(
+                                     curve, frames, frameOffset, valueOffset));
+  return edited;
+}
+
+void requireReopenedSamples(const TDoubleParam& curve, const char* name) {
+  QTemporaryDir directory;
+  require(directory.isValid(), "Move fixture directory is unavailable");
+  const TFilePath path(directory.filePath(name));
+  {
+    TOStream output(path);
+    const_cast<TDoubleParam&>(curve).saveData(output);
+  }
+  TDoubleParamP reopened(new TDoubleParam());
+  {
+    TIStream input(path);
+    reopened->loadData(input);
+  }
+  require(sameKeyLists(storedKeys(curve), storedKeys(*reopened)) ||
+              reopened->getKeyframeCount() == curve.getKeyframeCount(),
+          "Reopening changed the key count");
+  for (const double sample : denseFrames(120))
+    require(reopened->getValue(sample) == curve.getValue(sample),
+            "Reopening changed a sample");
+}
+
+void moveShiftsOnlyTheSelectedKeys() {
+  struct Case {
+    Frames frames;
+    int frameOffset;
+    double valueOffset;
+    double from;
+    double to;
+  };
+  // from and to bound the segments the move may change; everything else is
+  // compared bit for bit.
+  const std::array<Case, 5> cases{
+      Case{{36}, 4, 10, 24, 48}, Case{{0}, 2, 0, 0, 12},
+      Case{{48}, 3, -5, 36, 1e9}, Case{{12, 24}, 3, 0, 0, 36},
+      Case{{24}, 0, 5, 12, 36}};
+  for (const auto& item : cases) {
+    const auto curve  = editedCurve();
+    const auto before = storedKeys(*curve);
+    const auto edited =
+        appliedMove(*curve, item.frames, item.frameOffset, item.valueOffset);
+    require(sameKeyLists(before, storedKeys(*curve)),
+            "Preparing a move changed the source curve");
+    const auto after = storedKeys(*edited);
+    require(after.size() == before.size(), "A move changed the key count");
+    std::vector<double> touched;
+    for (const int frame : item.frames) {
+      touched.push_back(frame);
+      const auto* source = storedKeyAt(before, frame);
+      const auto* moved  = storedKeyAt(after, frame + item.frameOffset);
+      require(source && moved, "A moved key is missing");
+      require(moved->m_type == source->m_type &&
+                  moved->m_step == source->m_step &&
+                  moved->m_speedIn == source->m_speedIn &&
+                  moved->m_speedOut == source->m_speedOut &&
+                  moved->m_linkedHandles == source->m_linkedHandles &&
+                  moved->m_unitName == source->m_unitName &&
+                  moved->m_value == source->m_value + item.valueOffset,
+              "A moved key changed more than its frame and value");
+    }
+    for (const auto& original : before) {
+      bool moved = false;
+      for (const double frame : touched) moved |= frame == original.m_frame;
+      if (!moved)
+        require(storedKeyAt(after, original.m_frame) &&
+                    identical(original, *storedKeyAt(after, original.m_frame)),
+                "An unselected key changed in a move");
+    }
+    requireSamplesOutside(*curve, *edited, item.from, item.to,
+                          "A move changed a segment it does not touch");
+    requireReopenedSamples(*edited, "moved.xml");
+  }
+}
+
+void movedGroupKeepsItsInnerSegmentExactly() {
+  const auto curve  = editedCurve();
+  const auto edited = appliedMove(*curve, {12, 24}, 3, 0);
+  for (double frame = 12; frame <= 24; frame += 0.25)
+    require(edited->getValue(frame + 3) == curve->getValue(frame),
+            "A moved group's inner segment changed shape");
+}
+
+void moveMatchesTheEditor() {
+  const std::array<std::pair<Frames, std::pair<int, double>>, 3> cases{
+      std::make_pair(Frames{36}, std::make_pair(4, 10.0)),
+      std::make_pair(Frames{0}, std::make_pair(2, 0.0)),
+      std::make_pair(Frames{24}, std::make_pair(0, 5.0))};
+  for (const auto& item : cases) {
+    const auto curve = editedCurve();
+    const auto edited =
+        appliedMove(*curve, item.first, item.second.first, item.second.second);
+    TDoubleParamP native(new TDoubleParam(*curve));
+    KeyframeSetter setter(native.getPointer(),
+                          native->getClosestKeyframe(item.first[0]), false);
+    setter.moveKeyframes(item.second.first, item.second.second);
+    require(sameKeyLists(storedKeys(*edited), storedKeys(*native)),
+            "The moved keys differ from the editor's");
+    for (const double sample : denseFrames(80))
+      require(edited->getValue(sample) == native->getValue(sample),
+              "A moved sample differs from the editor's");
+  }
+}
+
+void moveRefusals() {
+  const auto curve = editedCurve();
+  rejectedFor(*curve, "key_exists",
+              [&]() { prepareAnimationKeyMove(*curve, {12}, 12, 0); });
+  rejectedFor(*curve, "order_changed",
+              [&]() { prepareAnimationKeyMove(*curve, {12}, 13, 0); });
+  rejectedFor(*curve, "order_changed",
+              [&]() { prepareAnimationKeyMove(*curve, {24}, -13, 0); });
+  rejectedFor(*curve, "controls",
+              [&]() { prepareAnimationKeyMove(*curve, {12}, 10, 0); });
+  rejectedFor(*curve, "frame_out_of_range",
+              [&]() { prepareAnimationKeyMove(*curve, {0}, -1, 0); });
+  rejectedFor(*curve, "frame_out_of_range",
+              [&]() { prepareAnimationKeyMove(*curve, {48}, 1000000, 0); });
+  rejectedFor(*curve, "frame_out_of_range",
+              [&]() { prepareAnimationKeyMove(*curve, {48}, 2000000, 0); });
+  rejectedFor(*curve, "value_out_of_bounds",
+              [&]() { prepareAnimationKeyMove(*curve, {36}, 0, 1999999); });
+  rejectedFor(*curve, "duplicate_frame",
+              [&]() { prepareAnimationKeyMove(*curve, {36, 36}, 1, 0); });
+  rejected(*curve, "missing_key",
+           [&]() { prepareAnimationKeyMove(*curve, {36, 37}, 1, 0); });
+  rejected(*curve, "resource_limit",
+           [&]() { prepareAnimationKeyMove(*curve, {}, 1, 0); });
+  const auto noop = prepareAnimationKeyMove(*curve, {36}, 0, 0);
+  require(!noop.changed && noop.keys.empty() && noop.deletedFrames.empty(),
+          "A zero move was not a no-op");
+  curve->setEditorLocked(true);
+  rejected(*curve, "locked",
+           [&]() { prepareAnimationKeyMove(*curve, {36}, 1, 0); });
+  curve->setEditorLocked(false);
+  curve->enableCycle(true);
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationKeyMove(*curve, {36}, 1, 0); });
+  curve->enableCycle(false);
+  auto expression             = curve->getKeyframe(2);
+  expression.m_type           = TDoubleKeyframe::Expression;
+  expression.m_expressionText = "frame";
+  curve->setKeyframe(expression);
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationKeyMove(*curve, {36}, 1, 0); });
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationKeyDuplicate(*curve, {36}, 70); });
+}
+
+void duplicateCopiesRecordsVerbatim() {
+  struct Case {
+    Frames frames;
+    int frameOffset;
+    double valueOffset;
+  };
+  const std::array<Case, 3> cases{Case{{0}, 60, 0}, Case{{36, 48}, 20, 7},
+                                  Case{{36}, 4, 0}};
+  for (const auto& item : cases) {
+    const auto curve  = editedCurve();
+    const auto before = storedKeys(*curve);
+    const auto edited = appliedDuplicate(*curve, item.frames, item.frameOffset,
+                                         item.valueOffset);
+    require(sameKeyLists(before, storedKeys(*curve)),
+            "Preparing a duplicate changed the source curve");
+    const auto after = storedKeys(*edited);
+    require(after.size() == before.size() + item.frames.size(),
+            "A duplicate added the wrong number of keys");
+    for (const auto& original : before)
+      require(storedKeyAt(after, original.m_frame) &&
+                  identical(original, *storedKeyAt(after, original.m_frame)),
+              "A duplicate changed an existing key");
+    double last = 0;
+    for (const int frame : item.frames) {
+      const auto* source = storedKeyAt(before, frame);
+      const auto* copy   = storedKeyAt(after, frame + item.frameOffset);
+      require(copy && copy->m_type == source->m_type &&
+                  copy->m_step == source->m_step &&
+                  copy->m_speedIn == source->m_speedIn &&
+                  copy->m_speedOut == source->m_speedOut &&
+                  copy->m_linkedHandles == source->m_linkedHandles &&
+                  copy->m_value == source->m_value + item.valueOffset,
+              "A copy differs from its source");
+      last = std::max<double>(last, frame + item.frameOffset);
+    }
+    const double first = item.frames.front() + item.frameOffset;
+    requireSamplesOutside(*curve, *edited, std::min(first, 48.0) - 0.0,
+                          last + 100,
+                          "A duplicate changed a segment before it");
+    requireReopenedSamples(*edited, "duplicated.xml");
+  }
+}
+
+void duplicateRefusals() {
+  const auto curve = editedCurve();
+  rejectedFor(*curve, "key_exists",
+              [&]() { prepareAnimationKeyDuplicate(*curve, {0}, 12); });
+  rejectedFor(*curve, "key_exists",
+              [&]() { prepareAnimationKeyDuplicate(*curve, {0}, 0, 3); });
+  rejectedFor(*curve, "incoming_kind_changed",
+              [&]() { prepareAnimationKeyDuplicate(*curve, {12, 24}, 40); });
+  rejectedFor(*curve, "incoming_kind_changed",
+              [&]() { prepareAnimationKeyDuplicate(*curve, {24}, 40); });
+  rejectedFor(*curve, "incoming_kind_changed",
+              [&]() { prepareAnimationKeyDuplicate(*curve, {36}, -30); });
+  rejectedFor(*curve, "incoming_kind_changed",
+              [&]() { prepareAnimationKeyDuplicate(*curve, {0}, 18); });
+  rejectedFor(*curve, "frame_out_of_range",
+              [&]() { prepareAnimationKeyDuplicate(*curve, {0}, -1); });
+  rejectedFor(*curve, "value_out_of_bounds", [&]() {
+    prepareAnimationKeyDuplicate(*curve, {36}, 70, 1999999);
+  });
+  rejectedFor(*curve, "duplicate_frame",
+              [&]() { prepareAnimationKeyDuplicate(*curve, {36, 36}, 70); });
+  rejected(*curve, "missing_key",
+           [&]() { prepareAnimationKeyDuplicate(*curve, {35}, 70); });
+  curve->setEditorLocked(true);
+  rejected(*curve, "locked",
+           [&]() { prepareAnimationKeyDuplicate(*curve, {36}, 70); });
+  curve->setEditorLocked(false);
+  curve->enableCycle(true);
+  rejected(*curve, "unsupported_interpolation",
+           [&]() { prepareAnimationKeyDuplicate(*curve, {36}, 70); });
+  TDoubleParamP full(new TDoubleParam());
+  for (int index = 0; index < 9999; ++index)
+    full->setKeyframe(key(index * 2, index, TDoubleKeyframe::Linear, {}, {}));
+  rejected(*full, "resource_limit",
+           [&]() { prepareAnimationKeyDuplicate(*full, {0, 2}, 30001); });
+  appliedDuplicate(*full, {0}, 30001);
+}
+
 }  // namespace
 
 void runAutomationAnimationTests() {
@@ -824,6 +1072,12 @@ void runAutomationAnimationTests() {
   breakdownSurvivesSaveAndReopen();
   breakdownRefusals();
   breakdownRespectsTheKeyLimit();
+  moveShiftsOnlyTheSelectedKeys();
+  movedGroupKeepsItsInnerSegmentExactly();
+  moveMatchesTheEditor();
+  moveRefusals();
+  duplicateCopiesRecordsVerbatim();
+  duplicateRefusals();
 }
 
 }  // namespace GroundzeroAutomation

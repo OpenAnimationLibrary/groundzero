@@ -210,6 +210,11 @@
    "toolset": "core",
    "writes": true
   },
+  "animation.duplicate_keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "animation.insert_breakdown": {
    "origin": "worker",
    "toolset": "core",
@@ -219,6 +224,11 @@
    "origin": "worker",
    "toolset": "core",
    "writes": false
+  },
+  "animation.move_keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
   },
   "animation.retime_curve": {
    "origin": "worker",
@@ -1741,6 +1751,19 @@
    "classification": "exposed",
    "tools": [
     "animation.insert_breakdown"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.move_and_duplicate_keys",
+   "domain": "Stage, camera and animation",
+   "outcome": "Move or duplicate existing keys by whole frames and a value, keeping the key order, every other key and every untouched segment unchanged.",
+   "classification": "exposed",
+   "tools": [
+    "animation.move_keys",
+    "animation.duplicate_keys"
    ],
    "disposition": {
     "kind": "implemented"

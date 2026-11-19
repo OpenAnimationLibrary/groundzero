@@ -1023,6 +1023,49 @@ QJsonValue insertBreakdown(Context& context, const QJsonObject& params) {
   return result;
 }
 
+QJsonArray editedFrames(const AnimationKeyEdit& edit) {
+  QJsonArray frames;
+  for (const auto& key : edit.keys) frames.append(key.m_frame);
+  return frames;
+}
+
+QJsonValue changeKeys(Context& context, const QJsonObject& params,
+                      bool duplicate) {
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  requireEditable(document, target.object);
+  requireStageBaseChannel(
+      target, duplicate ? "animation.duplicate_keys" : "animation.move_keys");
+  const std::vector<int> frames = readFrames(params);
+  const int frameOffset =
+      integerParam(params, "frame_offset", -MaxFrame, MaxFrame, 0);
+  const double valueOffset =
+      numberParam(params, "value_offset", -2000000, 2000000, 0);
+  const auto edit = duplicate
+                        ? prepareAnimationKeyDuplicate(*target.curve, frames,
+                                                       frameOffset, valueOffset)
+                        : prepareAnimationKeyMove(*target.curve, frames,
+                                                  frameOffset, valueOffset);
+  if (edit.changed) {
+    context.markMutationStarted();
+    applyAnimationKeyEdit(*target.curve, edit);
+  }
+  QJsonObject result = inspectKeys(context, params).toObject();
+  if (duplicate)
+    result.insert("created_frames", editedFrames(edit));
+  else
+    result.insert("moved_frames", editedFrames(edit));
+  return result;
+}
+
+QJsonValue moveKeys(Context& context, const QJsonObject& params) {
+  return changeKeys(context, params, false);
+}
+
+QJsonValue duplicateKeys(Context& context, const QJsonObject& params) {
+  return changeKeys(context, params, true);
+}
+
 TDoubleParam* wholeCurveTarget(Document& document, const QJsonObject& target,
                                bool writable) {
   auto* object = document.object(requiredString(target, "object_id"));
@@ -1413,6 +1456,28 @@ void addAnimationOperations(QJsonArray& catalog) {
                     {"favour_percent", numberSchema(-100, 200)},
                     {"value", numberSchema(-1000000, 1000000)}}),
       {"document_id", "object_id", "channel", "unit", "frame"}, true));
+  const QJsonObject keyFrames{
+      {"frames", arraySchema(integerSchema(0, MaxFrame))},
+      {"frame_offset", integerSchema(-MaxFrame, MaxFrame)},
+      {"value_offset", numberSchema(-2000000, 2000000)}};
+  catalog.append(operation(
+      "animation.move_keys",
+      "Shift existing keys by frame_offset frames and value_offset, as the "
+      "editor's key drag: each moved key keeps its interpolation, step and "
+      "handles, the key order is kept, and every other key is unchanged. A "
+      "shift that lands on or crosses another key, leaves a handle outside "
+      "its segment or leaves the bounds is refused.",
+      merge(stage, keyFrames),
+      {"document_id", "object_id", "channel", "unit", "frames"}, true));
+  catalog.append(operation(
+      "animation.duplicate_keys",
+      "Copy existing keys verbatim to frame_offset frames later (or earlier) "
+      "with value_offset added, as the editor's copy and paste. A copy may "
+      "not land on an existing key, and no key's incoming control kind may "
+      "change; existing keys are unchanged.",
+      merge(stage, keyFrames),
+      {"document_id", "object_id", "channel", "unit", "frames", "frame_offset"},
+      true));
   QJsonArray withKeys = required;
   withKeys.append("keys");
   catalog.append(operation(
@@ -1474,6 +1539,8 @@ QJsonValue executeScene(Context& context, const QString& method,
       {"animation.set_keys", setKeys},
       {"animation.delete_keys", deleteKeys},
       {"animation.insert_breakdown", insertBreakdown},
+      {"animation.move_keys", moveKeys},
+      {"animation.duplicate_keys", duplicateKeys},
       {"animation.sample", sampleAnimation}};
   const auto handler = handlers.find(method);
   if (handler == handlers.end())
