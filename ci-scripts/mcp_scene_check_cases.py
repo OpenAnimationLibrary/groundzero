@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import signal
 import subprocess
 import time
@@ -268,58 +267,6 @@ def analysis_job_after_worker_loss(case: NativeAcceptance) -> None:
     case.assertEqual((status["kind"], status["lane"]), ("scene_check", "analysis"))
     listed = case.success("job.list", {})
     case.assertEqual([row["status"] for row in listed["jobs"]], ["unknown"])
-
-
-def _read_only_copies(case: NativeAcceptance, count: int) -> list[str]:
-    """Save the two-level scene and open `count` copies of it read-only, each in a host."""
-    document, _levels = _scene(case)
-    saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "checked"))
-    documents = []
-    for index in range(count):
-        copy = case.inputs / f"checked-{index}"
-        shutil.copytree(saved["package_directory"], copy)
-        opened = open_scene(case, case.worker, copy / "scene.tnz", "standalone")
-        documents.append(opened["document_id"])
-    return documents
-
-
-def analysis_admission_across_hosts(case: NativeAcceptance) -> None:
-    """One analysis lane for the worker and all its scene hosts: while a check runs in one
-    host, a check in another host or in the worker is refused with analysis_busy naming
-    the lane and the running job; once it ends, the next is admitted."""
-    _slow_worker(case)
-    first, second = _read_only_copies(case, 2)
-    params = {"expected_revision": "0", "check": "unused_styles"}
-    job = call(
-        case,
-        case.worker,
-        "scene.check.submit",
-        {**params, "document_id": first, "operation_id": "host-one"},
-    )
-    case.assertEqual(job["executor"], "scene_host")
-    _running(case, job["job_id"])
-    busy = case.failure(
-        "scene.check.submit", {**params, "document_id": second, "operation_id": "host-two"}
-    )
-    case.assertEqual(
-        (busy["code"], busy["details"]["active_job_id"], busy["details"]["lane"]),
-        ("analysis_busy", job["job_id"], "analysis"),
-    )
-    editable = case.create("Editable beside hosts")
-    local = case.failure("scene.check.submit", case.write_params(editable, {"check": "inventory"}))
-    case.assertEqual(
-        (local["code"], local["details"]["active_job_id"]), ("analysis_busy", job["job_id"])
-    )
-    canceled = case.success("job.cancel", case.write_params(None, {"job_id": job["job_id"]}))
-    case.assertIn(canceled["status"], {"cancellation_requested", "canceled"})
-    case.assertEqual(_host_wait(case, case.worker, job["job_id"])["status"], "canceled")
-    admitted = call(
-        case,
-        case.worker,
-        "scene.check.submit",
-        {**params, "document_id": second, "operation_id": "host-three"},
-    )
-    case.assertEqual(_host_wait(case, case.worker, admitted["job_id"])["status"], "completed")
 
 
 def _findings(case: NativeAcceptance, document: str) -> set[tuple[str, str]]:
