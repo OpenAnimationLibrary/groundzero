@@ -148,6 +148,8 @@ class Session:
 
     def _call_step(self, step: dict[str, Any]) -> None:
         response = self.send(step["tool"], self.prepare(step["tool"], step.get("args", {})))
+        if step.get("until_terminal"):
+            response = self._until_terminal(step, response)
         if "result" not in response:
             raise AssertionError(f"fixture step {step['tool']} failed: {response}")
         result = response["result"]
@@ -157,6 +159,16 @@ class Session:
             self.document = result["document_id"]
         if step.get("select_document"):
             self.document = self.variables[step["select_document"]]
+
+    def _until_terminal(self, step: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+        """Repeat a job.status step until the job it reads is terminal."""
+        deadline = time.monotonic() + SETTLE_SECONDS
+        while _outcome(response).get("status") not in TERMINAL_STATUSES:
+            if time.monotonic() > deadline:
+                raise AssertionError(f"fixture step {step['tool']}: the job did not finish")
+            time.sleep(0.05)
+            response = self.send(step["tool"], self.prepare(step["tool"], step.get("args", {})))
+        return response
 
     def _write_file(self, step: dict[str, Any]) -> None:
         path = Path(self.variables["inputs"]) / step["file"]

@@ -1198,9 +1198,9 @@ void requireRenderCapacity(Context& context) {
     throw Error("render_busy",
                 "Wait for the active render job to finish or cancel it.",
                 {{"job_id", capacity.active}});
-  if (capacity.retained >= 32)
-    throw Error("render_limit",
-                "This worker has reached its render job limit.");
+  if (capacity.retained >= JobsPerLane)
+    throw Error("render_limit", retentionMessage(JobLane::Render),
+                retentionDetails(context, JobLane::Render));
 }
 
 QJsonObject capacityCheck(const QString& id, const QString& code,
@@ -1226,10 +1226,10 @@ QJsonObject withWorkerCapacity(Context& context, QJsonObject report) {
               ? capacityCheck(id, {}, {})
               : capacityCheck(id, "render_busy", {{"job_id", capacity.active}});
     else if (id == "retention")
-      check =
-          capacity.retained < 32
-              ? capacityCheck(id, {}, {})
-              : capacityCheck(id, "render_limit", {{"max_retained_jobs", 32}});
+      check = capacity.retained < 32
+                  ? capacityCheck(id, {}, {})
+                  : capacityCheck(id, "render_limit",
+                                  retentionDetails(context, JobLane::Render));
     if (firstFailure.isEmpty() && check.value("status") == "fail")
       firstFailure = id;
     checks.append(check);
@@ -1328,7 +1328,31 @@ void requireAnalysisCapacity(Context& context) {
       if (!record.isEmpty() && !record.value("terminal").toBool()) active = job;
     }
   }
-  jobRegistry(context).admitAnalysis(active, retained);
+  try {
+    jobRegistry(context).admitAnalysis(active, retained);
+  } catch (Error& error) {
+    if (error.code == "resource_limit")
+      error.details = retentionDetails(context, JobLane::Analysis);
+    throw;
+  }
+}
+
+// job.discard of a scene host's job: the host releases it, then the worker
+// drops its route and last record and records the discard as its own.
+QJsonValue discardHostJob(Context& context, SceneHost& host,
+                          const QJsonObject& params) {
+  const QString id = params.value("job_id").toString();
+  const QJsonObject result =
+      forward(context, host, "job.discard", params).toObject();
+  auto& state              = registry(context);
+  const QJsonObject record = state.records.value(id);
+  state.jobs.remove(id);
+  state.records.remove(id);
+  if (host.lastJob == id) {
+    host.lastJob.clear();
+    host.renderActive = false;
+  }
+  return recordHostDiscard(context, id, record, result);
 }
 
 bool routeToSceneHost(Context& context, const QString& method,
@@ -1375,7 +1399,8 @@ bool routeToSceneHost(Context& context, const QString& method,
   }
   SceneHost* host = hostForRequest(context, params);
   if (!host) return false;
-  result = forward(context, *host, method, params);
+  result = method == "job.discard" ? discardHostJob(context, *host, params)
+                                   : forward(context, *host, method, params);
   return true;
 }
 

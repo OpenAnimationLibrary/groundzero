@@ -54,6 +54,7 @@ private:
   void checkReceiptCapacity(bool control) const;
   void rememberReceipt(const QString& operationId, const Receipt& receipt,
                        const QString& controlJob);
+  void forgetJob(const QString& id);
   QJsonObject replayReceipt(const Receipt& receipt, const Receipt& key) const;
   quint64 checkRevision(const QJsonObject& params) const;
   QJsonValue execute(const QString& method, const QJsonObject& params);

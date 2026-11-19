@@ -1,6 +1,7 @@
 #include "automation_jobs.h"
 
 #include "automation_build_identity.h"
+#include "automation_files.h"
 #include "automation_journal.h"
 #include "automation_scene_host.h"
 
@@ -107,7 +108,12 @@ QJsonArray retainedRecords(Context& context) {
   return records;
 }
 
-// Jobs of earlier or other workers that the journal holds, newest first.
+bool discardedRecord(const QJsonObject& stored) {
+  return stored.value("record").toObject().contains("discarded");
+}
+
+// Jobs of earlier or other workers that the journal holds, newest first;
+// discarded jobs are no longer listed.
 QJsonArray journalRecords(Context& context) {
   QJsonArray records;
   Journal* journal = workspaceJournal(context);
@@ -115,9 +121,11 @@ QJsonArray journalRecords(Context& context) {
   journal->refresh();
   JobRegistry& registry = jobRegistry(context);
   const QString own     = "job_" + registry.instance().left(8) + "_";
-  for (const QString& id : journal->jobIds())
-    if (!id.startsWith(own))
-      records.append(journal->jobView(*journal->job(id)));
+  for (const QString& id : journal->jobIds()) {
+    const QJsonObject& stored = *journal->job(id);
+    if (!id.startsWith(own) && !discardedRecord(stored))
+      records.append(journal->jobView(stored));
+  }
   return records;
 }
 
@@ -307,11 +315,11 @@ void JobRegistry::admitAnalysis(const QString& hostActive,
         "analysis_busy",
         "Wait for the active analysis job to finish or cancel it.",
         {{"active_job_id", busy}, {"lane", laneText(JobLane::Analysis)}});
-  if (retained(JobLane::Analysis) + hostRetained >= JobsPerLane)
-    throw Error("resource_limit",
-                "This worker has reached its analysis job limit.",
-                {{"limit", "retained_analysis_jobs"},
-                 {"lane", laneText(JobLane::Analysis)}});
+  const int held = retained(JobLane::Analysis) + hostRetained;
+  if (held < JobsPerLane) return;
+  QJsonObject details = retention(JobLane::Analysis, {});
+  details.insert("retained", held);
+  throw Error("resource_limit", retentionMessage(JobLane::Analysis), details);
 }
 
 void JobRegistry::add(std::shared_ptr<Job> job) {
@@ -359,6 +367,42 @@ void JobRegistry::expire(const QStringList& ids) {
     m_expired.push_back(id);
     if (int(m_expired.size()) > ExpiredJobIds) m_expired.pop_front();
   }
+}
+
+void JobRegistry::discard(const QString& id, const QJsonObject& tombstone,
+                          const QStringList& artifactIds) {
+  m_jobs.erase(std::remove_if(m_jobs.begin(), m_jobs.end(),
+                              [&id](const std::shared_ptr<Job>& job) {
+                                return job->id() == id;
+                              }),
+               m_jobs.end());
+  m_order.removeAll(id);
+  {
+    QMutexLocker lock(&m_publishedLock);
+    m_published.remove(id);
+  }
+  m_discarded.insert(id, tombstone);
+  m_discardedOrder.push_back(id);
+  while (int(m_discardedOrder.size()) > DiscardedJobIds) {
+    m_discarded.remove(m_discardedOrder.front());
+    m_discardedOrder.pop_front();
+  }
+  for (const QString& artifact : artifactIds) {
+    m_discardedArtifacts.insert(artifact, id);
+    m_discardedArtifactOrder.push_back(artifact);
+  }
+  while (int(m_discardedArtifactOrder.size()) > DiscardedArtifactIds) {
+    m_discardedArtifacts.remove(m_discardedArtifactOrder.front());
+    m_discardedArtifactOrder.pop_front();
+  }
+}
+
+QJsonObject JobRegistry::discarded(const QString& id) const {
+  return m_discarded.value(id);
+}
+
+QString JobRegistry::discardedArtifactJob(const QString& artifactId) const {
+  return m_discardedArtifacts.value(artifactId);
 }
 
 JobRegistry& jobRegistry(Context& context) {
@@ -458,18 +502,25 @@ QJsonArray jobOperations() {
           operation("job.result",
                     "Read a finished job's output: verified artifacts of a "
                     "completed render job.",
-                    result, {"job_id"})};
+                    result, {"job_id"}),
+          operation("job.discard",
+                    "Release a finished job you no longer need: remove its "
+                    "private files and artifacts and free its slot in the "
+                    "lane. Only terminal jobs; later reads of the job or its "
+                    "artifacts answer job_discarded.",
+                    job, {"job_id"}, true)};
 }
 
 namespace {
 
 // A job of an earlier or other worker of the workspace, answered from its
-// last journal record: never resumed, cancelled or read for artifacts here.
+// last journal record: never resumed, cancelled, discarded or read for
+// artifacts here.
 QJsonValue journalJob(Context& context, const QString& method,
                       const QJsonObject& stored) {
   const QJsonObject record = workspaceJournal(context)->jobView(stored);
   if (method == "job.status") return record;
-  if (method == "job.cancel")
+  if (method == "job.cancel" || method == "job.discard")
     jobRegistry(context).refuseUnknown(record.value("job_id").toString());
   const bool completed = record.value("status") == "completed";
   throw Error(completed ? "artifacts_unavailable" : "result_unavailable",
@@ -481,23 +532,218 @@ QJsonValue journalJob(Context& context, const QString& method,
                {"job_id", record.value("job_id")}});
 }
 
+[[noreturn]] void refuseDiscarded(const QJsonObject& details) {
+  throw Error("job_discarded",
+              "This job was released with job.discard: its record, result "
+              "and artifacts are gone. Submit a new job if you need its "
+              "output again.",
+              details);
+}
+
+// The job_discarded details of a job released now, from its last record.
+QJsonObject discardedDetails(Context& context, const QJsonObject& record) {
+  return {{"job_id", record.value("job_id")},
+          {"kind", record.value("kind")},
+          {"final_status", record.value("status")},
+          {"discarded_by_operation_id", optionalText(context.writeOperation)},
+          {"worker_instance_id", jobRegistry(context).instance()}};
+}
+
+// The job_discarded details a journal record of a discarded job keeps.
+QJsonObject journalDiscardedDetails(const QJsonObject& stored) {
+  const QJsonObject record = stored.value("record").toObject();
+  return {{"job_id", stored.value("job_id")},
+          {"kind", record.value("kind")},
+          {"final_status", record.value("status")},
+          {"discarded_by_operation_id",
+           record.value("discarded").toObject().value("operation_id")},
+          {"worker_instance_id", stored.value("w")}};
+}
+
+// The discard as the journal keeps it: the job's terminal record with a
+// discarded block, newest for its id, so a later worker neither lists nor
+// serves the job. Nothing when the journal never admitted the job.
+void journalDiscard(Context& context, const QString& id, QJsonObject record) {
+  Journal* journal = workspaceJournal(context);
+  if (!journal) return;
+  const QJsonObject* stored = journal->job(id);
+  if (!stored) return;
+  const QJsonValue operation = stored->value("operation_id");
+  record.insert(
+      "discarded",
+      QJsonObject{{"operation_id", optionalText(context.writeOperation)},
+                  {"at_ms", double(jobRegistry(context).elapsedMs())}});
+  journal->recordJob(
+      {{"job_id", id}, {"operation_id", operation}, {"record", record}});
+}
+
+QJsonObject discardResult(Context& context, const QJsonObject& record,
+                          qint64 freedBytes) {
+  return {
+      {"job_id", record.value("job_id")},
+      {"kind", record.value("kind")},
+      {"final_status", record.value("status")},
+      {"discarded", true},
+      {"freed_bytes", double(freedBytes)},
+      {"retained_jobs",
+       QJsonObject{{"render", retainedJobs(context, JobLane::Render)},
+                   {"analysis", retainedJobs(context, JobLane::Analysis)}}}};
+}
+
+// job.discard of a job this process runs: refused while it runs; otherwise
+// its files go first, then the registry forgets it and the journal records it.
+QJsonValue discardJob(Context& context, const QString& id) {
+  JobRegistry& registry    = jobRegistry(context);
+  const auto job           = registry.require(id);
+  const QJsonObject record = job->record();
+  if (!job->terminal())
+    throw Error("in_use",
+                "The job is still running. Stop it with job.cancel, wait "
+                "until job.status reports it terminal, then discard it.",
+                {{"reason", "not_terminal"},
+                 {"job_id", id},
+                 {"status", record.value("status")},
+                 {"next", "job.cancel"}});
+  context.markMutationStarted();
+  const qint64 freed = job->removeOutputs();
+  registry.discard(id, discardedDetails(context, record), job->artifactIds());
+  journalDiscard(context, id, record);
+  return discardResult(context, record, freed);
+}
+
+bool ownJob(JobRegistry& registry, const QString& id) {
+  return id.startsWith("job_" + registry.instance().left(8) + "_");
+}
+
+// A job the registry does not hold: a discarded one, or one of another
+// worker of the workspace answered from the journal. Undefined when the
+// registry answers (and refuses an unknown id with its reasons).
+QJsonValue answeredWithoutRegistry(Context& context, const QString& method,
+                                   const QString& id) {
+  JobRegistry& registry        = jobRegistry(context);
+  const QJsonObject remembered = registry.discarded(id);
+  if (!remembered.isEmpty()) refuseDiscarded(remembered);
+  Journal* journal = workspaceJournal(context);
+  if (registry.find(id) || !journal) return QJsonValue(QJsonValue::Undefined);
+  journal->refresh();
+  const QJsonObject* stored = journal->job(id);
+  if (!stored) return QJsonValue(QJsonValue::Undefined);
+  if (discardedRecord(*stored))
+    refuseDiscarded(journalDiscardedDetails(*stored));
+  // This worker's own ids keep the registry's reasons (expired, not_issued).
+  if (ownJob(registry, id)) return QJsonValue(QJsonValue::Undefined);
+  return journalJob(context, method, *stored);
+}
+
 }  // namespace
+
+int retainedJobs(Context& context, JobLane lane) {
+  int retained       = jobRegistry(context).retained(lane);
+  const QString name = laneText(lane);
+  for (const QJsonObject& record : observedHostJobs(context))
+    if (record.value("lane") == name) ++retained;
+  return retained;
+}
+
+QJsonObject retentionDetails(Context& context, JobLane lane) {
+  return jobRegistry(context).retention(lane, observedHostJobs(context));
+}
+
+QJsonObject JobRegistry::retention(
+    JobLane lane, const QHash<QString, QJsonObject>& hosted) const {
+  const QString name = laneText(lane);
+  QJsonArray releasable;
+  int retained = 0;
+  int count    = 0;
+  for (const QString& id : m_order) {
+    const auto job             = find(id);
+    const QJsonObject observed = job ? QJsonObject() : hosted.value(id);
+    if (job ? job->lane() != lane : observed.value("lane") != name) continue;
+    ++retained;
+    if (job ? !job->terminal() : !observed.value("terminal").toBool()) continue;
+    if (++count > ReleasableListed) continue;
+    const QJsonObject record = job ? job->record() : observed;
+    releasable.append(QJsonObject{
+        {"job_id", id},
+        {"kind", record.value("kind")},
+        {"status", record.value("status")},
+        {"document_id", record.value("document_id")},
+        {"ended_ms", record.value("timing").toObject().value("ended_ms")}});
+  }
+  return {{"limit", "retained_" + name + "_jobs"},
+          {"lane", name},
+          {"max_retained_jobs", JobsPerLane},
+          {"retained", retained},
+          {"releasable", releasable},
+          {"releasable_count", count},
+          {"next", "job.discard"}};
+}
+
+QString retentionMessage(JobLane lane) {
+  return "This worker retains " + QString::number(JobsPerLane) + " " +
+         laneText(lane) +
+         " jobs, its limit. Release finished jobs you no longer need with "
+         "job.discard (details.releasable lists the oldest), then submit "
+         "again.";
+}
+
+namespace {
+
+qint64 treeBytes(const QString& directory) {
+  QVector<EntryInfo> entries;
+  if (listApprovedDirectory(directory, entries) != ListResult::Listed) return 0;
+  qint64 bytes = 0;
+  for (const EntryInfo& entry : entries)
+    bytes += entry.isDir()    ? treeBytes(entry.absoluteFilePath())
+             : entry.isFile() ? entry.size()
+                              : 0;
+  return bytes;
+}
+
+}  // namespace
+
+qint64 removeJobDirectory(const QString& directory) {
+  const qint64 bytes = treeBytes(directory);
+  if (!removeApprovedTree(directory))
+    throw Error("io_error",
+                "Some of the job's files could not be removed; discard it "
+                "again to remove the rest.",
+                {{"phase", "remove_outputs"}});
+  return bytes;
+}
+
+void refuseDiscardedArtifact(Context& context, const QString& artifactId) {
+  JobRegistry& registry = jobRegistry(context);
+  const QString job     = registry.discardedArtifactJob(artifactId);
+  if (job.isEmpty()) return;
+  QJsonObject details = registry.discarded(job);
+  if (details.isEmpty())
+    details = {{"job_id", job}, {"worker_instance_id", registry.instance()}};
+  details.insert("artifact_id", artifactId);
+  refuseDiscarded(details);
+}
+
+QJsonObject recordHostDiscard(Context& context, const QString& id,
+                              QJsonObject record, QJsonObject result) {
+  record.insert("status", result.value("final_status"));
+  record.insert("terminal", true);
+  jobRegistry(context).discard(id, discardedDetails(context, record), {});
+  journalDiscard(context, id, record);
+  result.insert(
+      "retained_jobs",
+      QJsonObject{{"render", retainedJobs(context, JobLane::Render)},
+                  {"analysis", retainedJobs(context, JobLane::Analysis)}});
+  return result;
+}
 
 QJsonValue executeJobs(Context& context, const QString& method,
                        const QJsonObject& params) {
   if (method == "job.list") return listJobs(context, params);
-  const QString id      = requiredString(params, "job_id");
-  JobRegistry& registry = jobRegistry(context);
-  Journal* journal      = workspaceJournal(context);
-  // Only another worker's job is answered from the journal; this worker's own
-  // ids keep the registry's reasons (expired, not_issued).
-  if (!registry.find(id) && journal &&
-      !id.startsWith("job_" + registry.instance().left(8) + "_")) {
-    journal->refresh();
-    if (const QJsonObject* stored = journal->job(id))
-      return journalJob(context, method, *stored);
-  }
-  const auto job = registry.require(id);
+  const QString id           = requiredString(params, "job_id");
+  const QJsonValue elsewhere = answeredWithoutRegistry(context, method, id);
+  if (!elsewhere.isUndefined()) return elsewhere;
+  if (method == "job.discard") return discardJob(context, id);
+  const auto job = jobRegistry(context).require(id);
   if (method == "job.status") return job->record();
   if (method == "job.result") return job->result(context, params);
   if (method != "job.cancel")

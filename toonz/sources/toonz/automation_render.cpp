@@ -426,6 +426,19 @@ public:
   qint64 reservedBytes() const override { return request.reserveBytes(); }
   QJsonValue result(Context& owner, const QJsonObject&) override;
 
+  // job.discard: the claim goes first, so no descriptor stays open, then the
+  // private directory with everything in it.
+  qint64 removeOutputs() override {
+    ownership.release();
+    return removeJobDirectory(directory);
+  }
+
+  QStringList artifactIds() const override {
+    QStringList ids;
+    for (const Artifact& artifact : artifacts) ids.append(artifact.id);
+    return ids;
+  }
+
   bool terminal() const override {
     return status == JobStatus::Completed || status == JobStatus::Failed ||
            status == JobStatus::Canceled ||
@@ -1337,11 +1350,16 @@ private:
     const qint64 reserved =
         jobRegistry(m_context).reservedBytes(JobLane::Render) +
         m_plan.request.reserveBytes();
-    if (reserved > kWorkspaceBytes)
-      check.fail("render_limit",
-                 "This worker has reached its render output storage limit.",
-                 {{"reserved_bytes", double(reserved)},
-                  {"max_bytes", double(kWorkspaceBytes)}});
+    if (reserved <= kWorkspaceBytes) return;
+    QJsonObject details = retentionDetails(m_context, JobLane::Render);
+    details.insert("limit", "render_storage");
+    details.insert("reserved_bytes", double(reserved));
+    details.insert("max_bytes", double(kWorkspaceBytes));
+    check.fail("render_limit",
+               "This worker has reached its render output storage limit. "
+               "Release finished jobs you no longer need with job.discard "
+               "(details.releasable lists the oldest), then submit again.",
+               details);
   }
 
   void lane(Check& check) {
@@ -1354,9 +1372,8 @@ private:
 
   void retention(Check& check) {
     if (jobRegistry(m_context).retained(JobLane::Render) >= JobsPerLane)
-      check.fail("render_limit",
-                 "This worker has reached its render job limit.",
-                 {{"max_retained_jobs", JobsPerLane}});
+      check.fail("render_limit", retentionMessage(JobLane::Render),
+                 retentionDetails(m_context, JobLane::Render));
   }
 
   static bool dependencyReason(const ContentRow& row) {
@@ -1678,6 +1695,7 @@ static QJsonValue artifactRead(Context& context, const QString& id) {
     for (const Artifact& artifact : job->artifacts)
       if (artifact.id == id) return readImageArtifact(context, *job, artifact);
   }
+  refuseDiscardedArtifact(context, id);
   const bool ours =
       id.startsWith("artifact_" + registry.instance().left(8) + "_");
   throw Error("unknown_artifact", "This worker has no artifact with this id.",

@@ -20,6 +20,12 @@ constexpr int JobsPerLane      = 32;
 constexpr int ExpiredJobIds    = 256;
 constexpr int CancelGraceMs    = 30000;
 constexpr int JobIdMaximumSize = 80;
+// What a worker remembers of jobs released by job.discard; older ids are
+// answered from the workspace journal while it holds them.
+constexpr int DiscardedJobIds      = 1024;
+constexpr int DiscardedArtifactIds = 8192;
+// Releasable jobs a retention refusal names, oldest first.
+constexpr int ReleasableListed = 8;
 
 // One job of any kind. Every method except interrupt() runs on the
 // application thread.
@@ -41,6 +47,12 @@ public:
   virtual void interrupt(qint64 requestedMs) = 0;
   // job.result for this job's kind.
   virtual QJsonValue result(Context& context, const QJsonObject& params) = 0;
+  // job.discard of this terminal job: remove the files it keeps for its
+  // result, its claim on them first, and return their bytes. Everything else
+  // it holds goes with the object. Throws io_error when a file stays.
+  virtual qint64 removeOutputs() { return 0; }
+  // The artifacts job.result and artifact.read serve for this job.
+  virtual QStringList artifactIds() const { return {}; }
 };
 
 // The worker's job families: its own jobs and what it knows of its hosts'.
@@ -66,6 +78,7 @@ public:
   QStringList newestFirst() const;
   // Retained jobs of this worker and its hosts.
   int retainedCount() const { return m_order.size(); }
+  bool retains(const QString& id) const { return m_order.contains(id); }
   qint64 epochMs() const { return m_epochMs; }
   std::shared_ptr<Job> find(const QString& id) const;
   // The job, or unknown_job saying why the id is not a retained job here.
@@ -73,6 +86,19 @@ public:
   [[noreturn]] void refuseUnknown(const QString& id) const;
   // Remember ids whose read-only document was discarded with its host.
   void expire(const QStringList& ids);
+  // Forget a job released by job.discard (this process's, or a scene host's
+  // the worker only lists) and remember what its id and its artifacts' ids
+  // answer from now on: `tombstone` is the job_discarded details.
+  void discard(const QString& id, const QJsonObject& tombstone,
+               const QStringList& artifactIds);
+  // The job_discarded details of a remembered discarded job, or empty.
+  QJsonObject discarded(const QString& id) const;
+  // The job id of a remembered discarded artifact, or empty.
+  QString discardedArtifactJob(const QString& artifactId) const;
+  // The details of a refusal at a lane's retention limit, from this
+  // process's jobs and the last observed records of its scene hosts' jobs.
+  QJsonObject retention(JobLane lane,
+                        const QHash<QString, QJsonObject>& hosted) const;
   const std::vector<std::shared_ptr<Job>>& jobs() const { return m_jobs; }
   QString active(JobLane lane) const;
   int retained(JobLane lane) const;
@@ -103,6 +129,10 @@ private:
   std::vector<std::shared_ptr<Job>> m_jobs;
   QStringList m_order;
   std::deque<QString> m_expired;
+  QHash<QString, QJsonObject> m_discarded;
+  std::deque<QString> m_discardedOrder;
+  QHash<QString, QString> m_discardedArtifacts;
+  std::deque<QString> m_discardedArtifactOrder;
   QMutex m_publishedLock;
   QHash<QString, Published> m_published;
 };
@@ -144,6 +174,26 @@ QJsonObject commonRecord(Context& context, const JobCommon& common,
                          const QJsonObject& outputs);
 // The job.list row for one record.
 QJsonObject jobSummary(const QJsonObject& record);
+
+// Jobs one lane retains in this worker, its scene hosts' included.
+int retainedJobs(Context& context, JobLane lane);
+// The details of a refusal at a lane's retention limit: the limit, how many
+// jobs the lane retains, and the oldest terminal ones job.discard releases.
+QJsonObject retentionDetails(Context& context, JobLane lane);
+// The message of that refusal, naming job.discard.
+QString retentionMessage(JobLane lane);
+// Remove a terminal job's private directory, through the pinned-directory
+// functions, and return the bytes of the files it held. Throws io_error when
+// something stays.
+qint64 removeJobDirectory(const QString& directory);
+// artifact.read of an artifact whose job was discarded: job_discarded.
+// Returns when the artifact is not one this process remembers discarding.
+void refuseDiscardedArtifact(Context& context, const QString& artifactId);
+// After a scene host released one of its jobs: the worker forgets it and
+// records the discard, as for its own jobs. `record` is the job's last
+// record; returns the discard result as the worker reports it.
+QJsonObject recordHostDiscard(Context& context, const QString& id,
+                              QJsonObject record, QJsonObject result);
 
 // Cancel every job this process runs, on both lanes.
 void cancelAllJobs(Context& context);

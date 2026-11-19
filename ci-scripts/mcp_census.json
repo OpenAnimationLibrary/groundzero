@@ -17,8 +17,11 @@
  "non_tool_tokens": [
   "details.cause",
   "details.check",
+  "details.job_id",
   "details.native_binding",
+  "details.next",
   "details.reason",
+  "details.releasable",
   "details.scope",
   "details.slice",
   "details.toolset",
@@ -576,6 +579,11 @@
    "writes": true
   },
   "job.cancel": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "job.discard": {
    "origin": "worker",
    "toolset": "core",
    "writes": true
@@ -2722,6 +2730,19 @@
     "job.list",
     "job.status",
     "job.result"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "job.discard_job",
+   "domain": "Rendering and review",
+   "outcome": "Release a finished job: remove its private files and artifacts and free its retention slot, so a long-lived worker keeps rendering.",
+   "classification": "exposed",
+   "tools": [
+    "job.discard",
+    "job.list"
    ],
    "disposition": {
     "kind": "implemented"

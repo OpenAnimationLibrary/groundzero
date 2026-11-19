@@ -1283,7 +1283,8 @@
     },
     "remove": {
      "tools": [
-      "job.cancel"
+      "job.cancel",
+      "job.discard"
      ]
     },
     "persist": {

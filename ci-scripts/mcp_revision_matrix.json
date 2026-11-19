@@ -1187,6 +1187,29 @@
      }
     }
    ]
+  },
+  "done_job": {
+   "extends": "shown",
+   "steps": [
+    {
+     "tool": "render.preview",
+     "args": {
+      "frame": 0,
+      "width": 16,
+      "height": 16
+     },
+     "save": {
+      "job": "job_id"
+     }
+    },
+    {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "until_terminal": true
+    }
+   ]
   }
  },
  "tools": {
@@ -5482,6 +5505,45 @@
     "args": {
      "job_id": "$job"
     }
+   }
+  },
+  "job.discard": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "done_job",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "removes a finished job's private files and frees its retention slot",
+   "bumps": "none; a job is not part of a document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "job_id": "$job"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "job_id": "job_unknown"
+     },
+     "code": "unknown_job"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.list",
+     "args": {},
+     "pick": "total"
+    }
+   },
+   "noop": {
+    "policy": "rejects",
+    "code": "job_discarded",
+    "documented": "A second discard of the same job with a new operation_id answers job_discarded and changes nothing."
    }
   },
   "assistance.neural.preview": {

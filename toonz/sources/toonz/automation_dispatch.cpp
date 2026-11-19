@@ -674,7 +674,10 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   const QString jobId = params.value("job_id").toString();
   const bool control = method == "job.cancel" && !m_controlJobs.contains(jobId);
   const QString controlJob = control ? jobId : QString();
-  checkReceiptCapacity(control);
+  // A first cancellation of an id no job holds (unknown or discarded) is
+  // refused by its handler without a receipt, so it needs no reserve.
+  if (!control || jobRegistry(m_context).retains(jobId))
+    checkReceiptCapacity(control);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
            0);
   const quint64 revision   = checkRevision(params);
@@ -693,6 +696,7 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
     recordOutcome(journal, operationId, key.response);
     rememberReceipt(operationId, key, controlJob);
     if (writeClass == "job") recordJobStart(journal, operationId, result);
+    if (method == "job.discard") forgetJob(params.value("job_id").toString());
     writeFaultFires(m_context, "journal:outcome");
     return result;
   } catch (const Error& error) {
@@ -862,6 +866,13 @@ void Dispatcher::checkReceiptCapacity(bool control) const {
   }
   throw Error("resource_limit",
               "The worker receipt limit was reached; start a new worker.");
+}
+
+// A discarded job no longer holds a first-cancellation reserve or a pending
+// terminal record; its cancel receipt stays, as an ordinary one.
+void Dispatcher::forgetJob(const QString& id) {
+  m_controlJobs.remove(id);
+  m_journaledJobs.remove(id);
 }
 
 void Dispatcher::rememberReceipt(const QString& operationId,
