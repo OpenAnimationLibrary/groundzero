@@ -215,6 +215,22 @@
     "handler": "setHook",
     "read": []
   },
+  "job.cancel": {
+    "handler": null,
+    "read": []
+  },
+  "job.list": {
+    "handler": "listJobs",
+    "read": []
+  },
+  "job.result": {
+    "handler": "result",
+    "read": []
+  },
+  "job.status": {
+    "handler": "record",
+    "read": []
+  },
   "level.create": {
     "handler": "createLevel",
     "read": []
@@ -387,14 +403,6 @@
     "handler": "readPixels",
     "read": []
   },
-  "render.artifacts": {
-    "handler": "artifactList",
-    "read": []
-  },
-  "render.cancel": {
-    "handler": null,
-    "read": []
-  },
   "render.capabilities": {
     "handler": "renderCapabilities",
     "read": []
@@ -405,10 +413,6 @@
   },
   "render.preview": {
     "handler": "submit",
-    "read": []
-  },
-  "render.status": {
-    "handler": "describe",
     "read": []
   },
   "render.submit": {

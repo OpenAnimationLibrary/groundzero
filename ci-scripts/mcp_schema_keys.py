@@ -18,6 +18,8 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ROOT / "toonz" / "sources" / "toonz"
 SCHEMAS = SOURCES / "automation_output_schemas.json"
+ADAPTER = ROOT / "tools" / "mcp" / "src"
+ADAPTER_KEY = re.compile(r"\b([a-z][a-z0-9]*_[a-z0-9_]+):\s")
 KEY = r'"([a-z_][a-z0-9_]*)"'
 WRITTEN = re.compile(rf"\{{\s*{KEY}\s*,|insert\(\s*{KEY}\s*,|\[\s*{KEY}\s*\]\s*=|{KEY}\s*:(?!:)")
 HANDLER = re.compile(r'\{\s*"([a-z_]+(?:\.[a-z_]+)+)"\s*,\s*([A-Za-z_][A-Za-z0-9_:]*)\s*\}')
@@ -49,9 +51,18 @@ def sources() -> dict[Path, str]:
     return {path: path.read_text(encoding="utf-8") for path in SOURCES.glob("automation_*.cpp")}
 
 
+def adapter_keys() -> set[str]:
+    """Return the snake_case keys the adapter writes into results it answers itself."""
+    keys: set[str] = set()
+    for path in ADAPTER.glob("*.ts"):
+        if not path.name.endswith(".test.ts"):
+            keys |= set(ADAPTER_KEY.findall(path.read_text(encoding="utf-8")))
+    return keys
+
+
 def unemitted(schemas: dict[str, Any], texts: dict[Path, str]) -> list[str]:
-    """Name every schema property that no automation source writes."""
-    written = set().union(*(written_keys(text) for text in texts.values()))
+    """Name every schema property that no automation source or adapter answer writes."""
+    written = set().union(*(written_keys(text) for text in texts.values())) | adapter_keys()
     return [
         f"{tool}: the output schema names {key}, which no automation source writes; "
         "remove it from automation_output_schemas.json or fix its name"

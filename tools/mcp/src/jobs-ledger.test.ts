@@ -1,5 +1,6 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { afterEach, expect, test, vi } from "vitest";
+import { outputSchema, sessionEffects } from "#mcp/declarations";
 import { WorkerError } from "#mcp/errors";
 import { JobLedger } from "#mcp/jobs-ledger";
 import type { WorkerLoss } from "#mcp/jobs-ledger";
@@ -97,7 +98,9 @@ const jobTools = ["render.preview", "job.status", "job.list", "job.cancel", "job
     inputSchema: { type: "object", properties: {}, additionalProperties: true },
     annotations: { readOnlyHint: !name.includes("preview") && name !== "job.cancel" },
     toolset: "core",
-    mutates_document: false,
+    outputSchema: outputSchema({ type: "object" }),
+    effects: sessionEffects("read"),
+    errors: ["invalid_params"],
   }),
 );
 const closers: (() => Promise<void>)[] = [];
