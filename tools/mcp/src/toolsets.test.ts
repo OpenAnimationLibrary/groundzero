@@ -24,6 +24,7 @@ interface Group {
 function capabilities(groups: Group[]) {
   return {
     protocol_version: 3,
+    next_offset: null,
     tools: groups.flatMap((group) => group.tools.map((name) => nativeTool(name))),
     toolsets: groups.map((group) => ({
       name: group.name,
@@ -232,6 +233,7 @@ test.each([
 ])("rejects a native catalog with %s", async (_label, toolsets, tools) => {
   const catalog = {
     protocol_version: 3,
+    next_offset: null,
     tools: tools.map((name) => nativeTool(name)),
     toolsets: toolsets.map((group) => ({ ...group, description: "Tools" })),
   };
@@ -313,3 +315,15 @@ test("other native results pass through unchanged", async () => {
   const result = await client.callTool({ name: "audio.inspect", arguments: {} });
   expect(result.structuredContent).toEqual(native);
 });
+
+test.each(["oneOf", "anyOf", "allOf", "not", "$ref"])(
+  "rejects a native tool whose input schema has %s at its root",
+  async (keyword) => {
+    const catalog = capabilities(groups);
+    const [first] = catalog.tools;
+    if (!first) throw new Error("fixture catalog is empty");
+    first.inputSchema = { ...first.inputSchema, [keyword]: [] } as typeof first.inputSchema;
+    const { client } = await session(undefined, catalog);
+    await expect(names(client)).rejects.toThrow(`${first.name} must be a plain object`);
+  },
+);

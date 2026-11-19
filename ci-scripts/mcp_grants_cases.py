@@ -29,7 +29,7 @@ SAMPLES = {"studio_palette.inspect": {"path": "x.tpl"}}
 
 
 def _catalog(case: NativeAcceptance) -> list[dict[str, Any]]:
-    return case.success("automation.capabilities", {})["tools"]
+    return case.capabilities()["tools"]
 
 
 def _arguments(tool: dict[str, Any], document: str, revision: str, operation: str) -> dict:

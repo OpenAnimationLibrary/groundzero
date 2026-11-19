@@ -45,7 +45,7 @@ def file_tools_are_all_qualified(case: NativeAcceptance) -> None:
     Args:
         case: A fresh native-worker acceptance fixture.
     """
-    tools = case.success("automation.capabilities", {})["tools"]
+    tools = case.capabilities()["tools"]
     problems = mcp_file_tools.unqualified_tools(tools)
     case.assertEqual(problems, [], "\n".join(problems))
     named = {tool["name"] for tool in tools if mcp_file_tools.path_parameters(tool["inputSchema"])}

@@ -15,7 +15,7 @@ def census_matches_live_catalog(case: NativeAcceptance) -> None:
     census = mcp_census.load_census()
     path = mcp_census.README_PATH
     readme = path.read_text(encoding="utf-8") if path.is_file() else None
-    capabilities = case.success("automation.capabilities", {})
+    capabilities = case.capabilities()
     effects = case.success("fx.catalog", {})
     problems = mcp_census.check_live(census, capabilities, effects, readme)
     case.assertEqual(problems, [], "\n".join(problems))

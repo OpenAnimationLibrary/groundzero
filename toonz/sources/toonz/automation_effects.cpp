@@ -640,7 +640,15 @@ QJsonObject capabilitiesResultSchema() {
   return strictObject(
       {{"protocol_version", QJsonObject{{"type", "integer"}, {"const", 3}}},
        {"workspace", stringSchema(1, 4096)},
-       {"tools", arraySchema(descriptorSchema(), 0, 1024)},
+       {"tools", arraySchema(descriptorSchema(), 0, 64)},
+       {"tool_count",
+        QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 1024}}},
+       {"next_offset",
+        QJsonObject{
+            {"oneOf", QJsonArray{QJsonObject{{"type", "integer"},
+                                             {"minimum", 1},
+                                             {"maximum", 4096}},
+                                 QJsonObject{{"type", "null"}}}}}},
        {"toolsets", arraySchema(toolset, 1, 64)},
        {"media_tools_configured", QJsonObject{{"type", "boolean"}}},
        {"isolation",

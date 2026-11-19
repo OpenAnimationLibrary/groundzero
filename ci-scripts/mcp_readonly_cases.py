@@ -11,6 +11,7 @@ start and the end, so an object created on demand is seen as a change.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from dataclasses import dataclass, field, replace
@@ -42,6 +43,7 @@ SETTLED = "after the tool's calls"
 LAST_PAGE = "last page"
 READ_ONLY_SUFFIX = " on a read-only document"
 PAGE_KEYS = ("next_offset", "next_index")
+PAGE_ARGUMENTS = ("limit", "offset", "start_index")
 REPEATS = 2
 
 PRIVATE_CACHES = (
@@ -75,9 +77,10 @@ class KnownViolation:
 
 
 KNOWN_VIOLATIONS: tuple[KnownViolation, ...] = ()
-# Tools whose results page only for some job kinds: job.result pages analysis rows, and a
-# render job's artifacts come whole, without a paging key (jobs contract).
-PAGED_BY_KIND = frozenset({"job.result"})
+# Tools whose result does not hold every item at the largest limit. job.result pages analysis
+# rows and a render job's artifacts come whole, without a paging key (jobs contract);
+# automation.capabilities describes more tools than its largest page holds.
+PAGED_BY_KIND = frozenset({"job.result", "automation.capabilities"})
 
 
 @dataclass(frozen=True)
@@ -309,8 +312,77 @@ class Harness:
         return [*(str(item) for item in remaining), *problems]
 
 
+# Report-only: Claude Code saves a result past 50,000 characters to a file and refuses one past
+# 25,000 tokens, so a read whose default result passes 64 KiB is listed for the paging work.
+RESULT_REPORT_LIMIT = 64 * 1024
+# automation.capabilities pages its descriptors, so its default page is held to a tighter bound.
+CAPABILITIES_LIMIT = 32 * 1024
+SCALED_COLUMNS = 300
+SCALED_READS = ("scene.summary", "fx.graph")
+
+
+def default_arguments(tool: Mapping[str, Any], params: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop the optional paging arguments from a call so the tool's own page size applies."""
+    required = set(tool["inputSchema"].get("required", []))
+    return {
+        key: value for key, value in params.items() if key in required or key not in PAGE_ARGUMENTS
+    }
+
+
+def default_result_sizes(case: NativeAcceptance) -> dict[str, int]:
+    """Return the serialized size in bytes of each read tool's largest default-paged result.
+
+    Args:
+        case: A fresh acceptance case; the fixture replaces its worker.
+    """
+    catalog = _catalog(case)
+    by_name = {tool["name"]: tool for tool in catalog}
+    fixture = mcp_readonly_fixture.build(case)
+    sizes: dict[str, int] = {}
+    for name in read_tool_names(catalog):
+        for call in READ_CALLS[name](fixture):
+            if call.refusal is not None:
+                continue
+            response = fixture.worker.call(name, default_arguments(by_name[name], call.params))
+            case.assertNotIn("error", response, f"{name} [{call.label}] with defaults: {response}")
+            text = json.dumps(response["result"], separators=(",", ":"), ensure_ascii=False)
+            sizes[name] = max(sizes.get(name, 0), len(text.encode()))
+    return sizes
+
+
+def scaled_scene_sizes(case: NativeAcceptance) -> dict[str, int]:
+    """Return the size of the whole-document reads of a scene with many columns."""
+    document = case.create("Scaled")
+    for index in range(SCALED_COLUMNS):
+        case.mutate("column.create", document, name=f"Column {index}")
+    sizes = {}
+    for name in SCALED_READS:
+        result = case.success(name, {"document_id": document})
+        sizes[f"{name} ({SCALED_COLUMNS} columns)"] = len(
+            json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode()
+        )
+    return sizes
+
+
+def report_default_read_result_sizes(case: NativeAcceptance) -> None:
+    """List the reads whose default result passes 64 KiB, and bound automation.capabilities.
+
+    The list is for information: it prints to the test output and fails nothing, except that
+    the catalog's default page must stay within CAPABILITIES_LIMIT.
+
+    Args:
+        case: A fresh acceptance case; the fixture replaces its worker.
+    """
+    sizes = default_result_sizes(case)
+    case.assertLessEqual(sizes["automation.capabilities"], CAPABILITIES_LIMIT)
+    sizes.update(scaled_scene_sizes(case))
+    oversized = {name: size for name, size in sizes.items() if size > RESULT_REPORT_LIMIT}
+    largest = sorted(sizes.items(), key=lambda item: -item[1])[:8]
+    print(f"\nREAD RESULTS OVER {RESULT_REPORT_LIMIT} BYTES: {oversized}; largest: {largest}")
+
+
 def _catalog(case: NativeAcceptance) -> list[dict[str, Any]]:
-    return case.success("automation.capabilities", {})["tools"]
+    return case.capabilities()["tools"]
 
 
 def _paged_limits(catalog: Sequence[Mapping[str, Any]]) -> dict[str, int]:

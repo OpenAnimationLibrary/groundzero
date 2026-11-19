@@ -408,7 +408,19 @@ def _reject_vector_numbers(test: NativeAcceptance, document: str, target: dict[s
                 "drawing_id": {"number": 65536, "suffix": "a"},
                 "format": "vector",
             },
-            test.schema_code(),
+            "unsupported_drawing_id",
+        ),
+        (
+            "drawing.create",
+            {
+                "level_id": target["level_id"],
+                "drawing_id": {"number": 1, "suffix": "z"},
+                "format": "vector",
+                "width": 2,
+                "height": 2,
+                "dpi": 120,
+            },
+            "invalid_params",
         ),
         (
             "drawing.clone",

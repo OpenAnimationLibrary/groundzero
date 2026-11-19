@@ -18,11 +18,14 @@ corepack pnpm audit --prod --audit-level=moderate
 corepack pnpm install --prod --frozen-lockfile --ignore-scripts
 ```
 
-## Detached sessions
+## Connect a client
 
-Configure a local MCP host with the equivalent of this command and argument list,
-replacing each example path with its absolute installed path:
+The adapter is a local stdio server that the MCP client starts itself, so the same
+command works in any client that can launch a stdio server. These two examples are
+the same server configured for Claude Code and for Codex; replace each example path
+with its absolute installed path.
 
+<!-- client-config: claude -->
 ```json
 {
   "mcpServers": {
@@ -33,14 +36,94 @@ replacing each example path with its absolute installed path:
         "--executable",
         "/opt/groundzero/bin/Groundzero",
         "--workspace",
-        "/work/animation"
+        "/work/animation",
+        "--input-root",
+        "/work/reference",
+        "--toolsets",
+        "audio,rigging"
       ]
     }
   }
 }
 ```
 
-The workspace must already exist and use a canonical directory path without
+<!-- client-config: codex -->
+```toml
+[mcp_servers.groundzero]
+command = "node"
+args = [
+  "/opt/groundzero-mcp/dist/cli.js",
+  "--executable", "/opt/groundzero/bin/Groundzero",
+  "--workspace", "/work/animation",
+  "--input-root", "/work/reference",
+  "--toolsets", "audio,rigging",
+]
+tool_timeout_sec = 120
+```
+
+- `command` and the first argument start the adapter with Node.js 22.23.5. Give the
+  absolute path of `node` if the client does not start with your shell's `PATH`.
+- `--executable` is the Groundzero application binary from the same build as the
+  adapter. On macOS it is the file inside the bundle's `Contents/MacOS` directory.
+- `--workspace` is the existing directory the session writes to.
+- `--input-root` adds one more existing directory the session may read; repeat it for
+  each directory.
+- `--toolsets` names the optional toolsets to advertise. The default is `core`.
+- `tool_timeout_sec` is Codex's limit on one tool call, 60 seconds unless set. The
+  adapter itself gives a native call up to 120 seconds.
+
+Each flag and its value are separate list items. Neither client needs an
+environment variable for the server.
+
+**Claude Code.** Save the first snippet as `.mcp.json` in the project directory
+(Claude Code asks once whether to trust a project's servers), or save it anywhere and
+start `claude --mcp-config ./groundzero.mcp.json`. The equivalent command adds the
+server to your own Claude Code configuration instead:
+
+<!-- client-command: claude -->
+```sh
+claude mcp add groundzero -- node /opt/groundzero-mcp/dist/cli.js --executable /opt/groundzero/bin/Groundzero --workspace /work/animation --input-root /work/reference --toolsets audio,rigging
+```
+
+`claude mcp list` starts each configured server and prints `groundzero: … ✔ Connected`
+when the handshake worked. Inside a session, `/mcp` lists the server and its tools.
+
+**Codex.** Put the second snippet in `~/.codex/config.toml`, or in a trusted
+project's `.codex/config.toml`. The equivalent command writes the `command` and `args`
+entries to that file; add `tool_timeout_sec` yourself afterwards:
+
+<!-- client-command: codex -->
+```sh
+codex mcp add groundzero -- node /opt/groundzero-mcp/dist/cli.js --executable /opt/groundzero/bin/Groundzero --workspace /work/animation --input-root /work/reference --toolsets audio,rigging
+```
+
+`codex mcp list` and `codex mcp get groundzero` show the configuration Codex read;
+they do not start the server. Inside a session, `/mcp verbose` starts it and lists its
+tools.
+
+To check the connection end to end, ask the client to call `automation.list_documents`;
+a new session answers `{"documents":[]}`. Clients may rewrite the dot in a tool name,
+so read the exact names from `/mcp`.
+
+A start that fails prints one of these lines on the server's standard error, which
+the client shows in its server log or error message. Run the same command in a
+terminal to see it directly.
+
+| Message | Meaning |
+| --- | --- |
+| `"--workspace /work/animation" is one argument, but --workspace and its value must be separate array elements` | A flag and its value share one list item. Give them as two items: `"--workspace", "/work/animation"`. |
+| `Usage: groundzero-mcp --executable ABSOLUTE_FILE` | `--executable` or `--workspace` is missing. |
+| `Invalid --workspace directory: Directory must be absolute` | A directory is relative, missing, or a symlink such as `/tmp` on macOS; the message names the canonical path to use. |
+| `WORKER_UNAVAILABLE: Native worker exited` | `--executable` starts but is not the Groundzero binary. The adapter reports this when the worker is first needed, such as when the client lists tools, not at startup. |
+| `INCOMPATIBLE_WORKER` | The binary and the adapter are not from the same build. |
+
+Any other MCP client that can start a stdio server takes the same command and
+arguments; only the file format differs.
+
+## Detached sessions
+
+The options above set the filesystem grants of a detached session. The workspace
+must already exist and use a canonical directory path without
 symlinks. Add `--input-root /work/reference` for each additional existing directory
 the worker may read. Writes stay inside the workspace. Choose a new dedicated
 workspace for a session; these roots are fixed at launch and cannot be broadened
@@ -112,6 +195,18 @@ During a session:
   toolset in `details.toolset`. Nothing reaches the worker.
 - A session exposes at most 256 native tools. A request that would exceed this
   returns `TOOLSET_LIMIT` and leaves the enabled toolsets unchanged.
+
+Every successful tool result carries its JSON as a text block as well as structured
+content, so a client that shows the model only text still has the data. A result and
+its structured copy must together fit 9 MiB, or the call fails with `RESULT_TOO_LARGE`.
+`automation.capabilities` describes the tools a page at a time (`limit` up to 64,
+default 16, and `offset`); repeat with `next_offset` until it is null. The adapter reads
+every page itself.
+
+The adapter waits up to 30 seconds from launching the native worker for its private
+handshake, since a cold start on a loaded machine spends most of that loading the
+executable. A worker that does not answer in time fails the call with a message that
+says the handshake timed out and after how many milliseconds.
 
 The adapter requires native automation protocol version 3. An older or newer
 worker is refused with `INCOMPATIBLE_WORKER`.
@@ -948,3 +1043,21 @@ document creation, revision rejection, decoded color-card preview pixels, and MP
 metadata and file hashes. The PNG cases launch without a media grant. These tests
 establish SDK interoperability on the CI platform; host-specific display behavior
 still depends on the MCP application.
+
+The client configurations under "Connect a client" are tested from this file: the
+unit tests read the marked snippets, start the server exactly as written with
+example paths replaced, list its tools and call a read tool, with no client
+installed. `pnpm test:native` also checks the full catalog against the limits both
+clients document: qualified tool names stay distinct and within 64 characters, and
+each input schema is a plain object at its root, with no `oneOf`, `anyOf`, `allOf`,
+`not` or `$ref` there. The adapter refuses a native catalog that breaks this rule.
+
+To try the installed clients themselves, run `node fixtures/real-clients.mjs
+--executable /opt/groundzero/bin/Groundzero` after `pnpm build`. It is a local
+opt-in check and is never run by CI. For Claude Code (`--claude FILE`) and Codex
+(`--codex FILE`), each found on `PATH` unless named, it writes the README's
+configuration into a throwaway home, so your own configuration is untouched, and
+starts the client with it. Claude Code must report the server as connected. Codex
+must list its tools through its app server; `--call-tool` also calls
+`automation.list_documents`. Neither client is asked for a model response, so Claude
+Code's tool list is checked by hand with `/mcp`.

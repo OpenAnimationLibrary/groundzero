@@ -38,7 +38,7 @@ def _inputs(recipe: dict[str, Any], given: dict[str, Any]) -> dict[str, Any]:
 def _run_steps(
     case: NativeAcceptance, recipe: dict[str, Any], inputs: dict[str, Any]
 ) -> dict[str, Any]:
-    tools = case.success("automation.capabilities", {})["tools"]
+    tools = case.capabilities()["tools"]
     readonly = {tool["name"]: tool["annotations"]["readOnlyHint"] for tool in tools}
     results: dict[str, Any] = {}
     for step in recipe["steps"]:

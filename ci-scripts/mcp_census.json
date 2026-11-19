@@ -2009,8 +2009,8 @@
    "toolset": "core",
    "writes": true,
    "tests": [
-    "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
     "ci-scripts/mcp_acceptance.py::test_opacity_set_accepts_selection_handle",
+    "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
     "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
     "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"

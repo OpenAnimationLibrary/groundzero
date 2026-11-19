@@ -31,6 +31,9 @@
 namespace GroundzeroAutomation {
 namespace {
 
+constexpr int MaximumCapabilityPage   = 64;
+constexpr int MaximumCapabilityOffset = 4096;
+constexpr int DefaultCapabilityPage   = 16;
 constexpr qint64 maximumReceiptBytes = 64 * 1024 * 1024;
 constexpr qint64 maximumResultBytes  = 8 * 1024 * 1024 - 1024;
 // One reserved first cancellation per retained job: two lanes of 32.
@@ -345,6 +348,21 @@ void checkResult(const QJsonObject& descriptor, const QJsonValue& result) {
   }
 }
 
+void requirePlainInputSchema(const QJsonObject& descriptor) {
+  const QString name       = descriptor.value("name").toString();
+  const QJsonObject schema = descriptor.value("inputSchema").toObject();
+  if (schema.value("type").toString() != "object")
+    throw Error("internal_error",
+                "The input schema of " + name + " must be a plain object.");
+  for (const char* keyword : {"oneOf", "anyOf", "allOf", "not", "$ref"})
+    if (schema.contains(keyword))
+      throw Error("internal_error",
+                  "The input schema of " + name + " has " +
+                      QString::fromLatin1(keyword) +
+                      " at its root; describe the alternatives with a "
+                      "discriminating property and check them in the handler.");
+}
+
 QJsonObject errorObject(const Error& error) {
   QString message = error.message;
   if (message.size() > maximumErrorMessage) {
@@ -358,10 +376,18 @@ QJsonObject errorObject(const Error& error) {
 
 Dispatcher::Dispatcher(Context& context) : m_context(context) {
   addWorkerOperation(withOutputSchema(
-      operation("automation.capabilities",
-                "Inspect this worker's protocol, toolsets and available native "
-                "operations.",
-                {}, {}),
+      operation(
+          "automation.capabilities",
+          "Inspect this worker's protocol, toolsets and available native "
+          "operations. The tool descriptors come a page at a time: repeat with "
+          "next_offset until it is null.",
+          {{"limit", QJsonObject{{"type", "integer"},
+                                 {"minimum", 1},
+                                 {"maximum", MaximumCapabilityPage}}},
+           {"offset", QJsonObject{{"type", "integer"},
+                                  {"minimum", 0},
+                                  {"maximum", MaximumCapabilityOffset}}}},
+          {}),
       capabilitiesResultSchema()));
   addWorkerOperation(withOutputSchema(
       operation("automation.list_documents",
@@ -412,6 +438,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
 }
 
 void Dispatcher::addWorkerOperation(QJsonObject descriptor) {
+  requirePlainInputSchema(descriptor);
   descriptor = declaredTool(descriptor);
   descriptor.insert("toolset", "core");
   m_toolsets["core"].append(descriptor.value("name").toString());
@@ -450,6 +477,7 @@ void Dispatcher::add(const QJsonArray& operations, Handler handler,
         name == "automation.list_documents" || name == "tool.describe")
       throw Error("internal_error",
                   "A native domain cannot replace a worker operation.");
+    requirePlainInputSchema(descriptor);
     descriptor.insert("toolset", toolset);
     m_entries.insert(name, {descriptor, handler});
     m_toolsets[toolset].append(name);
@@ -480,22 +508,10 @@ QJsonObject Dispatcher::dispatch(const QJsonObject& request) {
 QJsonValue Dispatcher::execute(const QString& method,
                                const QJsonObject& params) {
   if (method == "tool.describe") return describeTools(m_catalog, params);
-  if (method == "automation.capabilities" ||
-      method == "automation.list_documents") {
+  if (method == "automation.capabilities") return capabilities(params);
+  if (method == "automation.list_documents") {
     if (!params.isEmpty())
       throw Error("invalid_params", "This operation accepts no parameters.");
-    if (method == "automation.capabilities")
-      return QJsonObject{
-          {"protocol_version", 3},
-          {"worker", workerIdentity(m_context)},
-          {"workspace", m_context.workspace()},
-          {"tools", m_catalog},
-          {"toolsets", toolsetCatalog()},
-          {"media_tools_configured", !m_context.mediaToolsDirectory.isEmpty()},
-          {"platform", runtimePlatform()},
-          {"isolation", "private_process"},
-          {"read_only_scenes", readOnlyCapabilities(m_context)},
-          {"authority", authorityReport(m_context)}};
     return QJsonObject{{"documents", documentRows(m_context)}};
   }
   if (!m_context.sceneHostDocument.isEmpty() &&
@@ -543,6 +559,36 @@ Dispatcher::Receipt Dispatcher::receiptKey(const QString& method,
   QJsonObject bound = request;
   bound.insert("authority_digest", m_authorityDigest);
   return {digest(bound), digest(request), {}};
+}
+
+QJsonObject Dispatcher::capabilities(const QJsonObject& params) const {
+  for (auto it = params.begin(); it != params.end(); ++it)
+    if (it.key() != "limit" && it.key() != "offset")
+      throw Error("invalid_params",
+                  "automation.capabilities accepts only limit and offset.");
+  const int offset =
+      integerParam(params, "offset", 0, MaximumCapabilityOffset, 0);
+  const int limit = integerParam(params, "limit", 1, MaximumCapabilityPage,
+                                 DefaultCapabilityPage);
+  if (offset > m_catalog.size())
+    throw Error("invalid_params", "offset exceeds the tool count.");
+  const int end = std::min(offset + limit, int(m_catalog.size()));
+  QJsonArray page;
+  for (int index = offset; index < end; ++index)
+    page.append(m_catalog.at(index));
+  return QJsonObject{
+      {"protocol_version", 3},
+      {"worker", workerIdentity(m_context)},
+      {"workspace", m_context.workspace()},
+      {"tools", page},
+      {"tool_count", int(m_catalog.size())},
+      {"next_offset", end < m_catalog.size() ? QJsonValue(end) : QJsonValue()},
+      {"toolsets", toolsetCatalog()},
+      {"media_tools_configured", !m_context.mediaToolsDirectory.isEmpty()},
+      {"platform", runtimePlatform()},
+      {"isolation", "private_process"},
+      {"read_only_scenes", readOnlyCapabilities(m_context)},
+      {"authority", authorityReport(m_context)}};
 }
 
 QJsonObject Dispatcher::replayReceipt(const Receipt& receipt,

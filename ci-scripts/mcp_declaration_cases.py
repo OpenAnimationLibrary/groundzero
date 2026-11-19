@@ -115,8 +115,7 @@ def descriptors_publish_declarations(case: NativeAcceptance, tools: list[dict[st
 
 
 def _tools(case: NativeAcceptance) -> dict[str, dict[str, Any]]:
-    capabilities = case.success("automation.capabilities", {})
-    return {tool["name"]: tool for tool in capabilities["tools"]}
+    return {tool["name"]: tool for tool in case.capabilities()["tools"]}
 
 
 def errors_are_declared(case: NativeAcceptance) -> None:

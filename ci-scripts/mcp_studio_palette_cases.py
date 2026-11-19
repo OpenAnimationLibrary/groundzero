@@ -100,7 +100,7 @@ def shared_root_flags_are_explicit_and_read_only(case: NativeAcceptance) -> None
     for index, extra in enumerate(refusals):
         with case.subTest(extra=extra):
             case.assertIn("shared", case.launch_refused(extra, f"shared-root-{index}").lower())
-    tools = {tool["name"]: tool for tool in case.success("automation.capabilities", {})["tools"]}
+    tools = {tool["name"]: tool for tool in case.capabilities()["tools"]}
     case.assertTrue(SHARED_TOOLS.issubset(tools))
     for name in SHARED_TOOLS:
         case.assertEqual(tools[name]["toolset"], "shared-library")

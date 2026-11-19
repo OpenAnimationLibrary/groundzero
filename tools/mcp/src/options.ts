@@ -68,22 +68,38 @@ async function mediaDirectory(path: string): Promise<string> {
   return canonical;
 }
 
+const LAUNCH_OPTIONS = {
+  executable: { type: "string" },
+  workspace: { type: "string" },
+  "input-root": { type: "string", multiple: true },
+  "media-tools": { type: "string" },
+  "shared-root": { type: "string", multiple: true },
+  "shared-write": { type: "string", multiple: true },
+  "live-session": { type: "string" },
+  toolsets: { type: "string" },
+  grants: { type: "string" },
+  domains: { type: "string" },
+  "strict-results": { type: "boolean" },
+} as const;
+
+/** Name a flag and its value joined in one argument, as a client's args list often has them. */
+function refuseJoinedArgument(args: string[]): void {
+  for (const arg of args) {
+    const [flag = "", ...rest] = arg.split(/\s+/u);
+    if (rest.length === 0 || !flag.startsWith("--") || !(flag.slice(2) in LAUNCH_OPTIONS)) continue;
+    const value = arg.slice(flag.length).trim();
+    throw new Error(
+      `"${arg}" is one argument, but ${flag} and its value must be separate array elements: ` +
+        `${JSON.stringify(flag)}, ${JSON.stringify(value)}`,
+    );
+  }
+}
+
 function launchArguments(args: string[]) {
+  refuseJoinedArgument(args);
   const { values, tokens } = parseArgs({
     args,
-    options: {
-      executable: { type: "string" },
-      workspace: { type: "string" },
-      "input-root": { type: "string", multiple: true },
-      "media-tools": { type: "string" },
-      "shared-root": { type: "string", multiple: true },
-      "shared-write": { type: "string", multiple: true },
-      "live-session": { type: "string" },
-      toolsets: { type: "string" },
-      grants: { type: "string" },
-      domains: { type: "string" },
-      "strict-results": { type: "boolean" },
-    },
+    options: LAUNCH_OPTIONS,
     strict: true,
     allowPositionals: false,
     tokens: true,

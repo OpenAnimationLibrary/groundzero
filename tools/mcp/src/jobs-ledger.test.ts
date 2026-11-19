@@ -116,6 +116,7 @@ async function jobSession(answer: (method: string) => Promise<unknown>) {
       return {
         protocol_version: 3,
         tools: jobTools,
+        next_offset: null,
         toolsets: [{ name: "core", description: "Core", tools: jobTools.map((t) => t.name) }],
       };
     }

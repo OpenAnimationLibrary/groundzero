@@ -298,6 +298,10 @@ QJsonObject createDrawing(Context& context, Document& document,
   auto* level      = simpleLevel(document, params);
   const auto frame = frameId(params);
   validateFrameNumber(level, frame);
+  if (requiredString(params, "format") == "vector")
+    for (const char* name : {"width", "height", "dpi"})
+      if (params.contains(name))
+        invalid("A vector drawing takes no width, height or dpi");
   if (level->isFid(frame))
     throw Error("already_exists", "Drawing identity already exists");
   if (level->getFrameCount() >= 4096)
@@ -1497,32 +1501,13 @@ void drawingCatalog(QJsonArray& tools) {
   properties.insert(
       "dpi",
       QJsonObject{{"type", "number"}, {"minimum", 1}, {"maximum", 2400}});
-  auto createOperation = operation(
-      "drawing.create", "Create an empty native drawing in an existing level",
-      properties, {"document_id", "level_id", "drawing_id", "format"}, true);
-  auto schema       = createOperation.value("inputSchema").toObject();
-  auto vectorFields = schema.value("properties").toObject();
-  auto rasterFields = vectorFields;
-  vectorFields.insert("format", choice({"vector"}));
-  vectorFields.insert("drawing_id", drawingIdentity(kMaxVectorFrame));
-  vectorFields.remove("width");
-  vectorFields.remove("height");
-  vectorFields.remove("dpi");
-  rasterFields.insert("format", choice({"rgba8", "toonzRaster"}));
-  auto rasterRequired = schema.value("required").toArray();
-  for (const auto& key : QStringList{"width", "height", "dpi"})
-    rasterRequired.append(key);
-  schema.insert("oneOf",
-                QJsonArray{QJsonObject{{"type", "object"},
-                                       {"additionalProperties", false},
-                                       {"properties", vectorFields},
-                                       {"required", schema.value("required")}},
-                           QJsonObject{{"type", "object"},
-                                       {"additionalProperties", false},
-                                       {"properties", rasterFields},
-                                       {"required", rasterRequired}}});
-  createOperation.insert("inputSchema", schema);
-  tools.append(createOperation);
+  tools.append(operation(
+      "drawing.create",
+      "Create an empty native drawing in an existing level. format vector "
+      "takes drawing numbers 1..65535 and no width, height or dpi; rgba8 and "
+      "toonzRaster take numbers up to 999999 and require width, height and "
+      "dpi.",
+      properties, {"document_id", "level_id", "drawing_id", "format"}, true));
   tools.append(operation("drawing.inspect",
                          "Load and describe one native drawing", target(),
                          {"document_id", "level_id", "drawing_id"}));

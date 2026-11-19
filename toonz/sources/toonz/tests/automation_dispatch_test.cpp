@@ -393,6 +393,79 @@ void drawingSuffixHandlerIsWholeString(Context& context) {
   context.removeDocument(id);
 }
 
+QJsonArray allTools(Dispatcher& dispatcher) {
+  QJsonArray tools;
+  int offset = 0;
+  for (;;) {
+    const QJsonObject page =
+        result(dispatcher, "automation.capabilities", {{"offset", offset}});
+    for (const QJsonValue& tool : page.value("tools").toArray())
+      tools.append(tool);
+    require(page.contains("next_offset"),
+            "A catalog page always reports next_offset");
+    if (page.value("next_offset").isNull()) return tools;
+    require(page.value("next_offset").toInt() > offset,
+            "Catalog paging must advance");
+    offset = page.value("next_offset").toInt();
+  }
+}
+
+void catalogPaging(Context& context) {
+  Dispatcher dispatcher(context);
+  const QJsonObject first =
+      result(dispatcher, "automation.capabilities", {{"limit", 3}});
+  require(first.value("tools").toArray().size() == 3 &&
+              first.value("next_offset").toInt() == 3,
+          "A catalog page holds limit tools and points at the next one");
+  require(first.value("tool_count").toInt() == allTools(dispatcher).size(),
+          "tool_count is the whole catalog");
+  const QJsonObject last =
+      result(dispatcher, "automation.capabilities",
+             {{"offset", first.value("tool_count").toInt() - 1}, {"limit", 5}});
+  require(last.value("tools").toArray().size() == 1 &&
+              last.value("next_offset").isNull(),
+          "The last page ends with a null next_offset");
+  const QJsonObject defaults =
+      result(dispatcher, "automation.capabilities", {});
+  require(defaults.value("tools").toArray().size() == 16,
+          "The default catalog page is 16 tools");
+  for (const QJsonObject& params :
+       {QJsonObject{{"limit", 0}}, QJsonObject{{"limit", 65}},
+        QJsonObject{{"offset", -1}}, QJsonObject{{"offset", 4000}},
+        QJsonObject{{"offset", 4097}}, QJsonObject{{"pad", 1}}}) {
+    const QJsonObject response =
+        call(dispatcher, "automation.capabilities", params);
+    require(
+        response.value("error").toObject().value("code") == "invalid_params",
+        "An invalid catalog page request is refused");
+  }
+}
+
+void plainInputSchemas(Context& context) {
+  Dispatcher dispatcher(context);
+  for (const QJsonValue& tool : allTools(dispatcher))
+    requirePlainInputSchema(tool.toObject());
+  for (const char* keyword : {"oneOf", "anyOf", "allOf", "not", "$ref"}) {
+    QJsonObject schema{{"type", "object"}, {keyword, QJsonArray{}}};
+    bool refused = false;
+    try {
+      requirePlainInputSchema(
+          {{"name", "invented.tool"}, {"inputSchema", schema}});
+    } catch (const Error& error) {
+      refused = error.code == "internal_error";
+    }
+    require(refused, "A root combinator in an input schema must be refused");
+  }
+  bool refused = false;
+  try {
+    requirePlainInputSchema({{"name", "invented.tool"},
+                             {"inputSchema", QJsonObject{{"type", "array"}}}});
+  } catch (const Error&) {
+    refused = true;
+  }
+  require(refused, "A non-object input schema root must be refused");
+}
+
 void toolsetCatalog(Context& context) {
   Dispatcher dispatcher(context);
   const QJsonObject capabilities =
@@ -410,7 +483,7 @@ void toolsetCatalog(Context& context) {
       listed.insert(name.toString(), toolset.value("name").toString());
     }
   }
-  const QJsonArray tools = capabilities.value("tools").toArray();
+  const QJsonArray tools = allTools(dispatcher);
   require(listed.size() == tools.size(),
           "Toolsets must list exactly the catalog's tools");
   for (const QJsonValue& value : tools) {
@@ -765,6 +838,8 @@ void runAutomationDispatcherTests(Context& context) {
     dispatcher.add(outputOperations(), strayField, "core");
     outputSchemas(dispatcher);
   }
+  catalogPaging(context);
+  plainInputSchemas(context);
   {
     Dispatcher dispatcher(context);
     dispatcher.add(patternOperations(), patternHandler, "core");

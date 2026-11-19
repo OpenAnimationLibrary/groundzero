@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { isAbsolute } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
-import { superviseNativeChannel } from "#mcp/supervisor-handshake";
+import { HANDSHAKE_LIMIT_MS, superviseNativeChannel } from "#mcp/supervisor-handshake";
 
 const KILL_GRACE_MS = 2_000;
 const GROUP_CHECK_DELAYS_MS = [10, 40, 100, 250, 500];
@@ -55,7 +55,12 @@ function supervise(): void {
     });
     stop();
   });
-  superviseNativeChannel(child, stop);
+  const override = Number(process.env["GROUNDZERO_SUPERVISOR_HANDSHAKE_MS"]);
+  superviseNativeChannel(
+    child,
+    stop,
+    Number.isSafeInteger(override) && override > 0 ? override : HANDSHAKE_LIMIT_MS,
+  );
 }
 
 /** Send the final signal as soon as the native worker has exited and reported and nothing

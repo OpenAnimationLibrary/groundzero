@@ -396,18 +396,6 @@ constexpr char Schemas[] = R"json(
         "operation_id",
         "sharing",
         "opacity_per_mille"
-      ],
-      "oneOf": [
-        {
-          "required": [
-            "stroke_indices"
-          ]
-        },
-        {
-          "required": [
-            "selection_id"
-          ]
-        }
       ]
     }
   },
@@ -513,18 +501,6 @@ constexpr char Schemas[] = R"json(
         "operation_id",
         "sharing",
         "knots"
-      ],
-      "oneOf": [
-        {
-          "required": [
-            "stroke_indices"
-          ]
-        },
-        {
-          "required": [
-            "selection_id"
-          ]
-        }
       ]
     }
   }
@@ -604,9 +580,10 @@ QJsonArray vectorOpacityOperations() {
       "return a selection_id handle bound to the revision.",
       "Inspect native per-mille stroke opacity and a bounded envelope page.",
       "Set native per-mille ink opacity while preserving stroke envelopes and "
-      "region paint; targets stroke_indices or a selection_id.",
+      "region paint; provide exactly one of stroke_indices and selection_id.",
       "Replace native ink opacity envelopes while preserving scalar opacity "
-      "and region paint; targets stroke_indices or a selection_id."};
+      "and region paint; provide exactly one of stroke_indices and "
+      "selection_id."};
   const auto definitions = QJsonDocument::fromJson(Schemas).array();
   for (int index = 0; index < definitions.size(); ++index) {
     const auto definition = definitions[index].toObject();

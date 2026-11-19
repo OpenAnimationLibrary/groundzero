@@ -77,7 +77,7 @@ import mcp_vector_opacity_cases
 import mcp_vector_transform_cases
 import mcp_worker_cases
 from mcp_png import decode_png, fixture_pixel, write_fixture
-from mcp_worker import FULL_AUTHORITY, Worker
+from mcp_worker import FULL_AUTHORITY, Worker, joined_capabilities
 from run_harness_tests import Tee, annotation
 
 REQUIRED_TOOLS = {
@@ -470,6 +470,9 @@ class NativeAcceptance(unittest.TestCase):
 
     def test_every_read_tool_leaves_files_and_native_state_unchanged(self) -> None:
         mcp_readonly_cases.every_read_tool_leaves_everything_unchanged(self)
+
+    def test_report_default_read_result_sizes(self) -> None:
+        mcp_readonly_cases.report_default_read_result_sizes(self)
 
     def test_readonly_harness_catches_writing_tools_labelled_as_reads(self) -> None:
         mcp_readonly_cases.harness_catches_writing_tools_labelled_as_reads(self)
@@ -1029,6 +1032,10 @@ class NativeAcceptance(unittest.TestCase):
         self.assertIsInstance(result, dict)
         return result
 
+    def capabilities(self) -> dict[str, Any]:
+        """Return automation.capabilities with every page of tool descriptors joined."""
+        return joined_capabilities(lambda params: self.success("automation.capabilities", params))
+
     def failure(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Require a structured actionable failure, never process termination."""
         response = self.worker.call(method, params)
@@ -1091,6 +1098,19 @@ class NativeAcceptance(unittest.TestCase):
             self.assertTrue(error["details"]["issues"], error)
         if before is not None:
             self.assertEqual(self._summary(worker, document), before)
+        return error
+
+    def handler_failure(self, method: str, params: dict[str, Any], code: str) -> dict[str, Any]:
+        """Require a refusal by the tool's own checks, with its own code, and no change.
+
+        Unlike a schema violation, the same code comes back through the worker and the SDK
+        client, since the advertised schema admits the arguments.
+        """
+        document = params["document_id"]
+        before = self._summary(self.worker, document)
+        error = self.failure(method, params)
+        self.assertEqual(error["code"], code, error)
+        self.assertEqual(self._summary(self.worker, document), before)
         return error
 
     def _summary(self, worker: Worker, document: Any) -> dict[str, Any]:
@@ -1257,7 +1277,7 @@ class NativeAcceptance(unittest.TestCase):
         mcp_census_cases.census_matches_live_catalog(self)
 
     def test_capabilities_are_strict_and_implemented(self) -> None:
-        capabilities = self.success("automation.capabilities", {})
+        capabilities = self.capabilities()
         self.assertEqual(capabilities["protocol_version"], 3)
         tools = capabilities["tools"]
         names = [tool["name"] for tool in tools]

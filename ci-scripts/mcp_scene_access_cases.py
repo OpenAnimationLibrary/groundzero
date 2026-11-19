@@ -15,12 +15,21 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_audio_model import tone, wav_file
 from mcp_studio_palette_cases import call, refuse, tree_digest
-from mcp_worker import Worker
+from mcp_worker import Worker, joined_capabilities
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
 DRAWING = {"number": 1, "suffix": ""}
+
+
+def _catalog(case: NativeAcceptance, worker: Worker) -> list[dict[str, Any]]:
+    fetch = joined_capabilities(
+        lambda params: call(case, worker, "automation.capabilities", params)
+    )
+    return fetch["tools"]
+
+
 TERMINAL = {"completed", "failed", "canceled", "deadline_exceeded"}
 FORWARDED = {
     "scene.summary",
@@ -726,7 +735,7 @@ def read_only_documents_refuse_every_other_tool(case: NativeAcceptance) -> None:
     worker = case.worker
     document = open_scene(case, worker, scenes["B"], "standalone")["document_id"]
     before = call(case, worker, "scene.summary", {"document_id": document})
-    tools = call(case, worker, "automation.capabilities", {})["tools"]
+    tools = _catalog(case, worker)
     refused = 0
     for tool in tools:
         name = tool["name"]
@@ -767,9 +776,7 @@ def read_only_documents_refuse_mutations(case: NativeAcceptance) -> None:
     column = before["columns"][0]["column_id"]
     objects = before["columns"][0]["object_id"]
     directory = str(case.workspace / "copy")
-    tools = {
-        tool["name"]: tool for tool in call(case, worker, "automation.capabilities", {})["tools"]
-    }
+    tools = {tool["name"]: tool for tool in _catalog(case, worker)}
     for name, extra, reason, slice_ in _refusals(column, objects, directory):
         params = {"document_id": document, **extra}
         if not tools[name]["annotations"]["readOnlyHint"]:

@@ -3,7 +3,6 @@ import { WorkerError, errorResult, isObject } from "#mcp/errors";
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 2048;
-const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 9 * 1024 * 1024;
 const SDK_METADATA_RESERVE_BYTES = 1024;
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -43,20 +42,15 @@ function previewImage(value: unknown): ImageContent {
  * Args:
  *   value: Native result with an optional inline PNG image.
  * Returns:
- *   Text and image content with native metadata as structured content.
+ *   The metadata as JSON text, so a client that shows only text still has it, and as
+ *   structured content, plus any image content.
  */
 export function toolResult(value: unknown): CallToolResult {
   if (!isObject(value)) {
     throw new WorkerError("INVALID_RESULT", "Native operation result must be an object");
   }
   const { image, ...metadata } = value;
-  const json = JSON.stringify(metadata);
-  const bytes = Buffer.byteLength(json);
-  const text =
-    bytes <= MAX_TEXT_BYTES
-      ? json
-      : `Metadata is ${bytes} UTF-8 bytes; read structuredContent for complete data.`;
-  const content: CallToolResult["content"] = [{ type: "text", text }];
+  const content: CallToolResult["content"] = [{ type: "text", text: JSON.stringify(metadata) }];
   if (image !== undefined) content.push(previewImage(image));
   return { content, structuredContent: metadata };
 }

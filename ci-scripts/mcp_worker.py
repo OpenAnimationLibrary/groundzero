@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
@@ -147,12 +148,31 @@ def _request(worker: Worker, method: str, params: dict[str, Any]) -> dict[str, A
 
 
 def _described(worker: Worker) -> list[dict[str, Any]]:
-    names = [tool["name"] for tool in _request(worker, "automation.capabilities", {})["tools"]]
+    catalog = joined_capabilities(
+        lambda params: _request(worker, "automation.capabilities", params)
+    )
+    names = [tool["name"] for tool in catalog["tools"]]
     described = []
     for start in range(0, len(names), DESCRIBE_BATCH):
         batch = names[start : start + DESCRIBE_BATCH]
         described.extend(_request(worker, "tool.describe", {"names": batch})["tools"])
     return described
+
+
+def joined_capabilities(fetch: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
+    """Return automation.capabilities with every page of tool descriptors joined.
+
+    Args:
+        fetch: Calls automation.capabilities with the given paging arguments and returns its
+            result.
+    """
+    result = fetch({"limit": 64})
+    tools = list(result["tools"])
+    page = result
+    while page["next_offset"] is not None:
+        page = fetch({"limit": 64, "offset": page["next_offset"]})
+        tools.extend(page["tools"])
+    return {**result, "tools": tools, "next_offset": None}
 
 
 class Worker:

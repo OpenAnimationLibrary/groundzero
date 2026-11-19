@@ -20416,7 +20416,7 @@
                 "additionalProperties": false,
                 "properties": {
                   "elapsed_ms": {
-                    "maximum": 10000,
+                    "maximum": 600000,
                     "minimum": 0,
                     "type": "integer"
                   },
