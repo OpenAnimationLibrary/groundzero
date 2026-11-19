@@ -1187,6 +1187,24 @@
      }
     }
    ]
+  },
+  "grouped": {
+   "extends": "pegs",
+   "steps": [
+    {
+     "tool": "object.group",
+     "args": {
+      "object_ids": [
+       "$peg",
+       "$child"
+      ],
+      "name": "Pair"
+     },
+     "save": {
+      "group": "group.group_number"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -7439,6 +7457,210 @@
      }
     },
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.duplicate": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "peg",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "adds a copy of a pegbar with its curves and offset layers",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "name": "Copy"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "name": "Copy"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "no_noop": "Every call adds another pegbar, so there is no value to repeat."
+  },
+  "object.rename": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "peg",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "name of a pegbar or column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "name": "X"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.delete": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "pegs",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "removes a pegbar from the stage",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$child",
+     "children_policy": "refuse",
+     "report_frames": [
+      0
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "children_policy": "refuse",
+      "report_frames": [
+       0
+      ]
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "object.group": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "pegs",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "adds a stage schematic group",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "object.groups"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_ids": [
+      "$peg",
+      "$child"
+     ],
+     "name": "Pair"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_ids": [
+       "$peg",
+       "object_missing"
+      ],
+      "name": "Pair"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "no_noop": "Every call adds another group, so there is no value to repeat."
+  },
+  "object.group.rename": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "grouped",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "name of a stage schematic group",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "object.groups"
+    }
+   ],
+   "success": {
+    "args": {
+     "group_number": "$group",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "group_number": 999,
+      "name": "X"
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.ungroup": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "grouped",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "removes a stage schematic group",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "object.groups"
+    }
+   ],
+   "success": {
+    "args": {
+     "group_number": "$group"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "group_number": 999
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "not_found",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
    }
   }
  },

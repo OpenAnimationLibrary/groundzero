@@ -97,6 +97,57 @@ AutomationLayer automationLayer(Document& document, const QString& layerId);
 QJsonArray automationLayerSummaries(Document& document,
                                     const TStageObject& object);
 
+// Publish handles for every offset layer of an object; existing ones are kept.
+void registerAutomationLayers(Document& document, const TStageObject& object);
+
+struct AutomationExposures;
+
+// Resolve a document at its expected revision and require the rig profile.
+Document& automationRigDocument(Context& context, const QJsonObject& params);
+
+// Require 1-256 Unicode characters without control characters.
+void requireAutomationName(const QString& name);
+
+// Whether the object, its column or the camera column is locked.
+bool automationObjectLocked(ToonzScene& scene, const TStageObject& object);
+
+// Refuse with locked while automationObjectLocked holds.
+void requireAutomationUnlocked(ToonzScene& scene, const TStageObject& object);
+
+// Whether the object follows a motion path.
+bool automationFollowsPath(const TStageObject& object);
+
+// The hook number of an H1-H99 handle string, or 0 for any other string.
+int automationHookNumber(const std::string& handle);
+
+// Position in inches of a letter or hook handle on its owner at a row.
+TPointD automationHandlePosition(ToonzScene& scene, const TStageObject& owner,
+                                 const std::string& handle, int row);
+
+// The rig.inspect record of one object.
+QJsonObject automationObjectRecord(Document& document,
+                                   const AutomationExposures& exposures,
+                                   TStageObject& object);
+
+// Children of an object in native stage-id order.
+std::vector<TStageObject*> automationChildren(const TStageObject& object);
+
+// Drop cached placements so the next evaluation reads current state.
+void automationRefreshPlacements(ToonzScene& scene);
+
+// Schema of an opaque handle string (1-128 characters).
+QJsonObject automationIdSchema();
+
+// Strict object schema with the given properties and required names.
+QJsonObject automationStrictSchema(const QJsonObject& properties,
+                                   const QJsonArray& required);
+
+// Append a rig tool taking document_id, expected_revision and, for writes,
+// operation_id before its own fields.
+void addAutomationRigTool(QJsonArray& catalog, const QString& name,
+                          const QString& description, QJsonObject fields,
+                          QJsonArray required, bool writes);
+
 #ifdef BUILD_UI_PORT_TESTS
 void runAutomationRigTests(Context& context);
 #endif

@@ -309,7 +309,9 @@ QString domainToolset(const QString& name) {
   if (name.startsWith("lipsync.")) return "lipsync";
   if (name.startsWith("rig.") || name.startsWith("hook.") ||
       name.startsWith("offset_layer.") || name == "object.handles.set" ||
-      name == "object.pivot.set")
+      name == "object.pivot.set" || name == "object.duplicate" ||
+      name == "object.rename" || name == "object.delete" ||
+      name.startsWith("object.group") || name == "object.ungroup")
     return "rigging";
   if (name == "shared.roots" || name.startsWith("studio_palette.") ||
       name.startsWith("library."))

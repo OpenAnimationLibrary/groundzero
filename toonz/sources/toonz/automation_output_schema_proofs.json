@@ -494,6 +494,26 @@
     "handler": "createObject",
     "read": []
   },
+  "object.delete": {
+    "handler": "deleteObject",
+    "read": []
+  },
+  "object.duplicate": {
+    "handler": "duplicateObject",
+    "read": []
+  },
+  "object.group": {
+    "handler": "createGroup",
+    "read": []
+  },
+  "object.group.rename": {
+    "handler": "renameGroup",
+    "read": []
+  },
+  "object.groups": {
+    "handler": "listGroups",
+    "read": []
+  },
   "object.handles.set": {
     "handler": "setHandles",
     "read": []
@@ -512,6 +532,14 @@
   },
   "object.pivot.set": {
     "handler": "setPivot",
+    "read": []
+  },
+  "object.rename": {
+    "handler": "renameObject",
+    "read": []
+  },
+  "object.ungroup": {
+    "handler": "dissolveGroup",
     "read": []
   },
   "offset_layer.create": {
@@ -628,6 +656,10 @@
   },
   "render.submit": {
     "handler": "submit",
+    "read": []
+  },
+  "rig.dependents": {
+    "handler": "inspectDependents",
     "read": []
   },
   "rig.evaluate": {

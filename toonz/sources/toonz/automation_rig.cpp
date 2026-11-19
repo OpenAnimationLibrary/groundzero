@@ -2,6 +2,7 @@
 #include "automation.h"
 #include "automation_animation.h"
 #include "automation_hook.h"
+#include "automation_object.h"
 
 #include "tdoubleparam.h"
 #include "tstream.h"
@@ -1118,10 +1119,71 @@ QJsonArray automationLayerSummaries(Document& document,
   return layers;
 }
 
+void registerAutomationLayers(Document& document, const TStageObject& object) {
+  for (int layer = 0; layer < object.getOffsetLayerCount(); ++layer)
+    registerLayer(document, object.getOffsetLayer(layer).m_weight);
+}
+
+Document& automationRigDocument(Context& context, const QJsonObject& params) {
+  return rigDocument(context, params);
+}
+
+void requireAutomationName(const QString& name) { requireName(name); }
+
+bool automationObjectLocked(ToonzScene& scene, const TStageObject& object) {
+  return objectLocked(scene, object);
+}
+
+void requireAutomationUnlocked(ToonzScene& scene, const TStageObject& object) {
+  requireUnlocked(scene, object);
+}
+
+bool automationFollowsPath(const TStageObject& object) {
+  return followsPath(object);
+}
+
+int automationHookNumber(const std::string& handle) {
+  return hookNumber(handle);
+}
+
+TPointD automationHandlePosition(ToonzScene& scene, const TStageObject& owner,
+                                 const std::string& handle, int row) {
+  return handlePosition(stageOf(scene), owner.getId(), handle, row);
+}
+
+QJsonObject automationObjectRecord(Document& document,
+                                   const AutomationExposures& exposures,
+                                   TStageObject& object) {
+  return objectRecord(document, exposures, object);
+}
+
+std::vector<TStageObject*> automationChildren(const TStageObject& object) {
+  return sortedChildren(object);
+}
+
+void automationRefreshPlacements(ToonzScene& scene) {
+  refreshPlacements(scene);
+}
+
+QJsonObject automationIdSchema() { return handleSchema(); }
+
+QJsonObject automationStrictSchema(const QJsonObject& properties,
+                                   const QJsonArray& required) {
+  return strictSchema(properties, required);
+}
+
+void addAutomationRigTool(QJsonArray& catalog, const QString& name,
+                          const QString& description, QJsonObject fields,
+                          QJsonArray required, bool writes) {
+  addTool(catalog, name, description, std::move(fields), std::move(required),
+          writes);
+}
+
 QJsonArray rigOperations() {
   QJsonArray catalog;
   addStageTools(catalog);
   addLayerTools(catalog);
+  for (const auto& tool : objectOperations()) catalog.append(tool);
   return catalog;
 }
 
@@ -1136,8 +1198,7 @@ QJsonValue executeRig(Context& context, const QString& method,
                {"offset_layer.update", updateLayer},
                {"offset_layer.delete", deleteLayer}};
   const auto found = handlers.find(method);
-  if (found == handlers.end())
-    throw Error("unknown_method", "Unknown detached rig operation.");
+  if (found == handlers.end()) return executeObject(context, method, params);
   return found->second(context, params);
 }
 

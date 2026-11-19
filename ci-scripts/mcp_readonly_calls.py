@@ -436,6 +436,24 @@ def _evaluate(f: Fixture) -> list[Call]:
     ]
 
 
+def _dependents(f: Fixture) -> list[Call]:
+    def target(**value: Any) -> dict[str, Any]:
+        return _pinned(f, target=value)
+
+    return [
+        Call("pegbar", target(kind="object", object_id=f.ids["peg"])),
+        Call("column", target(kind="object", object_id=f.ids["arm_object"])),
+        Call("hook", target(kind="hook", level_id=f.ids["arm_level"], hook_number=1)),
+        Call("unknown", target(kind="object", object_id=_missing("object")), "invalid_handle"),
+        Call("control", target(kind="control", control_id=_missing("control")), "invalid_handle"),
+        Call(
+            "stale",
+            _stale(f, target={"kind": "object", "object_id": f.ids["peg"]}),
+            "revision_conflict",
+        ),
+    ]
+
+
 def _hooks(f: Fixture) -> list[Call]:
     return [
         Call("level with hooks", _pinned(f, level_id=f.ids["arm_level"])),
@@ -785,6 +803,8 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "audio.inspect": _pinned_with("revision_conflict"),
     "rig.inspect": _pinned_with("revision_conflict"),
     "rig.evaluate": _evaluate,
+    "rig.dependents": _dependents,
+    "object.groups": _pinned_with("revision_conflict"),
     "hook.inspect": _hooks,
     "shared.roots": _roots,
     "studio_palette.list": _studio_list,

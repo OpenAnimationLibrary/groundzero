@@ -426,7 +426,9 @@
       "rig.inspect",
       "rig.evaluate",
       "scene.summary",
-      "scene.inventory"
+      "scene.inventory",
+      "rig.dependents",
+      "object.groups"
      ]
     },
     "create": {
@@ -438,20 +440,26 @@
      "tools": [
       "object.parent",
       "object.handles.set",
-      "object.pivot.set"
+      "object.pivot.set",
+      "object.rename",
+      "object.group",
+      "object.group.rename",
+      "object.ungroup"
      ]
     },
     "duplicate": {
-     "disposition": "planned",
-     "outcome": "stage.object_lifecycle"
+     "tools": [
+      "object.duplicate"
+     ]
     },
     "reorder": {
      "disposition": "unsupported",
      "reason": "stage objects are ordered only by their parent links (object.parent)"
     },
     "remove": {
-     "disposition": "planned",
-     "outcome": "stage.object_lifecycle"
+     "tools": [
+      "object.delete"
+     ]
     },
     "persist": {
      "tools": [

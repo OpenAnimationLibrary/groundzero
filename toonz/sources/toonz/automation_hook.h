@@ -70,6 +70,12 @@ QJsonValue writeAutomationHooks(TXshSimpleLevel& level,
 void readAutomationHooks(ToonzScene& scene, TXshSimpleLevel& level,
                          const QJsonValue& digest);
 
+// Own-handle and child parent-handle users of hook_number on the columns
+// that expose the level, as hook.inspect reports them.
+QJsonArray automationHookUsers(Document& document,
+                               const AutomationExposures& exposures,
+                               TXshSimpleLevel& level, int hookNumber);
+
 // Count the hooks keyed on one drawing.
 int automationHookKeys(TXshSimpleLevel& level, const TFrameId& frame);
 
