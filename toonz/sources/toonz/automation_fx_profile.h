@@ -28,6 +28,14 @@ const QStringList& automationFxProfileTypes();
 // parameter kind is not editable.
 QJsonObject automationFxParameterSchema(TFx* fx, TParam* param,
                                         const std::string& name);
+// The admitted number schema of one channel of a parameter: component is the
+// index of a point or color channel, or -1 for a scalar. Color channels are
+// native fractions 0..1. Empty when the parameter is not editable.
+QJsonObject automationFxChannelSchema(TFx* fx, TParam* param,
+                                      const std::string& name, int component);
+// True when a constraint of the type reads the parameter, so its curves keep
+// linear keys with step 1.
+bool automationFxLinearOnly(TFx* fx, const std::string& name);
 // Throws INVALID_PARAMS or OUT_OF_RANGE when a number leaves its schema.
 void validateAutomationFxNumber(const QJsonValue& value,
                                 const QJsonObject& schema);

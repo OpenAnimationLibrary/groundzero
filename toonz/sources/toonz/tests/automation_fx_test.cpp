@@ -38,6 +38,8 @@
 #include <memory>
 #include <new>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 #include <type_traits>
 
 namespace GroundzeroAutomation {
@@ -936,6 +938,67 @@ void testGraphJournalCost(Context& context) {
 
 // K2: a curve the editor locked refuses every parameter write before any
 // change; unlocking admits the same call.
+// K2 on the animation key tools: each refuses a locked effect curve with
+// curve_locked before any change, and the same call passes once unlocked.
+void testCurveLockRefusesKeyTools(Context& context, Document& document,
+                                  const QString& blur, TDoubleParam* value) {
+  const QJsonObject target{{"document_id", document.id},
+                           {"fx_id", blur},
+                           {"channel", "value"},
+                           {"unit", "native_fxLength"}};
+  QJsonObject keys = target;
+  keys["keys"]     = QJsonArray{
+      QJsonObject{{"frame", 0}, {"value", 1}, {"interpolation", "linear"}},
+      QJsonObject{{"frame", 8}, {"value", 9}, {"interpolation", "linear"}}};
+  executeScene(context, "animation.set_keys", keys);
+  QJsonObject frames          = target;
+  frames["frames"]            = QJsonArray{8};
+  frames["frame_offset"]      = 2;
+  QJsonObject breakdown       = target;
+  breakdown["frame"]          = 4;
+  breakdown["favour_percent"] = 50;
+  QJsonObject retime          = target;
+  retime["origin_frame"]      = 0;
+  retime["shift_frames"]      = 1;
+  retime["scale"] = QJsonObject{{"numerator", 1}, {"denominator", 1}};
+  QJsonObject copy{{"document_id", document.id},
+                   {"source", QJsonObject{{"fx_id", blur},
+                                          {"channel", "value"},
+                                          {"unit", "native_fxLength"}}},
+                   {"destination", QJsonObject{{"fx_id", blur},
+                                               {"channel", "value"},
+                                               {"unit", "native_fxLength"}}}};
+  const std::vector<std::pair<QString, QJsonObject>> calls{
+      {"animation.set_keys", keys},
+      {"animation.delete_keys", frames},
+      {"animation.move_keys", frames},
+      {"animation.duplicate_keys", frames},
+      {"animation.insert_breakdown", breakdown},
+      {"animation.retime_curve", retime},
+      {"animation.copy_curve", copy}};
+  value->setEditorLocked(true);
+  for (const auto& call : calls) {
+    context.resetMutationStarted();
+    try {
+      executeScene(context, call.first, call.second);
+      throw std::runtime_error("A key tool changed a locked effect curve");
+    } catch (const Error& error) {
+      require(
+          error.code == "locked" &&
+              error.details.value("reason") == "curve_locked" &&
+              error.details.value("channel") == "value" &&
+              !context.mutationStarted(),
+          "A key tool must refuse a locked effect curve before changing it");
+    }
+    require(value->getKeyframeCount() == 2 && value->getValue(8) == 9,
+            "A refused key tool must leave the locked curve unchanged");
+  }
+  value->setEditorLocked(false);
+  executeScene(context, "animation.move_keys", frames);
+  require(value->isKeyframe(10) && !value->isKeyframe(8),
+          "An unlocked effect curve must accept the refused move");
+}
+
 void testCurveLockRefusesEdits(Context& context, Document& document) {
   const QString blur = create(context, document, "STD_blurFx");
   auto* value        = dynamic_cast<TDoubleParam*>(
@@ -973,6 +1036,66 @@ void testCurveLockRefusesEdits(Context& context, Document& document) {
             "A locked channel must be named in the refusal");
   }
   color->getGreen()->setEditorLocked(false);
+  testCurveLockRefusesKeyTools(context, document, blur, value);
+}
+
+// One speed segment of a blur value from 0 to 200 with the given handles, and
+// an ease segment back, through animation.set_keys.
+QJsonArray boundedKeys(double outFrames, double outValue, double inFrames,
+                       double inValue) {
+  return {
+      QJsonObject{{"frame", 0},
+                  {"value", 0},
+                  {"interpolation", "speed_in_out"},
+                  {"outgoing", QJsonObject{{"frame_delta", outFrames},
+                                           {"value_delta", outValue}}}},
+      QJsonObject{{"frame", 12},
+                  {"value", 200},
+                  {"interpolation", "ease_in_out"},
+                  {"incoming", QJsonObject{{"kind", "speed"},
+                                           {"frame_delta", -inFrames},
+                                           {"value_delta", inValue}}},
+                  {"outgoing", QJsonObject{{"frames", 5}}}},
+      QJsonObject{{"frame", 24},
+                  {"value", 0},
+                  {"interpolation", "linear"},
+                  {"incoming", QJsonObject{{"kind", "ease"}, {"frames", 7}}}}};
+}
+
+// P-FL-2: a rich effect curve whose keys and speed handles are inside the
+// admitted bounds evaluates inside them at every frame and sub-frame, and a
+// handle one unit outside is refused.
+void testRichFxCurvesStayInBounds(Context& context, Document& document) {
+  const QString blur = create(context, document, "STD_blurFx");
+  auto* value        = dynamic_cast<TDoubleParam*>(
+      document.fx(blur)->getParams()->getParam("value"));
+  QJsonObject request{{"document_id", document.id},
+                      {"fx_id", blur},
+                      {"channel", "value"},
+                      {"unit", "native_fxLength"}};
+  for (const double outFrames : {0.0, 3.0, 6.0, 12.0})
+    for (const double outValue : {0.0, 100.0, 200.0})
+      for (const double inFrames : {0.0, 4.0, 12.0 - outFrames})
+        for (const double inValue : {-200.0, -50.0, 0.0}) {
+          request["keys"] = boundedKeys(outFrames, outValue, inFrames, inValue);
+          executeScene(context, "animation.set_keys", request);
+          for (int step = 0; step <= 24 * 8; ++step) {
+            const double sampled = value->getValue(step / 8.0);
+            require(sampled >= 0 && sampled <= 200,
+                    "A bounded rich curve must evaluate inside its bounds");
+          }
+        }
+  request["keys"] = boundedKeys(3, 201, 4, -50);
+  try {
+    executeScene(context, "animation.set_keys", request);
+    throw std::runtime_error("A speed handle outside the bounds was admitted");
+  } catch (const Error& error) {
+    require(error.code == "OUT_OF_RANGE" &&
+                error.details.value("fx_id") == blur &&
+                error.details.value("channel") == "value" &&
+                error.details.value("frame") == 0,
+            "A handle outside the bounds must be OUT_OF_RANGE at its key");
+  }
 }
 
 }  // namespace
@@ -998,6 +1121,7 @@ void runAutomationFxTests(Context& context) {
   testGraphOwnership(context, document);
   testAdmission(context, document);
   testCurveLockRefusesEdits(context, document);
+  testRichFxCurvesStayInBounds(context, document);
   context.removeDocument(document.id);
   testAssetBudget(context);
   testGraphJournalSteps(context);

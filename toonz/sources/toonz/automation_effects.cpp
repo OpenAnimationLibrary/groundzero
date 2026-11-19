@@ -42,6 +42,15 @@ const ToolEffects kImport{
 const ToolEffects kExport{"document_write", "reads", {"writes_caller_path"},
                           "none",           {},      false};
 
+// The animation key writes also address effect channels (fx_id), which
+// answer the FX profile's refusals.
+QStringList withFxKeyErrors(QStringList errors) {
+  errors << "INVALID_PARAMS" << "NATIVE_FAILURE" << "OUT_OF_RANGE"
+         << "PARAMETER_CONSTRAINT" << "RESOURCE_LIMIT" << "STALE_ENTITY"
+         << "UNSUPPORTED_FX" << "UNSUPPORTED_PARAMETER" << "unsupported_target";
+  return errors;
+}
+
 // One row per native tool. Its effects say what the tool can change; its
 // errors are the codes it returns beyond those common to its class and inputs
 // (see commonErrors). A tool registered without a row stops the worker.
@@ -51,27 +60,33 @@ const QHash<QString, Declaration>& declarations() {
        {kInspect,
         {"resource_limit", "unsupported_channel", "unsupported_target"}}},
       {"animation.copy_curve",
-       {kEdit,
-        {"invalid_handle", "invalid_unit", "locked",
-         "unsupported_interpolation"}}},
-      {"animation.delete_keys", {kEdit, {"invalid_argument", "missing_key"}}},
+       {kFxEdit,
+        withFxKeyErrors({"invalid_handle", "invalid_unit", "locked",
+                         "unsupported_channel", "unsupported_interpolation"})}},
+      {"animation.delete_keys",
+       {kFxEdit, withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                                  "missing_key", "unsupported_channel",
+                                  "unsupported_interpolation"})}},
       {"animation.duplicate_keys",
-       {kEdit,
-        {"invalid_argument", "invalid_unit", "locked", "missing_key",
-         "unsupported_channel", "unsupported_interpolation"}}},
+       {kFxEdit, withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                                  "missing_key", "unsupported_channel",
+                                  "unsupported_interpolation"})}},
       {"animation.insert_breakdown",
-       {kEdit,
-        {"invalid_argument", "invalid_unit", "locked", "unsupported_channel",
-         "unsupported_interpolation"}}},
+       {kFxEdit,
+        withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                         "unsupported_channel", "unsupported_interpolation"})}},
       {"animation.keys",
        {kInspect,
         {"invalid_unit", "resource_limit", "unsupported_channel",
          "unsupported_target"}}},
       {"animation.move_keys",
-       {kEdit,
-        {"invalid_argument", "invalid_unit", "locked", "missing_key",
-         "unsupported_channel", "unsupported_interpolation"}}},
-      {"animation.retime_curve", {kEdit, {"invalid_unit", "locked"}}},
+       {kFxEdit, withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                                  "missing_key", "unsupported_channel",
+                                  "unsupported_interpolation"})}},
+      {"animation.retime_curve",
+       {kFxEdit,
+        withFxKeyErrors({"invalid_unit", "locked", "unsupported_channel",
+                         "unsupported_interpolation"})}},
       {"animation.sample",
        {kInspect,
         {"invalid_argument", "invalid_unit", "resource_limit",
@@ -82,8 +97,9 @@ const QHash<QString, Declaration>& declarations() {
         {"invalid_argument", "invalid_unit", "locked", "unsupported_channel",
          "unsupported_interpolation"}}},
       {"animation.set_keys",
-       {kEdit,
-        {"invalid_argument", "invalid_unit", "locked", "unsupported_channel"}}},
+       {kFxEdit,
+        withFxKeyErrors({"invalid_argument", "invalid_unit", "locked",
+                         "unsupported_channel", "unsupported_interpolation"})}},
       {"artifact.read",
        {ToolEffects{"read", "none", {"reads_private"}, "reads", {}, false},
         {"invalid_artifact", "path_denied", "unknown_artifact",

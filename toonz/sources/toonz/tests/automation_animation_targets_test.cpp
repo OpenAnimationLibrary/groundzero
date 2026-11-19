@@ -80,12 +80,14 @@ void effectParametersAreDescribedAndRead() {
       describeAnimationExternalChannels(document, {{"fx_id", id}});
   const auto channel = channelNamed(described, "value");
   require(channel.value("kind") == "fx_parameter" &&
-              channel.value("edit_via") == "fx.parameter.set_key" &&
-              !channel.value("writable").toBool() &&
+              channel.value("edit_via") == "animation.set_keys" &&
+              channel.value("writable").toBool() &&
               channel.value("key_count").toInt() == 2 &&
               !channel.value("cycle").toBool() &&
               channel.value("target").toObject().value("fx_id") == id &&
-              !channel.value("unsupported_reason").toString().isEmpty(),
+              channel.value("unsupported_reason").isNull() &&
+              channel.value("value_bounds") == QJsonArray{0, 200} &&
+              channel.value("interpolations").toArray().size() == 4,
           "An effect parameter descriptor is incomplete");
   const QString unit = channel.value("unit").toString();
   require(!unit.isEmpty(), "An effect parameter descriptor has no unit");
@@ -137,6 +139,11 @@ void effectParametersAreDescribedAndRead() {
           "An expression key was not described as unsupported");
   refused("unsupported_interpolation",
           [&]() { sampleAnimationExternal(document, sampleRequest); });
+  const auto locked = channelNamed(
+      describeAnimationExternalChannels(document, {{"fx_id", id}}), "value");
+  require(!locked.value("writable").toBool() &&
+              !locked.value("unsupported_reason").toString().isEmpty(),
+          "An effect channel outside the key profile was described writable");
   require(value->getKeyframe(0).m_value == before,
           "Reading effect parameters changed the curve");
 }

@@ -36,6 +36,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <set>
 #include <vector>
@@ -1974,5 +1975,69 @@ TFx* automationOwnedFx(Document& document, const QString& id) {
 }
 
 TFx* automationParameterFx(TFx* fx) { return parameterFx(fx); }
+
+namespace {
+
+QJsonObject channelDetails(Document& document,
+                           const AutomationFxChannel& channel) {
+  return {{"fx_id", document.idForFx(channel.fx)},
+          {"parameter", channel.parameter},
+          {"channel", channel.channel}};
+}
+
+// The curve of channel in native, an effect of the same type: a clone or the
+// effect itself.
+TDoubleParam* channelCurve(TFx* native, const AutomationFxChannel& channel) {
+  TParam* param =
+      native->getParams()->getParam(channel.parameter.toStdString());
+  if (channel.component < 0) return dynamic_cast<TDoubleParam*>(param);
+  auto* set = dynamic_cast<TParamSet*>(param);
+  if (!set || channel.component >= set->getParamCount()) return nullptr;
+  return dynamic_cast<TDoubleParam*>(
+      set->getParam(channel.component).getPointer());
+}
+
+}  // namespace
+
+void automationRequireFxChannelWritable(Document& document,
+                                        const AutomationFxChannel& channel) {
+  TParam* param = editableParameter(channel.fx, channel.parameter);
+  auto* pixel   = dynamic_cast<TPixelParam*>(param);
+  if (pixel && channel.component == 3 && !pixel->isMatteEnabled())
+    throw Error("UNSUPPORTED_PARAMETER",
+                "This color has no native matte: the effect never reads its "
+                "alpha channel.",
+                channelDetails(document, channel));
+  requireLinkedEditable(document, channel.fx);
+  if (!channel.curve->isEditorLocked()) return;
+  QJsonObject details = channelDetails(document, channel);
+  details.insert("reason", "curve_locked");
+  throw Error("locked", "The curve is locked in the editor; unlock it first.",
+              details);
+}
+
+void automationValidateFxChannelEdit(
+    Document& document, const AutomationFxChannel& channel,
+    const std::function<void(TDoubleParam&)>& edit) {
+  TFx* native    = parameterFx(channel.fx);
+  TFxP candidate = native->clone(false);
+  candidate->setFxVersion(native->getFxVersion());
+  TDoubleParam* curve = channelCurve(candidate.getPointer(), channel);
+  if (!curve)
+    throw Error("NATIVE_FAILURE", "The effect's copy lacks the edited channel.",
+                channelDetails(document, channel));
+  edit(*curve);
+  try {
+    validateAutomationFxProfile(candidate.getPointer());
+  } catch (Error& error) {
+    error.details.insert("fx_id", document.idForFx(channel.fx));
+    throw;
+  }
+}
+
+void automationAddFxAffected(Document& document, TFx* fx, QJsonObject& result) {
+  result.insert("fx_id", document.idForFx(fx));
+  addAffected(document, fx, result);
+}
 
 }  // namespace GroundzeroAutomation

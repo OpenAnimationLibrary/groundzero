@@ -2,6 +2,7 @@
 #include "automation.h"
 #include "automation_animation.h"
 #include "automation_fx.h"
+#include "automation_fx_profile.h"
 
 #include "tdoubleparam.h"
 #include "tfx.h"
@@ -32,6 +33,10 @@ struct ExternalChannel final {
   QString kind;
   QString valueSpace;
   QString editVia;
+  // For an effect channel: the parameter and the index of the channel in a
+  // point or color parameter (-1 for a scalar).
+  QString parameter;
+  int component = -1;
 };
 
 QString requiredText(const QJsonObject& params, const QString& field) {
@@ -51,7 +56,7 @@ void addEffectChannels(TParam* param, const QString& name,
                        std::vector<ExternalChannel>& channels) {
   if (auto* number = dynamic_cast<TDoubleParam*>(param)) {
     channels.push_back({number, name, unitFor(*number), "fx_parameter",
-                        "fx_parameter", "fx.parameter.set_key"});
+                        "fx_parameter", "animation.set_keys", name});
     return;
   }
   auto* set = dynamic_cast<TParamSet*>(param);
@@ -63,7 +68,7 @@ void addEffectChannels(TParam* param, const QString& name,
     const QString component =
         name + "." + QString::fromStdString(set->getParamName(index));
     channels.push_back({number, component, unitFor(*number), "fx_parameter",
-                        "fx_parameter", "fx.parameter.set_key"});
+                        "fx_parameter", "animation.set_keys", name, index});
   }
 }
 
@@ -116,7 +121,43 @@ QJsonObject targetRecord(const QJsonObject& params,
   return target;
 }
 
-QJsonObject describe(const QJsonObject& params, const ExternalChannel& item) {
+AutomationFxChannel fxChannel(Document& document, const QJsonObject& params,
+                              const ExternalChannel& item) {
+  return {automationOwnedFx(document, requiredText(params, "fx_id")),
+          item.curve, item.parameter, item.channel, item.component};
+}
+
+// Bounds and kinds an effect channel admits, and why it cannot be written
+// (empty when it can).
+struct EffectAdmission final {
+  QString reason;
+  double minimum  = -MaxBound;
+  double maximum  = MaxBound;
+  bool linearOnly = false;
+};
+
+EffectAdmission effectAdmission(Document& document, const QJsonObject& params,
+                                const ExternalChannel& item) {
+  EffectAdmission result;
+  const AutomationFxChannel channel = fxChannel(document, params, item);
+  try {
+    automationRequireFxChannelWritable(document, channel);
+    TFx* native              = automationParameterFx(channel.fx);
+    const std::string name   = item.parameter.toStdString();
+    const QJsonObject schema = automationFxChannelSchema(
+        native, native->getParams()->getParam(name), name, item.component);
+    result.minimum    = schema.value("minimum").toDouble(-MaxBound);
+    result.maximum    = schema.value("maximum").toDouble(MaxBound);
+    result.linearOnly = automationFxLinearOnly(native, name);
+    result.reason     = animationUnsupportedReason(*item.curve);
+  } catch (const Error& error) {
+    result.reason = error.message;
+  }
+  return result;
+}
+
+QJsonObject describeRemap(const QJsonObject& params,
+                          const ExternalChannel& item) {
   const TDoubleParam& curve = *item.curve;
   double minimum = 0, maximum = 0, step = 1;
   if (!curve.getValueRange(minimum, maximum, step) ||
@@ -125,30 +166,54 @@ QJsonObject describe(const QJsonObject& params, const ExternalChannel& item) {
     maximum = MaxBound;
   }
   const QString content = animationUnsupportedReason(curve, CyclePolicy::Allow);
-  const QString reason =
-      !content.isEmpty()
-          ? content
-          : (item.editVia.isEmpty()
-                 ? QString(
-                       "Read only: remap curves have no animation edit tool.")
-                 : "Read only here: edit this parameter with " + item.editVia +
-                       ".");
   return {{"channel", item.channel},
           {"unit", item.unit},
           {"kind", item.kind},
           {"target", targetRecord(params, item)},
-          {"edit_via",
-           item.editVia.isEmpty() ? QJsonValue() : QJsonValue(item.editVia)},
+          {"edit_via", QJsonValue()},
           {"editor_locked", curve.isEditorLocked()},
           {"cycle", curve.isCycleEnabled()},
           {"cycle_supported", false},
           {"key_count", curve.getKeyframeCount()},
           {"writable", false},
-          {"unsupported_reason", reason},
+          {"unsupported_reason",
+           content.isEmpty()
+               ? QString("Read only: remap curves have no animation edit tool.")
+               : content},
           {"interpolations", QJsonArray()},
           {"frame_bounds", QJsonArray{0, MaxFrame}},
           {"value_bounds", QJsonArray{minimum, maximum}},
           {"step_bounds", QJsonArray{1, 1000}},
+          {"key_time", "integer"},
+          {"sample_time", "fractional"}};
+}
+
+QJsonObject describe(Document& document, const QJsonObject& params,
+                     const ExternalChannel& item) {
+  if (item.parameter.isEmpty()) return describeRemap(params, item);
+  const TDoubleParam& curve       = *item.curve;
+  const EffectAdmission admission = effectAdmission(document, params, item);
+  const QJsonArray kinds =
+      admission.linearOnly
+          ? QJsonArray{"linear"}
+          : QJsonArray{"constant", "linear", "ease_in_out", "speed_in_out"};
+  return {{"channel", item.channel},
+          {"unit", item.unit},
+          {"kind", item.kind},
+          {"target", targetRecord(params, item)},
+          {"edit_via", item.editVia},
+          {"editor_locked", curve.isEditorLocked()},
+          {"cycle", curve.isCycleEnabled()},
+          {"cycle_supported", false},
+          {"key_count", curve.getKeyframeCount()},
+          {"writable", admission.reason.isEmpty()},
+          {"unsupported_reason", admission.reason.isEmpty()
+                                     ? QJsonValue()
+                                     : QJsonValue(admission.reason)},
+          {"interpolations", kinds},
+          {"frame_bounds", QJsonArray{0, MaxFrame}},
+          {"value_bounds", QJsonArray{admission.minimum, admission.maximum}},
+          {"step_bounds", QJsonArray{1, admission.linearOnly ? 1 : 1000}},
           {"key_time", "integer"},
           {"sample_time", "fractional"}};
 }
@@ -191,7 +256,8 @@ QJsonObject describeAnimationExternalChannels(Document& document,
     throw Error("invalid_params", "layer_id belongs to an object_id request.");
   QJsonArray channels;
   const auto items = externalChannels(document, params);
-  for (const auto& item : items) channels.append(describe(params, item));
+  for (const auto& item : items)
+    channels.append(describe(document, params, item));
   QJsonObject result{{"channels", channels},
                      {"value_space", items.empty() ? "fx_parameter"
                                                    : items.front().valueSpace}};
@@ -203,6 +269,13 @@ QJsonObject describeAnimationExternalChannels(Document& document,
                       ->isTimeRemapEnabled());
   }
   return result;
+}
+
+AutomationFxChannel automationFxChannel(Document& document,
+                                        const QJsonObject& params) {
+  if (params.contains("layer_id"))
+    throw Error("invalid_params", "layer_id belongs to an object_id request.");
+  return fxChannel(document, params, findChannel(document, params));
 }
 
 QJsonObject inspectAnimationExternalKeys(Document& document,

@@ -324,8 +324,12 @@ admitted ranges are narrower than the native ones: blur and glow radii are limit
 to 0–200, HSV percentage scales to 0–400 and multiply offsets to −255–255; multiply
 truncates fractional offsets toward zero in its native integer kernel. Parameters
 with native menu choices accept integers only, and a color without a native matte
-requires alpha 255. Every admitted effect uses its catalog `native_fx_version` and
-scalar linear animation keys; `fx.parameter.set_key` on a parameter that cannot
+requires alpha 255. Every admitted effect uses its catalog `native_fx_version`; its curves
+hold constant, linear, ease or speed keys whose values, and the handle points of every speed
+segment, stay inside these bounds (the start and end points of the linear gradient keep
+linear keys with step 1, since their separation constraint is checked on linear segments).
+`fx.parameter.set_key` writes one linear key to every channel of a parameter and is refused
+inside a speed or ease segment; `fx.parameter.set_key` on a parameter that cannot
 animate (a menu choice or a switch) is `NOT_ANIMATABLE`: use `fx.parameter.set`. These
 bounds also apply to presets, macro members, scene packages and render snapshots, so a
 scene saved with a value outside them does not reopen. A connection the native graph
@@ -401,7 +405,9 @@ boundary connections through native save/reopen before publication.
 
 Every FX write (`fx.create`, `fx.delete`, `fx.connect`, `fx.disconnect`, `fx.terminal.set`,
 `fx.output.select`, `fx.parameter.set`, `fx.parameter.set_key`, `fx.rename`, `fx.enabled.set`,
-`fx.duplicate`, `fx.preset.apply`, `fx.macro.*`, and the `fx-graph` tools) returns
+`fx.duplicate`, `fx.preset.apply`, `fx.macro.*`, the `fx-graph` tools, and the animation key
+writes that can address an effect channel: `animation.set_keys`, `delete_keys`, `move_keys`,
+`duplicate_keys`, `insert_breakdown`, `retime_curve` and `copy_curve`) returns
 `graph_delta`: `null` when the call changed nothing and kept the revision, otherwise what its
 step changed in the top sheet's graph, from the worker's own before-and-after snapshots
 rather than from the tool's description of itself. Entries are `current_output`, `node`
@@ -444,7 +450,8 @@ values and keys (`overwritten_parameters` names the ones that differed), keeps i
 connections, name and placement, and refuses an effect already in another group
 (`already_linked`), a different type (`link_incompatible`), the Xsheet node, outputs, macros
 and level columns (`unsupported_link`) and groups over 64. Every parameter edit of a member
-(`fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`) then changes them all, is
+(`fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, and the animation key writes
+on an effect channel) then changes them all, is
 refused when any member's column is locked, and reports `affected_fx_ids` and
 `linked_group_id`. `fx.link.remove` gives one member its own copy with equal values;
 deleting a member unlinks it first; `fx.duplicate` always makes an independent copy. Links
@@ -546,7 +553,7 @@ published channels, Plastic deformation, and hook tracker regions are outside th
 profile, and these tools have no live-editor or undo counterpart.
 
 `animation.insert_breakdown` is the editor's Set Breakdown Key on a stage base channel
-(not `path_position`, weights or offset layers): it adds a key at an integer `frame`
+(not `path_position`, weights or offset layers) or an effect channel: it adds a key at an integer `frame`
 strictly between two keys, with either `favour_percent` (-100 to 200) of the way from the
 previous key's value to the next one's, or an explicit `value`. The new key takes the
 segment's interpolation and step. A speed segment is cut so its shape is kept before the
@@ -557,7 +564,8 @@ outside the keys, or sits on a curve with expression, file, similar-shape or cyc
 is refused and nothing changes.
 
 `animation.move_keys` and `animation.duplicate_keys` take `frames` (existing key frames),
-`frame_offset` (whole frames, negative allowed) and `value_offset` on a stage base channel.
+`frame_offset` (whole frames, negative allowed) and `value_offset` on a stage base channel
+or an effect channel.
 A move keeps every moved key's interpolation, step and handles and changes only its frame
 and value; it keeps the key order, so it is refused when a key would land on or cross
 another key (`key_exists`, `order_changed`), leave its frames or values out of bounds, or
@@ -589,8 +597,22 @@ parameter component of the effect, named parameter-dot-component for pixel and p
 parameters, such as the Red component of a color), or `column_id` (the `time_remap`
 curve of a level column, with `remap_enabled`). `animation.keys` and `animation.sample`
 read the same targets by passing `fx_id` or `column_id` with the descriptor's `channel` and
-`unit`. Effect parameter and remap curves are read only here (`writable` is false): edit an
-effect parameter with `fx.parameter.set_key`; remap curves have no edit tool. A curve with
+`unit`. Remap curves are read only (`writable` false, `edit_via` null).
+
+Effect channels take the same key edits as stage channels: `animation.set_keys`,
+`delete_keys`, `move_keys`, `duplicate_keys`, `insert_breakdown`, `retime_curve` and
+`copy_curve` (on either side) accept `fx_id` with a `channel` and `unit` that
+`animation.channels` lists, in place of `object_id` (naming both is `invalid_params`; macros
+are `unsupported_target`; `animation.set_cycle` stays on stage channels). A channel's
+descriptor gives `edit_via` `animation.set_keys`, `writable`, its `interpolations` and its
+admitted `value_bounds` (color channels are native fractions 0 to 1). Every key value, and
+both handle points of every speed segment, must lie in those bounds, or the write is
+`OUT_OF_RANGE` with `fx_id`, `parameter`, `channel` and `frame` and nothing changes; an ease
+or constant segment stays between its keys and a speed segment inside the hull of its
+points, so the curve stays in bounds at every frame. Each result adds `affected_fx_ids`
+(every member of the effect's linked group) and `linked_group_id`, and the write is refused
+when a member's column or the curve is locked (`locked`, `reason: curve_locked`). Deleting
+an effect's keys leaves its other channels and its default value unchanged. A curve with
 expression, file or similar-shape keys is listed with its keys marked unsupported, without
 their text, and `animation.sample` refuses it with `unsupported_interpolation`.
 

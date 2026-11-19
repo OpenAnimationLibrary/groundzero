@@ -817,17 +817,18 @@ QJsonObject stepResult(const FxGraphJournal& journal, const Step& step,
 }
 
 bool reportsDelta(const QString& tool) {
-  static const QSet<QString> tools{"fx.create",        "fx.delete",
-                                   "fx.connect",       "fx.disconnect",
-                                   "fx.terminal.set",  "fx.output.select",
-                                   "fx.parameter.set", "fx.parameter.set_key",
-                                   "fx.rename",        "fx.enabled.set",
-                                   "fx.duplicate",     "fx.preset.apply",
-                                   "fx.macro.create",  "fx.macro.expand",
-                                   "fx.group.create",  "fx.group.remove",
-                                   "fx.group.rename",  "fx.layout.set",
-                                   "fx.link.add",      "fx.link.remove",
-                                   "fx.port_group.set"};
+  static const QSet<QString> tools{
+      "fx.create", "fx.delete", "fx.connect", "fx.disconnect",
+      "fx.terminal.set", "fx.output.select", "fx.parameter.set",
+      "fx.parameter.set_key", "fx.rename", "fx.enabled.set", "fx.duplicate",
+      "fx.preset.apply", "fx.macro.create", "fx.macro.expand",
+      "fx.group.create", "fx.group.remove", "fx.group.rename", "fx.layout.set",
+      "fx.link.add", "fx.link.remove", "fx.port_group.set",
+      // Key writes that can address an effect
+      // channel (fx_id).
+      "animation.set_keys", "animation.delete_keys", "animation.move_keys",
+      "animation.duplicate_keys", "animation.insert_breakdown",
+      "animation.retime_curve", "animation.copy_curve"};
   return tools.contains(tool);
 }
 
