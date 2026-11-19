@@ -726,5 +726,21 @@
         ]
       }
     ]
+  },
+  {
+    "id": "native-project-reread-compares-defaults",
+    "file": "toonz/sources/toonz/automation_projects.cpp",
+    "find": "  return near(reread, \"frame_rate\", defaults.frameRate) &&\n         reread",
+    "replace": "  return reread",
+    "why": "A project is published only when its staged definition reads back as requested.",
+    "native": true,
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "project_create_refuses_a_definition_that_rereads_differently"
+        ]
+      }
+    ]
   }
 ]

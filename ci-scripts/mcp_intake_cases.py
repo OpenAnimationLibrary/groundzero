@@ -676,22 +676,19 @@ def intake_helper_crash_fails_the_job_and_leaves_nothing(case: NativeAcceptance)
 
 @acceptance_case(worker_only="needs a crash fault and a second worker on the same workspace")
 def intake_retry_after_a_lost_worker_never_duplicates(case: NativeAcceptance) -> None:
-    """WAITING for the durable receipts (mcp/w2-receipts): PRD-06 #4 across workers.
+    """PRD-06 #4 across workers: a retried import never makes a second set of copies.
 
-    A worker dies after admitting an import; a fresh worker on the same workspace reports the
-    operation and a retry with the same operation_id answers from the journal without a second
-    set of copies. Runs once operation.status is in the catalog.
+    A worker dies while recording an import's outcome; a fresh worker on the same workspace
+    reports the operation and a retry with the same operation_id answers from the journal.
 
     Args:
         case: A fresh native-worker acceptance fixture.
     """
     from mcp_worker import Worker
 
-    tools = {tool["name"] for tool in case.capabilities()["tools"]}
-    if "operation.status" not in tools:
-        case.skipTest("waiting for the durable receipts: operation.status is not in this worker")
     case.worker.close()
-    arguments = ("--test-write-fault", "journal:outcome:crash")
+    operation = "lost-import"
+    arguments = ("--test-write-fault", "journal:outcome:crash", "--test-fault-operation", operation)
     case.worker = Worker(
         case.executable,
         case.workspace,
@@ -706,7 +703,10 @@ def intake_retry_after_a_lost_worker_never_duplicates(case: NativeAcceptance) ->
     params = case.write_params(
         document, {**_source(source), "name": "Lost", "exposure": "none", **choices}
     )
-    case.assertIn("error", case.worker.call("intake.import", params))
+    params["operation_id"] = operation
+    with case.assertRaises(RuntimeError):
+        case.worker.call("intake.import", params)
+    case.worker.process.wait(timeout=30)
     copies = sorted(p.name for p in case.workspace.rglob("*") if p.parent.name == "levels")
     case.worker.close()
     case.worker = Worker(
@@ -718,4 +718,6 @@ def intake_retry_after_a_lost_worker_never_duplicates(case: NativeAcceptance) ->
     retried = case.worker.call("intake.import", params).get("error", {}).get("code")
     case.assertIn(retried, {None, "operation_interrupted", "document_not_found"})
     again = sorted(p.name for p in case.workspace.rglob("*") if p.parent.name == "levels")
-    case.assertEqual(again, copies)
+    case.assertEqual(len(copies), 2)
+    case.assertLessEqual(set(again), set(copies), "the retry made a second set of copies")
+    case.assertEqual((status["state"], retried), ("completed", None))

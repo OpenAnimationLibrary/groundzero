@@ -289,6 +289,13 @@ QJsonObject writeProject(Context& context, const ProjectRequest& request) {
                            "Cannot create a private project staging folder.",
                            "stage", QString(), false);
   saveStaged(staging, request);
+  // Test-only write fault project:staged: the staged definition comes out
+  // with another frame rate, as a writer that lost a field would leave it.
+  if (writeFaultFires(context, "project:staged")) {
+    ProjectRequest other = request;
+    other.defaults.frameRate += 1;
+    saveStaged(staging, other);
+  }
   verifyStaged(context, staging, request);
   publishStaged(context, staging.path(), request.directory, "io_error",
                 "Cannot publish the verified project folder.");
@@ -302,7 +309,6 @@ QJsonObject writeProject(Context& context, const ProjectRequest& request) {
 
 QJsonValue createProject(Context& context, const QJsonObject& params) {
   const ProjectRequest request = createRequest(context, params);
-  context.markMutationStarted();
   return writeProject(context, request);
 }
 
@@ -334,7 +340,6 @@ QJsonValue duplicateProject(Context& context, const QJsonObject& params) {
   if (source.value("scene_defaults").isObject())
     request.defaults =
         requestedDefaults({{"scene_defaults", source.value("scene_defaults")}});
-  context.markMutationStarted();
   QJsonObject result = writeProject(context, request);
   result.insert("source_project_id", sourceId);
   result.insert("assets_copied", false);

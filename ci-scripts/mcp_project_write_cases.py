@@ -102,6 +102,23 @@ def project_create_publishes_nothing_on_failure(case: NativeAcceptance) -> None:
     case.assertEqual(list(locked.iterdir()), [])
 
 
+@acceptance_case(
+    worker_only="needs --test-write-fault project:staged, which the adapter never passes"
+)
+def project_create_refuses_a_definition_that_rereads_differently(case: NativeAcceptance) -> None:
+    """A staged project that reads back unlike the request is refused before publication."""
+    from mcp_failure_cases import _fault_worker
+
+    _fault_worker(case, "project-staged", "--test-write-fault", "project:staged")
+    target = case.workspace / "Show"
+    error = case.failure("project.create", case.write_params(None, {"directory": str(target)}))
+    details = error["details"]
+    case.assertEqual(
+        (error["code"], details["stage"], details["published"]), ("native_error", "verify", False)
+    )
+    case.assertFalse(target.exists())
+
+
 @acceptance_case
 def project_duplicate_copies_the_definition_only(case: NativeAcceptance) -> None:
     """A duplicate carries folders, rules and defaults but no asset, and names the
