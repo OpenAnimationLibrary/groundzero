@@ -10545,424 +10545,377 @@
     "type": "object"
   },
   "intake.import": {
-    "oneOf": [
-      {
-        "additionalProperties": false,
-        "properties": {
-          "copied_files": {
-            "items": {
+    "additionalProperties": false,
+    "properties": {
+      "copied_files": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "copy_name": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "drawing_id": {
               "additionalProperties": false,
               "properties": {
-                "bytes": {
+                "number": {
                   "maximum": 1.7976931348623157e+308,
                   "minimum": -1.7976931348623157e+308,
                   "type": "number"
                 },
-                "copy_name": {
-                  "maxLength": 65536,
-                  "minLength": 0,
-                  "type": "string"
-                },
-                "drawing_id": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "number": {
-                      "maximum": 1.7976931348623157e+308,
-                      "minimum": -1.7976931348623157e+308,
-                      "type": "number"
-                    },
-                    "suffix": {
-                      "maxLength": 65536,
-                      "minLength": 0,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "number",
-                    "suffix"
-                  ],
-                  "type": "object"
-                },
-                "sha256": {
-                  "maxLength": 65536,
-                  "minLength": 0,
-                  "type": "string"
-                },
-                "source_name": {
+                "suffix": {
                   "maxLength": 65536,
                   "minLength": 0,
                   "type": "string"
                 }
               },
               "required": [
-                "bytes",
-                "copy_name",
-                "drawing_id",
-                "sha256",
-                "source_name"
+                "number",
+                "suffix"
               ],
               "type": "object"
             },
-            "maxItems": 64,
-            "minItems": 0,
-            "type": "array"
+            "sha256": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "source_name": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            }
           },
-          "document_id": {
+          "required": [
+            "bytes",
+            "copy_name",
+            "drawing_id",
+            "sha256",
+            "source_name"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "dpi_policy": {
+        "enum": [
+          "source",
+          "value"
+        ],
+        "type": "string"
+      },
+      "dpi_x": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "dpi_y": {
+        "maximum": 1.7976931348623157e+308,
+        "minimum": -1.7976931348623157e+308,
+        "type": "number"
+      },
+      "drawings": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "alpha": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "bytes": {
+              "maximum": 1.7976931348623157e+308,
+              "minimum": -1.7976931348623157e+308,
+              "type": "number"
+            },
+            "color_metadata": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 0,
+              "type": "array"
+            },
+            "conversion": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 8,
+              "minItems": 0,
+              "type": "array"
+            },
+            "decoder": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "drawing_id": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "suffix": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number",
+                "suffix"
+              ],
+              "type": "object"
+            },
+            "height": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "pixel_format": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "sha256": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "stored_as": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
+            "width": {
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "alpha",
+            "bytes",
+            "color_metadata",
+            "conversion",
+            "decoder",
+            "drawing_id",
+            "height",
+            "name",
+            "pixel_format",
+            "sha256",
+            "stored_as",
+            "width"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 0,
+        "type": "array"
+      },
+      "exposure": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "column_id": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "gap_rows": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "length": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "on_gap": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "start_frame": {
+                "maximum": 2147483647,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "column_id",
+              "gap_rows",
+              "length",
+              "on_gap",
+              "start_frame"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "frame_rate": {
+        "additionalProperties": false,
+        "properties": {
+          "handling": {
             "maxLength": 65536,
             "minLength": 0,
             "type": "string"
           },
-          "dpi_policy": {
-            "enum": [
-              "source",
-              "value"
-            ],
-            "type": "string"
-          },
-          "dpi_x": {
+          "scene_frame_rate": {
             "maximum": 1.7976931348623157e+308,
             "minimum": -1.7976931348623157e+308,
             "type": "number"
           },
-          "dpi_y": {
-            "maximum": 1.7976931348623157e+308,
-            "minimum": -1.7976931348623157e+308,
-            "type": "number"
-          },
-          "drawings": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "alpha": {
-                  "maxLength": 65536,
-                  "minLength": 0,
-                  "type": "string"
-                },
-                "bytes": {
-                  "maximum": 1.7976931348623157e+308,
-                  "minimum": -1.7976931348623157e+308,
-                  "type": "number"
-                },
-                "color_metadata": {
-                  "items": {
-                    "maxLength": 65536,
-                    "minLength": 0,
-                    "type": "string"
-                  },
-                  "maxItems": 8,
-                  "minItems": 0,
-                  "type": "array"
-                },
-                "conversion": {
-                  "items": {
-                    "maxLength": 65536,
-                    "minLength": 0,
-                    "type": "string"
-                  },
-                  "maxItems": 8,
-                  "minItems": 0,
-                  "type": "array"
-                },
-                "decoder": {
-                  "maxLength": 65536,
-                  "minLength": 0,
-                  "type": "string"
-                },
-                "drawing_id": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "number": {
-                      "maximum": 1.7976931348623157e+308,
-                      "minimum": -1.7976931348623157e+308,
-                      "type": "number"
-                    },
-                    "suffix": {
-                      "maxLength": 65536,
-                      "minLength": 0,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "number",
-                    "suffix"
-                  ],
-                  "type": "object"
-                },
-                "height": {
-                  "maximum": 2147483647,
-                  "minimum": 0,
-                  "type": "integer"
-                },
-                "name": {
-                  "maxLength": 65536,
-                  "minLength": 0,
-                  "type": "string"
-                },
-                "pixel_format": {
-                  "maxLength": 65536,
-                  "minLength": 0,
-                  "type": "string"
-                },
-                "sha256": {
-                  "maxLength": 65536,
-                  "minLength": 0,
-                  "type": "string"
-                },
-                "stored_as": {
-                  "maxLength": 65536,
-                  "minLength": 0,
-                  "type": "string"
-                },
-                "width": {
-                  "maximum": 2147483647,
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              },
-              "required": [
-                "alpha",
-                "bytes",
-                "color_metadata",
-                "conversion",
-                "decoder",
-                "drawing_id",
-                "height",
-                "name",
-                "pixel_format",
-                "sha256",
-                "stored_as",
-                "width"
-              ],
-              "type": "object"
-            },
-            "maxItems": 64,
-            "minItems": 0,
-            "type": "array"
-          },
-          "exposure": {
+          "source_rate": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "handling",
+          "scene_frame_rate",
+          "source_rate"
+        ],
+        "type": "object"
+      },
+      "job": {
+        "type": "object"
+      },
+      "level": {
+        "additionalProperties": false,
+        "properties": {
+          "bit_depth": {
             "oneOf": [
               {
-                "additionalProperties": false,
-                "properties": {
-                  "column_id": {
-                    "maxLength": 65536,
-                    "minLength": 0,
-                    "type": "string"
-                  },
-                  "gap_rows": {
-                    "maximum": 2147483647,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "length": {
-                    "maximum": 2147483647,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "on_gap": {
-                    "maxLength": 65536,
-                    "minLength": 0,
-                    "type": "string"
-                  },
-                  "start_frame": {
-                    "maximum": 2147483647,
-                    "minimum": 0,
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "column_id",
-                  "gap_rows",
-                  "length",
-                  "on_gap",
-                  "start_frame"
-                ],
-                "type": "object"
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ]
           },
-          "frame_rate": {
-            "additionalProperties": false,
-            "properties": {
-              "handling": {
-                "maxLength": 65536,
-                "minLength": 0,
-                "type": "string"
-              },
-              "scene_frame_rate": {
-                "maximum": 1.7976931348623157e+308,
-                "minimum": -1.7976931348623157e+308,
-                "type": "number"
-              },
-              "source_rate": {
-                "type": "null"
-              }
-            },
-            "required": [
-              "handling",
-              "scene_frame_rate",
-              "source_rate"
-            ],
-            "type": "object"
-          },
-          "level": {
-            "additionalProperties": false,
-            "properties": {
-              "bit_depth": {
-                "oneOf": [
-                  {
-                    "maximum": 1.7976931348623157e+308,
-                    "minimum": -1.7976931348623157e+308,
-                    "type": "number"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "drawings": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "number": {
-                      "maximum": 1.7976931348623157e+308,
-                      "minimum": -1.7976931348623157e+308,
-                      "type": "number"
-                    },
-                    "suffix": {
-                      "maxLength": 65536,
-                      "minLength": 0,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "number",
-                    "suffix"
-                  ],
-                  "type": "object"
+          "drawings": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "number": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
                 },
-                "maxItems": 4096,
-                "minItems": 0,
-                "type": "array"
+                "suffix": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
               },
-              "format": {
-                "maxLength": 65536,
-                "minLength": 0,
-                "type": "string"
-              },
-              "kind": {
-                "maxLength": 65536,
-                "minLength": 0,
-                "type": "string"
-              },
-              "level_id": {
-                "maxLength": 65536,
-                "minLength": 0,
-                "type": "string"
-              },
-              "name": {
-                "maxLength": 65536,
-                "minLength": 0,
-                "type": "string"
-              }
+              "required": [
+                "number",
+                "suffix"
+              ],
+              "type": "object"
             },
-            "required": [
-              "drawings",
-              "format",
-              "level_id",
-              "name"
-            ],
-            "type": "object"
+            "maxItems": 4096,
+            "minItems": 0,
+            "type": "array"
           },
-          "operation_id": {
+          "format": {
             "maxLength": 65536,
             "minLength": 0,
             "type": "string"
           },
-          "outcome": {
-            "enum": [
-              "created",
-              "reused"
-            ],
-            "type": "string"
-          },
-          "revision": {
+          "kind": {
             "maxLength": 65536,
             "minLength": 0,
             "type": "string"
           },
-          "source_directory": {
+          "level_id": {
             "maxLength": 65536,
             "minLength": 0,
             "type": "string"
           },
-          "storage": {
-            "enum": [
-              "copy",
-              "link"
-            ],
+          "name": {
+            "maxLength": 65536,
+            "minLength": 0,
             "type": "string"
           }
         },
         "required": [
-          "copied_files",
-          "document_id",
-          "dpi_policy",
-          "dpi_x",
-          "dpi_y",
           "drawings",
-          "exposure",
-          "frame_rate",
-          "level",
-          "operation_id",
-          "outcome",
-          "revision",
-          "source_directory",
-          "storage"
+          "format",
+          "level_id",
+          "name"
         ],
         "type": "object"
       },
-      {
-        "additionalProperties": false,
-        "properties": {
-          "document_id": {
-            "maxLength": 65536,
-            "minLength": 0,
-            "type": "string"
-          },
-          "job": {
-            "type": "object"
-          },
-          "operation_id": {
-            "maxLength": 65536,
-            "minLength": 0,
-            "type": "string"
-          },
-          "outcome": {
-            "enum": [
-              "job_started"
-            ],
-            "type": "string"
-          },
-          "revision": {
-            "maxLength": 65536,
-            "minLength": 0,
-            "type": "string"
-          }
-        },
-        "required": [
-          "document_id",
-          "job",
-          "operation_id",
-          "outcome",
-          "revision"
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "outcome": {
+        "enum": [
+          "created",
+          "reused",
+          "job_started"
         ],
-        "type": "object"
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "source_directory": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "storage": {
+        "enum": [
+          "copy",
+          "link"
+        ],
+        "type": "string"
       }
-    ]
+    },
+    "required": [
+      "document_id",
+      "operation_id",
+      "outcome",
+      "revision"
+    ],
+    "type": "object"
   },
   "intake.preflight": {
     "additionalProperties": false,
