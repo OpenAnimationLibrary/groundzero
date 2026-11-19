@@ -49,8 +49,10 @@ def _imports(case: NativeAcceptance, document: str, path: str) -> dict[str, Any]
     return invoke(case, "level.import", document, path=path, name=name, dpi=120)
 
 
-def _opens_as_saved(case: NativeAcceptance, path: str) -> None:
+def _opens_as_saved(case: NativeAcceptance, path: str, reported: str) -> None:
+    """Open the package; the worker names it as the save did, whichever spelling was given."""
     opened = case.mutate("scene.open", None, path=path)
+    case.assertEqual(opened["package_directory"], reported)
     summary = case.success("scene.summary", {"document_id": opened["document_id"]})
     case.assertEqual([item["name"] for item in summary["levels"]], ["Quadrants"], path)
     case.mutate("scene.discard", opened["document_id"])
@@ -65,7 +67,7 @@ def _saves_and_reopens(case: NativeAcceptance, target: Path, spelled: str) -> No
     case.assertTrue(os.path.samefile(reported, target), reported)
     for path in (reported, _spell(target, "NFD"), _spell(target, "NFC")):
         with case.subTest(opened=path.encode("unicode_escape").decode()):
-            _opens_as_saved(case, path)
+            _opens_as_saved(case, path, reported)
     again = invoke(case, "scene.save_copy", document, directory=_spell(target, "NFC"))
     case.assertEqual(again["error"]["code"], "already_exists", again)
     again = invoke(case, "scene.save_copy", document, directory=_spell(target, "NFD"))
