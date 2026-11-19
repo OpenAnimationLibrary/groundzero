@@ -314,7 +314,10 @@ QString domainToolset(const QString& name) {
       name.startsWith("library."))
     return "shared-library";
   if (name == "fx.recipe.list") return "fx-finishing";
-  if (name.startsWith("cells.")) return "sheet";
+  if (name.startsWith("cells.") || name == "level.settings.set" ||
+      name == "level.rename" || name == "level.duplicate" ||
+      name == "level.remove")
+    return "sheet";
   return "core";
 }
 

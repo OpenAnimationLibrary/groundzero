@@ -9,6 +9,7 @@
 #include "automation_audio.h"
 #include "automation_hook.h"
 #include "automation_jobs.h"
+#include "automation_level_lifecycle.h"
 #include "automation_rig.h"
 #include "automation_scene_host.h"
 #include "automation_shared.h"
@@ -413,6 +414,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
       toolDescriptionResultSchema(maximumDescribedTools)));
   add(sceneOperations(), executeScene, "core");
   add(sheetOperations(), executeSheet, "sheet");
+  add(levelLifecycleOperations(), executeLevelLifecycle, "sheet");
   add(sceneAccessOperations(), executeSceneAccess, "core");
   add(sceneInventoryOperations(), executeSceneInventory, "core");
   add(fxOperations(), executeFx, "core");
