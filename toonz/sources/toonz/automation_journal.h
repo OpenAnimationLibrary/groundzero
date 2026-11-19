@@ -40,7 +40,8 @@ struct JournalLimits final {
   int lockWaitMs          = 5000;
   int outcomeLockWaitMs   = 30000;
   // --test-journal-limits small: rotation, compaction and expiry in seconds.
-  static JournalLimits small();
+  // (Not named small: the Windows headers define small as a macro.)
+  static JournalLimits reduced();
   // The limits journal.status reports.
   QJsonObject report() const;
 };

@@ -122,8 +122,8 @@ Identity identity(HANDLE token) {
   return {
       sidText(sid),
       hash(QByteArray(static_cast<const char*>(sid), int(GetLengthSid(sid)))),
-      hash(QByteArray::number(logon.HighPart) + ':' +
-           QByteArray::number(logon.LowPart)),
+      hash(QByteArray::number(qlonglong(logon.HighPart)) + ':' +
+           QByteArray::number(qulonglong(logon.LowPart))),
       reinterpret_cast<const TOKEN_ELEVATION*>(elevation.constData())
               ->TokenIsElevated != 0};
 }

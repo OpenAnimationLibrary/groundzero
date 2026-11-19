@@ -61,8 +61,9 @@ QJsonObject identity() {
   const bool elevated =
       reinterpret_cast<const TOKEN_ELEVATION*>(elevation.constData())
           ->TokenIsElevated != 0;
-  const QByteArray logon = QByteArray::number(authentication.HighPart) + ":" +
-                           QByteArray::number(authentication.LowPart);
+  const QByteArray logon =
+      QByteArray::number(qlonglong(authentication.HighPart)) + ":" +
+      QByteArray::number(qulonglong(authentication.LowPart));
   return {{"user_sha256", digest(QByteArray(static_cast<const char*>(sid),
                                             int(GetLengthSid(sid))))},
           {"logon_sha256", digest(logon)},
