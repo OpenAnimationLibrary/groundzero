@@ -244,3 +244,61 @@ def removing_the_output_camera_needs_a_replacement(case: NativeAcceptance) -> No
     )
     case.assertEqual(error["details"]["reason"], "last_camera")
     _reopened_rows(case, document, "removal")
+
+
+@acceptance_case
+def a_removed_parent_or_camera_leaves_no_usable_handle(case: NativeAcceptance) -> None:
+    """A camera under a column keeps working when the column is deleted, now parented as the
+    column was; a peg under a camera moves to the camera's parent when the camera goes; the
+    deleted object's handle is refused as a parent afterwards (SCN-10 F2)."""
+    document, _level, column = case.populated_scene()
+    summary = case.success("scene.summary", {"document_id": document})
+    column_object = next(
+        row["object_id"] for row in summary["columns"] if row["column_id"] == column["column_id"]
+    )
+    side = _create(case, document, "Side", 32, 32)
+    case.mutate(
+        "object.parent",
+        document,
+        object_id=side,
+        parent_id=column_object,
+        placement_policy="preserve_local",
+    )
+    inspected = case.success("camera.inspect", {"document_id": document, "camera_id": side})
+    case.assertEqual(inspected["parent_id"], column_object)
+    case.mutate(
+        "column.delete",
+        document,
+        column_id=column["column_id"],
+        children_policy="reattach_to_parent",
+    )
+    inspected = case.success("camera.inspect", {"document_id": document, "camera_id": side})
+    case.assertNotEqual(inspected["parent_id"], column_object)
+    stale = case.write_params(
+        document,
+        {"object_id": side, "parent_id": column_object, "placement_policy": "preserve_local"},
+    )
+    case.assertEqual(case.failure("object.parent", stale)["code"], "invalid_handle")
+    peg = case.mutate("object.create", document, name="Rider", kind="pegbar")["object_id"]
+    case.mutate(
+        "object.parent",
+        document,
+        object_id=peg,
+        parent_id=side,
+        placement_policy="preserve_local",
+    )
+    error = _refused(
+        case, "camera.remove", document, "has_dependents", camera_id=side, children_policy="refuse"
+    )
+    case.assertEqual(error["details"]["children"], [peg])
+    case.mutate("camera.remove", document, camera_id=side, children_policy="reattach_to_parent")
+    stale = case.write_params(
+        document, {"object_id": peg, "parent_id": side, "placement_policy": "preserve_local"}
+    )
+    case.assertEqual(case.failure("object.parent", stale)["code"], "invalid_handle")
+    objects = {
+        o["object_id"]: o
+        for o in case.success("scene.summary", {"document_id": document})["objects"]
+    }
+    case.assertNotIn(side, objects)
+    case.assertNotEqual(objects[peg]["parent_id"], side)

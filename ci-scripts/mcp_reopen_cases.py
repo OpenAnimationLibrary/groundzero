@@ -7,9 +7,12 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_audio_cases import _inspect, _mixdown, _package_scene
+from mcp_audio_cases import _without_ids as _sound_without_ids
 from mcp_case import acceptance_case
 from mcp_journal_cases import CRASH_EXIT_CODE, restart, status
 from mcp_macro_cases import _chain, _macro
+from mcp_palette_cases import COLOR, DRAWING, SECOND_COLOR, _artwork, _make_artwork, _styles
 from mcp_worker import Worker
 
 if TYPE_CHECKING:
@@ -215,3 +218,86 @@ def expired_registration_says_so(case: NativeAcceptance) -> None:
     newest = case.mutate("scene.open", None, path=saved[-1]["package_directory"])
     case.assertEqual(newest["admission"], "workspace_registry")
     case.assertLessEqual(case.success("journal.status", {})["retained"]["packages"], 4)
+
+
+def _art_level(case: NativeAcceptance, document: str, image_format: str) -> str:
+    """A level of one image format with a styled, animated palette, artwork and a column."""
+    name = f"Art-{image_format}"
+    level = case.mutate("level.create", document, name=name, format=image_format)["level_id"]
+    sizes = {} if image_format == "vector" else {"width": 2, "height": 2, "dpi": 120}
+    case.mutate(
+        "drawing.create",
+        document,
+        level_id=level,
+        drawing_id=DRAWING,
+        format=image_format,
+        **sizes,
+    )
+    for style in ("Paint", "Ink"):
+        case.mutate("palette.create_style", document, level_id=level, name=style, color=COLOR)
+    for frame, color in ((0, COLOR), (12, SECOND_COLOR)):
+        case.mutate(
+            "palette.update_style",
+            document,
+            level_id=level,
+            style_id=2,
+            keyframe=frame,
+            color=color,
+        )
+    _make_artwork(case, document, level, image_format)
+    column = case.mutate("column.create", document, name=f"Held {image_format}")["column_id"]
+    case.mutate(
+        "column.expose",
+        document,
+        level_id=level,
+        drawing_id=DRAWING,
+        column_id=column,
+        start_frame=0,
+        length=2,
+    )
+    return level
+
+
+def _resources(case: NativeAcceptance, document: str, levels: dict[str, str]) -> dict[str, Any]:
+    """Everything the scene holds that a relocated copy must give back unchanged."""
+    return {
+        "shape": _shape(case, document),
+        "sound": _sound_without_ids(_inspect(case, document)),
+        "mix": Path(_mixdown(case, document, 0, 21)["output_path"]).read_bytes(),
+        "palettes": {
+            name: _without_ids(_styles(case, document, level)) for name, level in levels.items()
+        },
+        "artwork": {
+            name: _artwork(case, document, level, name.split("-")[1])
+            for name, level in levels.items()
+        },
+        "frames": _frames(case, document),
+    }
+
+
+@acceptance_case
+def a_relocated_package_keeps_its_sound_palettes_and_raster_levels(
+    case: NativeAcceptance,
+) -> None:
+    """A scene with sound columns, a vector level and a Toonz raster level, each with an
+    animated palette and artwork, reopens from another folder in a later worker with the same
+    sound mix, palettes, artwork, structure and rendered frames (PRD-10 #3, SCN-04 #1)."""
+    document, _ids, _sound = _package_scene(case)
+    levels = {f"Art-{kind}": _art_level(case, document, kind) for kind in ("vector", "toonzRaster")}
+    before = _resources(case, document, levels)
+    saved = case.mutate("scene.save_copy", document, directory=str(case.workspace / "saved"))
+    restart(case, "moved-resources")
+    moved = case.workspace / "elsewhere" / "moved-resources"
+    moved.parent.mkdir()
+    shutil.move(saved["package_directory"], moved)
+    opened = case.mutate("scene.open", None, path=str(moved))
+    case.assertIs(opened["relocated"], True)
+    reopened = opened["document_id"]
+    by_name = {row["name"]: row["level_id"] for row in _shape_levels(case, reopened)}
+    after = _resources(case, reopened, {name: by_name[name] for name in levels})
+    for key in before:
+        case.assertEqual(after[key], before[key], key)
+
+
+def _shape_levels(case: NativeAcceptance, document: str) -> list[dict[str, Any]]:
+    return case.success("scene.summary", {"document_id": document})["levels"]

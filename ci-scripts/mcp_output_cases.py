@@ -5,6 +5,7 @@ row, each saved and reopened through both loaders."""
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
@@ -208,3 +209,67 @@ def render_aspect_export_is_explicit_per_job(case: NativeAcceptance) -> None:
         },
     )["effective"]["aspect_export"]
     case.assertEqual((movie["output_width"] % 2, movie["output_height"] % 2), (0, 0))
+
+
+SCOPES = {"scene", "project", "machine", "user_view"}
+VIEW_STATE = ("safeArea", "cameraBox", "viewerAspect", "fieldGuideDisplay")
+
+
+@acceptance_case
+def every_setting_names_its_scope_and_a_copy_carries_no_view_state(
+    case: NativeAcceptance,
+) -> None:
+    """Each row of settings_scope has a known scope; rows stored in the scene name the tool
+    that edits them or the reason none does; view state is never stored, so a saved copy of a
+    scene carries none of it (SCN-09 #4)."""
+    document, _level, _column = case.populated_scene()
+    case.mutate(
+        "scene.guides.set",
+        document,
+        field_guide={"size": 12, "aspect_ratio": 2.39},
+        ruler_guides={"vertical_lines_x_in": [0.5], "horizontal_lines_y_in": []},
+    )
+    rows = properties(case, document)["settings_scope"]
+    case.assertEqual(len({row["setting"] for row in rows}), len(rows))
+    for row in rows:
+        with case.subTest(setting=row["setting"]):
+            case.assertIn(row["scope"], SCOPES)
+            case.assertEqual(row["stored_in_scene"], row["scope"] in {"scene", "machine"})
+            case.assertTrue(row["editable_tool"] or row["reason"], row)
+            if row["editable_tool"]:
+                case.success("tool.describe", {"names": [row["editable_tool"]]})
+    views = [row["setting"] for row in rows if row["scope"] == "user_view"]
+    case.assertTrue(views)
+    saved, _reopened = save_and_reopen(case, document, "scope-copy")
+    text = (Path(saved["package_directory"]) / "scene.tnz").read_text(errors="replace")
+    for name in VIEW_STATE:
+        case.assertNotIn(name.lower(), text.lower(), f"the saved scene stores {name}")
+    case.assertIn("hGuides", text)
+
+
+@acceptance_case
+def a_stored_color_depth_never_reaches_a_render(case: NativeAcceptance) -> None:
+    """A stored 64-bit output depth and shrink are scene data only: the preview, which takes
+    its own explicit settings, is unchanged, and both blocks say that a worker render does
+    not apply them (SCN-09 F4)."""
+    document, _level, _column = case.populated_scene()
+    before = case.preview(document)
+    result = case.mutate(
+        "scene.output.set",
+        document,
+        apply_to=["output", "preview"],
+        settings={"bpp": 64, "shrink": 4},
+    )
+    case.assertEqual((result["output"]["bpp"], result["preview"]["shrink"]), (64, 4))
+    case.assertEqual(
+        [result[block]["worker_render_applies"] for block in ("output", "preview")], [False] * 2
+    )
+    case.assertEqual(case.preview(document), before)
+    case.schema_failure(
+        "scene.output.set",
+        case.write_params(document, {"apply_to": ["output"], "settings": {"bpp": 128}}),
+    )
+    case.schema_failure(
+        "scene.output.set",
+        case.write_params(document, {"apply_to": ["output"], "settings": {"linear_color": True}}),
+    )

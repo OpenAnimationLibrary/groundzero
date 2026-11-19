@@ -1045,9 +1045,15 @@ SCENES: dict[str, tuple[bool, list[Level]]] = {
 
 def _repeated_names_scene(case: NativeAcceptance, base: Path, name: str) -> Path:
     """Copy the base scene and add levels, exposing the first of them in its first column."""
+    return _scene_with_levels(case, base, name, *SCENES[name])
+
+
+def _scene_with_levels(
+    case: NativeAcceptance, base: Path, name: str, exposed: bool, levels: list[Level]
+) -> Path:
+    """Copy the base scene and add the levels, exposing the first of them if asked."""
     folder = case.inputs / name
     shutil.copytree(base / "assets", folder / "assets")
-    exposed, levels = SCENES[name]
     text = (base / "scene.tnz").read_text()
     if exposed:
         text = _cells(text, {0: f"<level id='{levels[0][0]}'/>0001 0"})
@@ -1098,3 +1104,25 @@ def repeated_level_names_in_a_read_only_scene_stay_separate_levels(case: NativeA
         with case.subTest(scene=name):
             _check_repeated_names(case, base, name, reference)
     discard(case, case.worker, plain)
+
+
+@acceptance_case
+def repeated_cast_ids_in_a_read_only_scene_are_refused_and_the_worker_serves_on(
+    case: NativeAcceptance,
+) -> None:
+    """Open a scene whose file gives two levels the same native cast id: the parser's refusal
+    is a typed invalid_scene, no document is kept, and the worker opens a good scene next."""
+    base = base_package(case)
+    path = _scene_with_levels(case, base, "same-id", True, [(2400, "Zed", INK), (2400, "Two", INK)])
+    params = {"path": str(path), "project_id": "standalone", "operation_id": "same-id-open"}
+    response = case.worker.call("scene.open_read_only", params)
+    case.assertEqual(response["error"]["code"], "invalid_scene", response)
+    case.assertEqual(response["error"]["details"]["cause"], "rejected")
+    case.assertNotIn(str(case.workspace), response["error"]["message"])
+    case.assertEqual(case.success("automation.list_documents", {})["documents"], [])
+    distinct = _scene_with_levels(
+        case, base, "two-ids", True, [(2400, "Zed", INK), (2401, "Zed", INK)]
+    )
+    document = open_scene(case, case.worker, distinct, "standalone")["document_id"]
+    case.assertEqual(len(_read(case, "cast.list", document)), 5)
+    discard(case, case.worker, document)
