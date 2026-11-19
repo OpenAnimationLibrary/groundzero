@@ -325,19 +325,25 @@ def delivery_parent_swapped_during_copy_is_not_followed(case: NativeAcceptance) 
 FAULT_OPERATION = "delivery-under-test"
 
 
+_FAULTED = {"operation": FAULT_OPERATION}
+
+
 def _fault_render(case: NativeAcceptance, name: str, *flags: str) -> tuple[Path, list[dict]]:
     """A worker with one output root and a test fault that fires only in the publication
     named FAULT_OPERATION, and a 3-frame render to publish."""
     root = case.directory / f"out-{name}"
     root.mkdir()
-    fault = ("--test-fault-operation", FAULT_OPERATION)
+    # One workspace journal serves every worker of a case, so each one's faulted
+    # publication has its own operation id.
+    _FAULTED["operation"] = f"{FAULT_OPERATION}-{name}"
+    fault = ("--test-fault-operation", _FAULTED["operation"])
     restart(case, name, "--output-root", f"{ROOT}={root.resolve()}", *flags, *fault)
     document, _level, _column = case.populated_scene()
     return root.resolve(), _items((_render(case, document, frames=3), "frames"))
 
 
 def _fault_params(case: NativeAcceptance, items: list[dict[str, str]]) -> dict[str, Any]:
-    return {**_publish_params(case, "take", items), "operation_id": FAULT_OPERATION}
+    return {**_publish_params(case, "take", items), "operation_id": _FAULTED["operation"]}
 
 
 def _require_progress(
