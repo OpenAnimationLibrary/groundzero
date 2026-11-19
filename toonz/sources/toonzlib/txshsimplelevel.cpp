@@ -45,7 +45,6 @@
 // Qt includes
 #include <QDir>
 #include <QRegularExpression>
-#include <QMessageBox>
 #include <QTemporaryDir>
 #include <QtCore>
 #include <QTextCodec>  // not in <QtCore> in Qt 6 (Core5Compat)
@@ -1209,9 +1208,24 @@ static TFilePath getLevelPathAndSetNameWithPsdLevelName(
 
 //-----------------------------------------------------------------------------
 
+namespace {
+TXshSimpleLevel::LoadReportHandler loadReportHandler = nullptr;
+}
+
+void TXshSimpleLevel::setLoadReportHandler(LoadReportHandler handler) {
+  loadReportHandler = handler;
+}
+
+void TXshSimpleLevel::reportLoad(const QString& title, const QString& message,
+                                 bool failed) {
+  m_loadReport = {title, message, failed};
+  if (loadReportHandler) loadReportHandler(title, message);
+}
+
 void TXshSimpleLevel::load() {
   getProperties()->setCreator("");
   QString creator;
+  m_loadReport = LoadReport();
 
   assert(getScene());
   if (!getScene()) return;
@@ -1285,7 +1299,7 @@ void TXshSimpleLevel::load() {
               "Possible file corruption. Loaded what could be found.\n"
               "Recommend replacing any bad frames in Level Strip and saving.")
               .arg(QString::fromStdWString(m_path.getWideString()));
-      QMessageBox::warning(nullptr, "File load warning", msg);
+      reportLoad("File load warning", msg, false);
       setDirtyFlag(true);
     }
 
@@ -1296,7 +1310,7 @@ void TXshSimpleLevel::load() {
                           "Failed to open %1.\nSamples per pixel is more than "
                           "4. It may contain more than one alpha channel.")
                           .arg(QString::fromStdWString(m_path.getWideString()));
-        QMessageBox::warning(nullptr, "Image format not supported", msg);
+        reportLoad("Image format not supported", msg, true);
         return;
       }
 
