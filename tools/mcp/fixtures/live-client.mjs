@@ -238,7 +238,7 @@ async function redoPreservation(client, report, original, applied) {
     client,
     target.tool,
     { ...edit(snapshot, target, 2), unit: "degree" },
-    "INVALID_ARGUMENTS",
+    "invalid_params",
     report,
   );
   await failure(
