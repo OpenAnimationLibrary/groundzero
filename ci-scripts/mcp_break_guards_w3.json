@@ -323,5 +323,135 @@
         "pattern": "test_mcp_corpus.py"
       }
     ]
+  },
+  {
+    "id": "perf-failed-runs-excluded",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "if trial.outcome == OK]",
+    "replace": "if True]",
+    "why": "Failed, canceled and timed-out trials never enter a speed figure.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-no-pooling",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "    if len(keys) != 1:",
+    "replace": "    if False:",
+    "why": "Cold and warm, or baseline and candidate, trials are never pooled.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-noise-band",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "band = max(NOISE_FACTOR * max(base.noise, cand.noise), RESOLUTION_SECONDS)",
+    "replace": "band = 0.0",
+    "why": "A difference inside the noise is not reported as one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-minimum-trials",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "    if min(base.counted, cand.counted) < MINIMUM_TRIALS:",
+    "replace": "    if False:",
+    "why": "Too few finished trials make a comparison invalid.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-host-differs",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "        if baseline.get(key) != candidate.get(key)",
+    "replace": "        if False",
+    "why": "Runs on different hardware cannot be compared.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-fixtures-differ",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "    if baseline[\"fixtures\"] != candidate[\"fixtures\"]:",
+    "replace": "    if False:",
+    "why": "Runs on different fixtures cannot be compared.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-cold-warm",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "    if temperatures[0] != temperatures[1]:",
+    "replace": "    if False:",
+    "why": "A cold run is never compared with a warm one.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-simultaneous-peak",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "simultaneous = max(simultaneous, sum(entry[\"rss\"] for entry in instant))",
+    "replace": "simultaneous = max(simultaneous, 0)",
+    "why": "The simultaneous tree peak is the largest sum seen at one instant.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-sum-of-peaks-labelled",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "\"sum_of_individual_peaks_bytes\": sum(peaks.values()),",
+    "replace": "\"sum_of_individual_peaks_bytes\": simultaneous,",
+    "why": "The sum of every process's own peak is kept apart from the simultaneous peak.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
+  },
+  {
+    "id": "perf-budget-not-in-force",
+    "file": "ci-scripts/mcp_perf_stats.py",
+    "find": "\"agreed\": False,",
+    "replace": "\"agreed\": True,",
+    "why": "A proposed budget is never in force until the owner agrees.",
+    "tests": [
+      {
+        "kind": "unit",
+        "pattern": "test_mcp_perf_stats.py"
+      }
+    ]
   }
 ]
