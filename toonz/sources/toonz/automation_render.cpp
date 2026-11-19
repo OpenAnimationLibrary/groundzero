@@ -197,7 +197,7 @@ static Plan readPlan(const QJsonObject& params, ToonzScene& scene, Kind kind) {
 static QJsonObject effectiveOutput(const Plan& plan) {
   const Request& request = plan.request;
   const bool movie       = request.format == Format::Mp4;
-  return {
+  QJsonObject result{
       {"width", request.width},
       {"height", request.height},
       {"fit_scale", plan.fitScale},
@@ -207,7 +207,6 @@ static QJsonObject effectiveOutput(const Plan& plan) {
                              {"count", request.count()}}},
       {"frame_rate", plan.frameRate},
       {"profile", movie ? "opaque8-mp4" : "rgba8-png"},
-      {"aspect_export", aspectRecord(request)},
       {"color_depth_bits", 8},
       {"color_space", "nonlinear"},
       {"color_space_gamma", 2.2},
@@ -225,6 +224,11 @@ static QJsonObject effectiveOutput(const Plan& plan) {
                                                  {"y0", 0},
                                                  {"x1", plan.camera.lx},
                                                  {"y1", plan.camera.ly}}}}}};
+  // Reported only when asked for, which keeps job receipts within their
+  // reserved size.
+  if (request.aspectMode != TOutputProperties::NoAspectExport)
+    result.insert("aspect_export", aspectRecord(request));
+  return result;
 }
 
 struct Artifact final {
