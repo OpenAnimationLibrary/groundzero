@@ -9,6 +9,7 @@ recorded in `mcp_known_violations.py` instead of weakening the case.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import random
@@ -26,9 +27,8 @@ from mcp_animation_cases import _inspect, _peg, _render, _reopen, _rich_keys, _s
 from mcp_audio_cases import _column, _import, _place
 from mcp_audio_model import Clip, tone, wav_file
 from mcp_case import acceptance_case
-from mcp_failure_cases import _fill_disk, _free_bytes
+from mcp_failure_cases import _fill_disk, _free_bytes, _native_pids, _second_worker, _wait_dead
 from mcp_file_publish_cases import staging_left
-from mcp_known_violations import settle
 from mcp_png import SIGNATURE, fixture_pixel
 from mcp_scene_access_cases import _cells, _level, base_package, discard, open_scene, preview
 from mcp_studio_palette_cases import call
@@ -716,8 +716,10 @@ def a_discarded_draft_keeps_its_job_alive_and_loses_its_private_copies(
 ) -> None:
     """Discard a draft while a render job runs: the job finishes, its files are reclaimed.
 
-    The draft's own copies of its levels go at the discard. The snapshot the job copied must
-    exist while the job runs; when the job ends it is not needed (KV-3 records that it stays).
+    The draft's own copies of its levels go at the discard. The snapshot the job copied exists
+    while the job runs; when the job ends its scene and artwork go, whatever became of the draft,
+    and only the manifest that the job record hashes stays, with the frames that job.result
+    serves until the worker ends.
     """
     scene = _drawn_scene(case)
     document = scene["document"]
@@ -742,8 +744,43 @@ def a_discarded_draft_keeps_its_job_alive_and_loses_its_private_copies(
     case.assertEqual(len(artifacts), 120)
     case.assertEqual(list(case.workspace.glob("runtime_*/levels/*")), [])
     case.assertEqual(list(case.workspace.glob("runtime_*/sounds/*")), [])
-    settle(case, "KV-3", (folder / "snapshot").exists(), False)
+    snapshot = sorted(path.name for path in (folder / "snapshot").iterdir())
+    case.assertEqual(snapshot, ["manifest.json"], "the snapshot outlived its job")
+    manifest = (folder / "snapshot" / "manifest.json").read_bytes()
+    record = case.success("job.status", {"job_id": job["job_id"]})
+    case.assertEqual(
+        record["inputs"]["snapshot_manifest_sha256"], hashlib.sha256(manifest).hexdigest()
+    )
+    case.assertEqual(
+        sorted(path.name for path in folder.iterdir()), [".owner.lock", "frames", "snapshot"]
+    )
+    first = case.success("artifact.read", {"artifact_id": artifacts[0]["artifact_id"]})
+    case.assertEqual(first["image"]["mimeType"], "image/png")
     case.assertEqual(case.success("automation.list_documents", {})["documents"], [])
+
+
+@acceptance_case
+def a_killed_workers_render_snapshot_is_swept_by_the_next_worker(case: NativeAcceptance) -> None:
+    """Kill a worker while its job renders a discarded draft; the next worker removes it all."""
+    alive = _native_pids(case.workspace)
+    victim = _second_worker(case, "victim")
+    primary, case.worker = case.worker, victim
+    document = _drawn_scene(case)["document"]
+    job = case.mutate(
+        "render.submit", document, start_frame=0, end_frame=119, step=1, width=512, height=512
+    )
+    case.mutate("scene.discard", document)
+    case.worker = primary
+    folder = case.workspace / "renders" / job["job_id"]
+    case.assertTrue(folder.is_dir())
+    victim.process.kill()
+    victim.process.wait(timeout=10)
+    _wait_dead(case, _native_pids(case.workspace) - alive - {primary.process.pid})
+    successor = _second_worker(case, "successor")
+    case.assertEqual(successor.call("automation.list_documents", {})["result"]["documents"], [])
+    case.assertFalse(folder.exists(), "the dead worker's job folder was not swept")
+    case.assertEqual(list(case.workspace.rglob("snapshot")), [])
+    case.assertEqual(list(case.workspace.glob("runtime_*/levels/*")), [])
 
 
 def _content(case: NativeAcceptance, document: str) -> dict[str, Any]:
@@ -1035,13 +1072,11 @@ def _check_repeated_names(case: NativeAcceptance, base: Path, name: str, referen
     primary = [row["owner_id"] for row in dependencies if row["role"] == "primary"]
     repeated = (_repeats([row["level_id"] for row in cast]), _repeats(primary))
     exposed, levels = SCENES[name]
-    if exposed:
-        settle(case, "KV-4", repeated, (0, 0))
-    else:
-        case.assertEqual(repeated, (0, 0))
-        case.assertEqual(len(cast), 3 + len(levels))
-    listed = cast[:-1] if exposed else cast
-    case.assertEqual(_repeats([row["native_cast_id"] for row in listed]), 0)
+    case.assertEqual(repeated, (0, 0))
+    case.assertEqual(len(cast), 3 + len(levels))
+    case.assertEqual(opened["counts"]["levels"], len(cast))
+    case.assertEqual(opened["load"]["levels_loaded"], len(cast))
+    case.assertEqual(_repeats([row["native_cast_id"] for row in cast]), 0)
     runs = {run["column_index"]: run["level_id"] for run in _read(case, "cast.usage", document)}
     case.assertEqual(runs[0], cast[3 if exposed else 0]["level_id"])
     case.assertEqual(preview(case, case.worker, document, 0), reference)

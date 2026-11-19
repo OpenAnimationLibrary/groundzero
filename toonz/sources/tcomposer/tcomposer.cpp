@@ -4,6 +4,7 @@
 #define _CRT_SECURE_NO_DEPRECATE (1)  // use of fopen deprecated
 
 // TFarmController includes
+#include "batch_process.h"
 #include "tfarmcontroller.h"
 
 // TnzStdfx includes
@@ -636,6 +637,7 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
 DV_IMPORT_API void initStdFx();
 DV_IMPORT_API void initColorFx();
 int main(int argc, char *argv[]) {
+  ignoreWindowStateRestoration();
   PluginManager::takeLaunchArguments(argc, argv);
   TCli::UsageLine usageLine;
   //  setCurrentModule("tcomposer");

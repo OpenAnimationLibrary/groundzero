@@ -25,19 +25,43 @@ class FakeCase:
         raise AssertionError(message)
 
 
+# The committed table may be empty, so the checks run on an entry of their own.
+SAMPLE = known.Violation(
+    name="A tool answers with a code it does not declare",
+    tool="fixture.tool",
+    call="fixture.tool {name: 129 x 'm'}",
+    expected="a code the tool declares",
+    observed='error code "invalid_argument"',
+    answers=frozenset({"invalid_argument"}),
+    row="TEST",
+)
+
+
+def table(**entries: known.Violation) -> Any:
+    return mock.patch.object(known, "KNOWN_VIOLATIONS", entries)
+
+
+def settled(*names: str) -> Any:
+    """Pretend one case module passes these names to settle()."""
+    return mock.patch.object(known, "_settle_names", side_effect=[set(names)] + [set()] * 999)
+
+
 class SettleTest(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.case: Any = FakeCase(Path(self.directory.name))
+        patched = table(KV_900=SAMPLE)
+        patched.start()
+        self.addCleanup(patched.stop)
 
     def settle(self, observed: object, expected: object) -> None:
-        known.settle(self.case, "KV-5", observed, expected)
+        known.settle(self.case, "KV_900", observed, expected)
 
     def test_the_recorded_answer_passes_and_is_logged(self) -> None:
         self.settle("invalid_argument", {"invalid_params"})
         log = (self.case.directory / known.LOG_NAME).read_text()
-        self.assertIn('"violation": "KV-5"', log)
+        self.assertIn('"violation": "KV_900"', log)
 
     def test_the_expected_answer_means_the_entry_is_stale(self) -> None:
         with self.assertRaisesRegex(AssertionError, "delete its entry"):
@@ -56,23 +80,22 @@ class TableTest(unittest.TestCase):
     def test_the_committed_table_is_complete_and_used(self) -> None:
         self.assertEqual(known.problems(), [])
 
+    def test_an_entry_with_a_case_passes(self) -> None:
+        with table(KV_900=SAMPLE), settled("KV_900"):
+            self.assertEqual(known.problems(), [])
+
     def test_an_entry_without_a_case_is_reported(self) -> None:
-        extra = dict(known.KNOWN_VIOLATIONS)
-        extra["KV-99"] = extra["KV-5"]
-        with mock.patch.object(known, "KNOWN_VIOLATIONS", extra):
+        with table(KV_900=SAMPLE), settled():
             self.assertEqual(len(known.problems()), 1)
-            self.assertIn("KV-99", known.problems()[0])
+            self.assertIn("KV_900", known.problems()[0])
 
     def test_an_empty_field_is_reported(self) -> None:
-        broken = dict(known.KNOWN_VIOLATIONS)
-        broken["KV-5"] = dataclasses.replace(known.KNOWN_VIOLATIONS["KV-5"], call=" ")
-        with mock.patch.object(known, "KNOWN_VIOLATIONS", broken):
+        with table(KV_900=dataclasses.replace(SAMPLE, call=" ")), settled("KV_900"):
             self.assertEqual(len(known.problems()), 1)
 
     def test_a_settled_name_without_an_entry_is_reported(self) -> None:
-        trimmed = {k: v for k, v in known.KNOWN_VIOLATIONS.items() if k != "KV-3"}
-        with mock.patch.object(known, "KNOWN_VIOLATIONS", trimmed):
-            self.assertTrue(any("KV-3" in problem for problem in known.problems()))
+        with table(), settled("KV_900"):
+            self.assertTrue(any("KV_900" in problem for problem in known.problems()))
 
 
 if __name__ == "__main__":

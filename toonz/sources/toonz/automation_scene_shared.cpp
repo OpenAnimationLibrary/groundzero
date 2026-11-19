@@ -62,7 +62,7 @@ bool boolParam(const QJsonObject& params, const QString& key, bool fallback) {
 
 QString nameParam(const QJsonObject& params) {
   const QString name = requiredString(params, "name");
-  if (name.size() > 128 || name.contains(QChar::Null))
+  if (name.toUcs4().size() > 128 || name.contains(QChar::Null))
     throw Error("invalid_argument",
                 "name must contain 1 to 128 characters without NUL.");
   return name;

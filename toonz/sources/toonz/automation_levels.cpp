@@ -220,7 +220,8 @@ QJsonValue inspectLevel(Context& context, const QJsonObject& params) {
 }  // namespace
 
 void addLevelOperations(QJsonArray& catalog) {
-  QJsonObject level  = merge(documentSchema(), {{"name", textSchema()}});
+  QJsonObject level =
+      merge(documentSchema(), {{"name", boundedNameSchema(128)}});
   QJsonObject create = level;
   create.insert("format", enumSchema({"vector", "rgba8", "toonzRaster"}));
   catalog.append(

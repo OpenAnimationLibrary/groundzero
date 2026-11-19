@@ -1,6 +1,12 @@
 add_executable(tcomposer
     tcomposer.cpp
+    batch_process.cpp
 )
+
+if(APPLE)
+    set_source_files_properties(batch_process.cpp PROPERTIES
+        COMPILE_FLAGS "-x objective-c++")
+endif()
 
 target_link_libraries(tcomposer
     Qt${QT_VERSION_MAJOR}::Core

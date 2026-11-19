@@ -890,11 +890,9 @@ QJsonObject pivotFields() {
 }
 
 QJsonObject layerFields(bool create) {
-  QJsonObject fields{
-      {"name",
-       QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}}},
-      {"index", integerSchema(0, MaxLayers - 1)},
-      {"enabled", QJsonObject{{"type", "boolean"}}}};
+  QJsonObject fields{{"name", boundedNameSchema(256, true)},
+                     {"index", integerSchema(0, MaxLayers - 1)},
+                     {"enabled", QJsonObject{{"type", "boolean"}}}};
   if (create) {
     fields.insert("object_id", handleSchema());
     fields.insert("weight", QJsonObject{{"type", "number"},

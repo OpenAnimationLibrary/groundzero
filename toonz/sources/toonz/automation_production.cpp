@@ -150,12 +150,11 @@ void unsupportedLevel(Report& report, TXshLevel* level) {
 }
 
 void collectLevels(Report& report) {
-  const auto* cast = report.document.scene->getLevelSet();
-  const int count  = std::min(cast->getLevelCount(), report.levelLimit());
-  if (cast->getLevelCount() > report.levelLimit())
-    report.incomplete("level_limit");
+  const auto cast = distinctLevels(report.document.scene->getLevelSet());
+  const int count = std::min(int(cast.size()), report.levelLimit());
+  if (cast.size() > report.levelLimit()) report.incomplete("level_limit");
   for (int index = 0; index < count; ++index) {
-    TXshLevel* level = cast->getLevel(index);
+    TXshLevel* level = cast[index];
     if (!level)
       throw Error("unsupported_level",
                   "The native cast contains an empty level.");

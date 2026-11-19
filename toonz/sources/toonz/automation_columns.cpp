@@ -144,12 +144,12 @@ QJsonValue deleteColumn(Context& context, const QJsonObject& params) {
 
 void addColumnOperations(QJsonArray& catalog) {
   QJsonObject column = merge(documentSchema(), {{"column_id", textSchema()}});
-  catalog.append(operation("column.create",
-                           "Append an empty level column with a stable handle.",
-                           merge(documentSchema(), {{"name", textSchema()}}),
-                           {"document_id", "name"}, true));
+  catalog.append(operation(
+      "column.create", "Append an empty level column with a stable handle.",
+      merge(documentSchema(), {{"name", boundedNameSchema(128)}}),
+      {"document_id", "name"}, true));
   QJsonObject update =
-      merge(column, {{"name", textSchema()},
+      merge(column, {{"name", boundedNameSchema(128)},
                      {"visible", QJsonObject{{"type", "boolean"}}},
                      {"locked", QJsonObject{{"type", "boolean"}}},
                      {"opacity", numberSchema(0, 1)}});

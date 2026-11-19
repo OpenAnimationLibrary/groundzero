@@ -557,14 +557,13 @@ void primeRasterPalette(Loader& loader) {
 }
 
 void loadLevels(Loader& loader) {
-  TLevelSet* set = loader.scene.getLevelSet();
-  if (set->getLevelCount() > LevelLimit)
+  const auto levels = distinctLevels(loader.scene.getLevelSet());
+  if (int(levels.size()) > LevelLimit)
     throw Error("scene_limit", "The scene exceeds 4096 levels.",
-                {{"limit", "levels"}, {"value", set->getLevelCount()}});
+                {{"limit", "levels"}, {"value", int(levels.size())}});
   loader.scene.setIsLoading(true);
   primeRasterPalette(loader);
-  for (int index = 0; index < set->getLevelCount(); ++index) {
-    TXshLevel* level       = set->getLevel(index);
+  for (TXshLevel* level : levels) {
     const LevelState state = loadLevel(loader, level);
     if (state.loadStatus == "loaded") ++loader.loaded;
     if (state.loadStatus != "loaded" && state.loadStatus != "not_applicable")

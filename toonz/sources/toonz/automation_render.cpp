@@ -548,6 +548,31 @@ public:
     if (neuralExecution && !neuralExecution->helpersClosed())
       neuralExecution->closureFailed();
     snapshot.reset();
+    removeSnapshotFiles();
+  }
+
+  // The snapshot is a private copy of the draft's scene and artwork that this
+  // job renders from. Nothing reads it once the native scene is released:
+  // artifacts are verified from the closed output files. The scene and the
+  // artwork are therefore removed when the job ends, whatever the outcome and
+  // whether or not the draft still exists, so a discarded draft leaves nothing
+  // but its artifacts. The manifest stays, a few hundred bytes, because the job
+  // record names its hash and that hash can then be checked; with the artifacts
+  // it stays until the worker ends, so that job.result can still serve them.
+  void removeSnapshotFiles() {
+    const QString folder = directory + "/snapshot";
+    try {
+      QVector<EntryInfo> entries;
+      if (listApprovedDirectory(folder, entries) != ListResult::Listed) return;
+      for (const EntryInfo& entry : entries) {
+        if (entry.fileName() == "manifest.json") continue;
+        if (entry.isDir())
+          removeApprovedTree(entry.absoluteFilePath());
+        else
+          QFile::remove(entry.absoluteFilePath());
+      }
+    } catch (const Error&) {
+    }
   }
 
   void fail(const QString& code, const QString& phase, const QString& message) {

@@ -15,13 +15,13 @@ import json
 import math
 import os
 import random
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
-from mcp_known_violations import settle
 from mcp_property_model import (
     CELL_HORIZON,
     CHANNEL_UNITS,
@@ -34,7 +34,7 @@ from mcp_property_model import (
     generate,
     new_scene,
 )
-from mcp_w2_cases import _declared, _raw
+from mcp_w2_cases import _raw
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -583,25 +583,106 @@ def drawing_numbers_reach_the_limit_of_their_format_and_no_further(case: NativeA
     case.assertEqual(levels["Raster"], [(1, ""), (RASTER_LARGEST, "abcdefgh")])
 
 
+NAME_TOOLS = {
+    "level.create": {"format": "vector"},
+    "column.create": {},
+    "object.create": {"kind": "pegbar"},
+}
+
+
 @acceptance_case
-def names_beyond_the_length_limit_are_refused_with_a_declared_code(case: NativeAcceptance) -> None:
-    """Create a level, column and peg named with 128 characters, then with 129 and with NUL."""
+def names_beyond_the_length_limit_are_refused_by_the_schema(case: NativeAcceptance) -> None:
+    """Name a level, column and peg with 128 characters, then with 129 and with NUL."""
     document = case.create()
-    creations = {
-        "level.create": {"format": "vector"},
-        "column.create": {},
-        "object.create": {"kind": "pegbar"},
-    }
-    for tool, extra in creations.items():
+    for tool, extra in NAME_TOOLS.items():
         with case.subTest(tool=tool):
             case.mutate(tool, document, name="n" * NAME_LIMIT, **extra)
-            before = case.success("scene.summary", {"document_id": document})
-            for name in ("m" * (NAME_LIMIT + 1), "a\x00b"):
+            case.mutate(tool, document, name="\U0001f680" * 100 + "é" * 28, **extra)
+            for name in ("m" * (NAME_LIMIT + 1), "\U0001f680" * 129, "a\x00b"):
                 request = case.write_params(document, {"name": name, **extra})
-                response = _raw(case, tool, request)
-                case.assertIn("error", response)
-                settle(case, "KV-5", response["error"]["code"], _declared(case, tool))
-                case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
+                case.schema_failure(tool, request)
+
+
+def _example(schema: dict[str, Any]) -> Any:
+    """A value that satisfies the part of a schema these tools use."""
+    kind = schema.get("type")
+    if "const" in schema:
+        return schema["const"]
+    if "enum" in schema:
+        return schema["enum"][0]
+    if "oneOf" in schema:
+        return _example(schema["oneOf"][0])
+    if kind == "object":
+        required = schema.get("required", [])
+        return {key: _example(schema["properties"][key]) for key in required}
+    if kind == "array":
+        return [_example(schema["items"])] * schema.get("minItems", 0)
+    if kind == "string":
+        return "ab" if "pattern" not in schema else "a"
+    if kind in {"integer", "number"}:
+        return schema.get("minimum", 1)
+    return False
+
+
+def _name_properties(schema: Any, path: str = "") -> list[tuple[str, dict[str, Any]]]:
+    found: list[tuple[str, dict[str, Any]]] = []
+    if not isinstance(schema, dict):
+        return found
+    for key, value in schema.get("properties", {}).items():
+        named = key == "name" or key.endswith("_name") or key == "name_contains"
+        if named and value.get("type") == "string":
+            found.append((f"{path}{key}", value))
+        found.extend(_name_properties(value, f"{path}{key}."))
+    found.extend(_name_properties(schema.get("items"), f"{path}[]."))
+    return found
+
+
+@acceptance_case
+def every_name_in_every_tool_schema_states_its_limit_and_refuses_nul(
+    case: NativeAcceptance,
+) -> None:
+    """Find each name-taking tool in the catalog; its schema bounds the name and bars NUL.
+
+    A name is a string property called name, name_contains or ending in _name. A new tool that
+    takes one fails here until its schema gives a maximum length and a pattern without NUL (and
+    the dispatcher refuses a longer or NUL name before the handler, as invalid_params).
+    """
+    tools = {tool["name"]: tool for tool in case.capabilities()["tools"]}
+    named = {
+        name: found
+        for name, tool in tools.items()
+        if (found := _name_properties(tool["inputSchema"]))
+    }
+    case.assertGreaterEqual(len(named), 20, "the catalog walk found too few name-taking tools")
+    document = case.create()
+    for tool, properties in named.items():
+        for path, schema in properties:
+            with case.subTest(tool=tool, name=path):
+                limit = schema.get("maxLength")
+                case.assertIsInstance(limit, int, f"{tool} {path} states no maxLength")
+                assert isinstance(limit, int)
+                case.assertIn("pattern", schema, f"{tool} {path} states no character rule")
+                case.assertIsNone(re.fullmatch(schema["pattern"], "a\x00b"), "NUL is allowed")
+                case.assertIsNotNone(re.fullmatch(schema["pattern"], "a b\u00e9"))
+                if "." in path:
+                    continue
+                _refused_name(case, tools[tool], path, document, ["x" * (limit + 1), "a\x00b"])
+
+
+def _refused_name(
+    case: NativeAcceptance, tool: dict[str, Any], path: str, document: str, names: list[str]
+) -> None:
+    for name in names:
+        params = _example(tool["inputSchema"])
+        params[path] = name
+        if "document_id" in params:
+            params["document_id"] = document
+        if "expected_revision" in params:
+            params["expected_revision"] = case.revisions[document]
+        error = case.failure(tool["name"], params)
+        case.assertEqual(error["code"], case.schema_code(), (tool["name"], path, error))
+        text = error["message"] + json.dumps(error["details"])
+        case.assertIn(path, text, (tool["name"], error))
 
 
 @acceptance_case

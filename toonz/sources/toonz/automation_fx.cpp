@@ -450,6 +450,8 @@ TFx* insertEffect(Context& context, Document& document, TFx* fx, int frames) {
   return fx;
 }
 
+QString authoringName(const QJsonObject& params);
+
 QJsonValue createEffect(Context& context, Document& document,
                         const QJsonObject& params) {
   const QString type = requiredString(params, "type");
@@ -459,16 +461,16 @@ QJsonValue createEffect(Context& context, Document& document,
                 "The automation graph is limited to 4096 effect nodes.");
   TFxP effect = type == "output" ? makeOutput() : makeEffect(type);
   if (params.contains("name"))
-    effect->setName(requiredString(params, "name").toStdWString());
+    effect->setName(authoringName(params).toStdWString());
   return describeFx(
       document, insertEffect(context, document, effect.getPointer(), frames));
 }
 
 QString authoringName(const QJsonObject& params) {
   const QString name = requiredString(params, "name");
-  if (name.size() > 256)
+  if (name.toUcs4().size() > 256)
     throw Error("INVALID_PARAMS",
-                "Effect names are limited to 256 UTF-16 code units.");
+                "Effect names are limited to 256 Unicode characters.");
   for (QChar character : name)
     if (character.isNull() || character.category() == QChar::Other_Control)
       throw Error("INVALID_PARAMS",
@@ -1257,8 +1259,7 @@ QJsonArray authoringOperations() {
   const QJsonObject effect{{"document_id", stringSchema()},
                            {"fx_id", stringSchema()}};
   QJsonObject rename = effect;
-  rename["name"] =
-      QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 256}};
+  rename["name"]        = boundedNameSchema(256, true);
   QJsonObject enable    = effect;
   enable["enabled"]     = QJsonObject{{"type", "boolean"}};
   QJsonObject duplicate = rename;
@@ -1358,7 +1359,7 @@ QJsonArray fxOperations() {
   QJsonObject creation{
       {"document_id", stringSchema()},
       {"type", stringSchema()},
-      {"name", stringSchema()},
+      {"name", boundedNameSchema(256, true)},
       {"frame_count",
        QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 10000}}}};
   QJsonObject port           = effect;

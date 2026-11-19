@@ -720,10 +720,10 @@ void addSceneOperations(QJsonArray& catalog) {
       {{"project_id",
         QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 64}}}},
       {}));
-  catalog.append(
-      operation("scene.create",
-                "Create an isolated native scene. Timeline frames start at 0.",
-                merge(settings, {{"name", textSchema()}}), {"name"}, true));
+  catalog.append(operation(
+      "scene.create",
+      "Create an isolated native scene. Timeline frames start at 0.",
+      merge(settings, {{"name", boundedNameSchema(128)}}), {"name"}, true));
   catalog.append(
       operation("scene.summary",
                 "Inspect native scene, levels, columns and stage objects; "
@@ -838,8 +838,8 @@ void addAnimationOperations(QJsonArray& catalog) {
   QJsonObject object = merge(documentSchema(), {{"object_id", textSchema()}});
   catalog.append(operation(
       "object.create", "Create a native pegbar with a stable object handle.",
-      merge(documentSchema(),
-            {{"name", textSchema()}, {"kind", enumSchema({"pegbar"})}}),
+      merge(documentSchema(), {{"name", boundedNameSchema(128)},
+                               {"kind", enumSchema({"pegbar"})}}),
       {"document_id", "name", "kind"}, true));
   catalog.append(operation(
       "object.parent",

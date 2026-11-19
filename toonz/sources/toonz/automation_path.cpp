@@ -545,9 +545,7 @@ QJsonValue detachPath(Context& context, const QJsonObject& params) {
 QJsonObject handleSchema() {
   return {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}};
 }
-QJsonObject nameSchema() {
-  return {{"type", "string"}, {"minLength", 1}, {"maxLength", 256}};
-}
+QJsonObject nameSchema() { return boundedNameSchema(256); }
 QJsonObject objectSchema(const QJsonObject& fields) {
   QJsonArray required;
   for (auto field = fields.begin(); field != fields.end(); ++field)

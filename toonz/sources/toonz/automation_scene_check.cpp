@@ -686,11 +686,8 @@ public:
     QStringList reasons;
     m_sheets = sheetPaths(document, reasons);
     for (const QString& reason : reasons) incomplete(analysisReason(reason));
-    const TLevelSet* cast = document.scene->getLevelSet();
-    for (int index = 0; index < cast->getLevelCount(); ++index) {
-      TXshSimpleLevel* level = cast->getLevel(index)
-                                   ? cast->getLevel(index)->getSimpleLevel()
-                                   : nullptr;
+    for (TXshLevel* entry : distinctLevels(document.scene->getLevelSet())) {
+      TXshSimpleLevel* level = entry ? entry->getSimpleLevel() : nullptr;
       if (!level || level->getType() != PLI_XSHLEVEL) continue;
       m_levels.push_back({level, level->getFids()});
       m_drawings += level->getFrameCount();
