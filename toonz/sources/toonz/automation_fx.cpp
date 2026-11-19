@@ -555,7 +555,9 @@ int countedNodes(const std::vector<TFx*>& effects) {
   return count;
 }
 
-// Why an effect's parameters cannot be written, at most eight reasons.
+// What constrains a write to an effect's parameters, at most eight reasons:
+// a locked column or an effect outside the profile refuses it, and a linked
+// group (via its id) makes it a write to every member.
 QJsonArray editConstraints(Document& document, TFx* fx,
                            const QJsonObject& entry) {
   QJsonArray constraints;
@@ -563,6 +565,9 @@ QJsonArray editConstraints(Document& document, TFx* fx,
     constraints.append(QJsonObject{
         {"kind", kind}, {"via", via}, {"parameters", QJsonValue()}});
   };
+  const QJsonValue linked = automationFxLinkedGroup(document, fx);
+  if (linked.isObject())
+    add("linked_parameters", linked.toObject().value("group_id"));
   if (auto* column = dynamic_cast<TColumnFx*>(fx)) {
     TStageObject* object = columnObject(document, column);
     if ((object && object->isLocked()) ||

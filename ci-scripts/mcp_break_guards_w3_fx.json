@@ -67,5 +67,37 @@
         ]
       }
     ]
+  },
+  {
+    "id": "fx-graph-linked-parameters-constraint",
+    "file": "toonz/sources/toonz/automation_fx.cpp",
+    "find": "  if (linked.isObject())\n    add(\"linked_parameters\"",
+    "replace": "  if (false && linked.isObject())\n    add(\"linked_parameters\"",
+    "native": true,
+    "why": "fx.graph tells a caller that a parameter write to a linked effect is a write to its whole group.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "fx_linked_edit_reports_every_member"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fx-delta-sub-sheet-refused",
+    "file": "toonz/sources/toonz/automation_fx_journal.cpp",
+    "find": "  resolveSheetPath(document, path);\n  throw Error(\"delta_unavailable\",",
+    "replace": "  resolveSheetPath(document, path);\n  if (false) throw Error(\"delta_unavailable\",",
+    "native": true,
+    "why": "The journal tracks the top sheet only; a delta for a sub-sheet would claim tracking it does not have.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "read_only_inventory_tells_instances_from_definitions"
+        ]
+      }
+    ]
   }
 ]

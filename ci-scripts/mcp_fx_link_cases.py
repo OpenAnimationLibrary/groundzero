@@ -63,6 +63,7 @@ def fx_linked_edit_reports_every_member(case: NativeAcceptance) -> None:
     group = _link_three(case, document, cards)
     case.assertEqual([_color(case, document, card) for card in cards], [list(RED)] * 3)
     copy = case.mutate("fx.duplicate", document, fx_id=cards[0], name="Copy")["fx_id"]
+    _assert_link_constraints(case, document, {card: group for card in cards} | {copy: None})
     keyed = case.mutate(
         "fx.parameter.set_key",
         document,
@@ -81,6 +82,7 @@ def fx_linked_edit_reports_every_member(case: NativeAcceptance) -> None:
     removed = case.mutate("fx.link.remove", document, fx_id=cards[1])
     case.assertEqual(removed["group_before"]["fx_ids"], cards)
     case.assertEqual(removed["remaining_group"]["fx_ids"], [cards[0], cards[2]])
+    _assert_link_constraints(case, document, {cards[0]: group, cards[1]: None, cards[2]: group})
     case.assertEqual(_color(case, document, cards[1]), list(BLUE))
     case.mutate(
         "fx.parameter.set_key",
@@ -93,6 +95,24 @@ def fx_linked_edit_reports_every_member(case: NativeAcceptance) -> None:
     case.assertEqual(_color(case, document, cards[1]), list(BLUE))
     case.assertEqual(_color(case, document, cards[2]), list(GREEN))
     _assert_reopened(case, document)
+
+
+def _assert_link_constraints(
+    case: NativeAcceptance, document: str, groups: dict[str, str | None]
+) -> None:
+    """Each linked member's edit_constraints names its group; an independent copy has none."""
+    effects = case.success("fx.graph", {"document_id": document})["effects"]
+    for effect in effects:
+        if effect["fx_id"] not in groups:
+            continue
+        linked = [c for c in effect["edit_constraints"] if c["kind"] == "linked_parameters"]
+        group = groups[effect["fx_id"]]
+        wanted = (
+            []
+            if group is None
+            else [{"kind": "linked_parameters", "via": group, "parameters": None}]
+        )
+        case.assertEqual(linked, wanted, effect["fx_id"])
 
 
 def _assert_reopened(case: NativeAcceptance, document: str) -> None:
