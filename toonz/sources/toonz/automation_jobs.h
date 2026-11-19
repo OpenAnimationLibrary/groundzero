@@ -114,6 +114,9 @@ QString laneText(JobLane lane);
 // The record of a scene-host job by id, or an empty object when the id does
 // not belong to a host (automation_scene_access.cpp).
 QJsonObject hostJobRecord(Context& context, const QString& id);
+// The last record this worker observed of each of its scene hosts' jobs, by
+// id; nothing is asked of the hosts (automation_scene_access.cpp).
+QHash<QString, QJsonObject> observedHostJobs(Context& context);
 // {instance_id, build} of the worker that owns this process's jobs.
 QJsonObject workerIdentity(Context& context);
 // The record fields every job kind shares.

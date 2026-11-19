@@ -432,7 +432,7 @@ void Journal::recover() {
   compactSegments();
   append({QJsonObject{{"type", "worker_start"},
                       {"runtime", m_start.runtimeName},
-                      {"executable_sha256", optional(m_start.executableSha256)},
+                      {"build_digest", optional(m_start.buildDigest)},
                       {"authority_digest", m_start.authorityDigest}}},
          0, true);
   m_lastRecovery.insert("at_seq", double(m_lastSeq));
@@ -584,6 +584,8 @@ void Journal::apply(const QJsonObject& record) {
       found->reconcile = record;
   } else if (type == "job") {
     m_jobs.insert(record.value("job_id").toString(), record);
+  } else if (type == "package") {
+    m_packages.insert(record.value("package_id").toString(), record);
   } else if (type == "damage") {
     bool known = false;
     for (const QJsonValue& row : m_damage)
@@ -846,6 +848,18 @@ JournalVerdict Journal::verdict(const JournalOperation& operation) const {
 JournalVerdict Journal::reconcile(const JournalOperation& operation) {
   JournalVerdict computed = verdict(operation);
   if (computed.value("reconciled").toBool() || !available()) return computed;
+  // A package that reached its target is this operation's: registered, so
+  // scene.open admits it like any other this workspace published.
+  const QJsonObject package = operation.intent.value("package").toObject();
+  if (computed.value("kind") == "published" && !package.isEmpty() &&
+      !m_packages.contains(package.value("package_id").toString())) {
+    QJsonObject fields = package;
+    fields.insert("operation_id", operation.operationId);
+    fields.insert("path", operation.intent.value("target"));
+    fields.insert("published_by", operation.writer);
+    registerPackage(fields);
+    ++m_registeredByRecovery;
+  }
   const QString id   = operation.operationId;
   QJsonObject stored = computed;
   stored.remove("reconciled");
@@ -880,7 +894,7 @@ void Journal::reconcileDead() {
   const int jobs = int(lost.size());
   m_lastRecovery.insert("reconciled_operations", operations);
   m_lastRecovery.insert("reconciled_jobs", jobs);
-  m_lastRecovery.insert("registered_packages", 0);
+  m_lastRecovery.insert("registered_packages", m_registeredByRecovery);
 }
 
 QJsonObject Journal::jobLoss(const QJsonObject& record) const {
@@ -937,6 +951,35 @@ QStringList Journal::jobIds() const {
   return ids;
 }
 
+const QJsonObject* Journal::package(const QString& packageId) const {
+  const auto found = m_packages.constFind(packageId);
+  return found == m_packages.constEnd() ? nullptr : &found.value();
+}
+
+void Journal::registerPackage(const QJsonObject& fields) {
+  QJsonObject record = fields;
+  record.insert("type", "package");
+  append({record}, m_start.limits.outcomeLockWaitMs, true);
+}
+
+QStringList Journal::packageIds() const {
+  QStringList ids = m_packages.keys();
+  std::sort(ids.begin(), ids.end(), [this](const QString& a, const QString& b) {
+    return integer(m_packages.value(a), "seq") >
+           integer(m_packages.value(b), "seq");
+  });
+  return ids;
+}
+
+qint64 Journal::blobBytes() const {
+  qint64 bytes = 0;
+  if (readable())
+    for (const QFileInfo& blob :
+         QDir(path("blobs")).entryInfoList(QDir::Files | QDir::NoDotAndDotDot))
+      bytes += blob.size();
+  return bytes;
+}
+
 std::vector<const JournalOperation*> Journal::operationsNewestFirst() const {
   std::vector<const JournalOperation*> result;
   for (const JournalOperation& operation : m_operations)
@@ -986,73 +1029,158 @@ QJsonObject stubRecord(const QJsonObject& admit,
 
 }  // namespace
 
-// Operations beyond the newest fullReceipts that are settled become stubs;
-// stubs beyond the newest receiptStubs are forgotten. One sealed segment at a
-// time is rewritten to a temporary file, flushed and renamed over itself.
-void Journal::compactSegments() {
-  std::vector<const JournalOperation*> operations = operationsNewestFirst();
-  QHash<QString, QString> fate;
+// What compaction keeps of the journal: operations beyond the newest
+// fullReceipts that are settled become stubs and stubs beyond the newest
+// receiptStubs are forgotten; jobs beyond the newest `jobs` and package
+// registrations beyond the newest `packages` (or their manifest budget) are
+// dropped, a dropped registration leaving an expired mark. Over the journal
+// size limit every settled operation of the oldest sealed segment goes.
+Journal::Retention Journal::retention() const {
+  Retention plan;
   int full  = 0;
   int stubs = 0;
-  for (const JournalOperation* operation : operations) {
+  for (const JournalOperation* operation : operationsNewestFirst()) {
     const bool settled =
         !operation->outcome.isEmpty() || !operation->reconcile.isEmpty();
     if (operation->stubState.isEmpty() &&
         (++full <= m_start.limits.fullReceipts || !settled))
       continue;
-    fate.insert(operation->operationId,
-                ++stubs <= m_start.limits.receiptStubs ? "stub" : "forget");
+    plan.operations.insert(
+        operation->operationId,
+        ++stubs <= m_start.limits.receiptStubs ? "stub" : "forget");
   }
-  if (fate.isEmpty()) return;
+  const QStringList jobs = jobIds();
+  for (int index = m_start.limits.jobs; index < jobs.size(); ++index)
+    plan.jobs.insert(jobs.at(index));
+  qint64 manifestBytes       = 0;
+  const QStringList packages = packageIds();
+  for (int index = 0; index < packages.size(); ++index) {
+    const QJsonObject record = m_packages.value(packages.at(index));
+    if (record.value("expired").toBool()) continue;
+    manifestBytes += integer(record, "manifest_bytes");
+    if (index >= m_start.limits.packages ||
+        manifestBytes > m_start.limits.packageBytes)
+      plan.packages.insert(packages.at(index));
+  }
+  if (journalBytes() > m_start.limits.journalBytes && m_segments.size() > 1)
+    for (const JournalOperation& operation : m_operations)
+      if (operation.admittedSeq <= m_segments.front()->lastSeq &&
+          (!operation.outcome.isEmpty() || !operation.reconcile.isEmpty() ||
+           !operation.stubState.isEmpty()))
+        plan.operations.insert(operation.operationId, "forget");
+  return plan;
+}
+
+bool Journal::Retention::empty() const {
+  return operations.isEmpty() && jobs.isEmpty() && packages.isEmpty();
+}
+
+qint64 Journal::journalBytes() const {
+  qint64 bytes = 0;
+  for (const auto& segment : m_segments) bytes += segment->size;
+  return bytes + m_blobBytes;
+}
+
+void Journal::compactSegments() {
   const auto deadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(2);
   for (std::size_t index = 0; index + 1 < m_segments.size(); ++index) {
     if (std::chrono::steady_clock::now() >= deadline) return;
-    compactSegment(*m_segments[index], fate);
+    const Retention plan = retention();
+    if (plan.empty()) return;
+    compactSegment(*m_segments[index], plan);
   }
 }
 
-void Journal::compactSegment(Segment& segment,
-                             const QHash<QString, QString>& fate) {
+// One bounded step between requests: at most one sealed segment rewritten.
+void Journal::maintain() {
+  if (!available() || m_recovering) return;
+  if (++m_maintenance % 8 == 1) m_blobBytes = blobBytes();
+  // Plans only after something was appended since the last one.
+  refresh();
+  if (m_lastSeq == m_plannedSeq) return;
+  m_plannedSeq = m_lastSeq;
+  if (retention().empty()) return;
+  const Lock lock(*this, m_start.limits.lockWaitMs, false);
+  if (!lock.held()) return;
+  refresh();
+  const Retention plan = retention();
+  for (std::size_t index = 0; index + 1 < m_segments.size(); ++index)
+    if (compactSegment(*m_segments[index], plan)) return;
+}
+
+namespace {
+
+// The lines a segment keeps under a retention plan, and whether any changed.
+struct Rewrite final {
+  QByteArray bytes;
+  bool changed = false;
+};
+
+}  // namespace
+
+bool Journal::compactSegment(Segment& segment, const Retention& plan) {
   QFile file(path(segment.name));
-  if (!file.open(QIODevice::ReadOnly)) return;
+  if (!file.open(QIODevice::ReadOnly)) return false;
   const QList<QByteArray> lines = file.readAll().split('\n');
   file.close();
-  QByteArray rewritten;
-  bool changed = false;
+  Rewrite rewrite;
   for (const QByteArray& text : lines) {
     if (text.isEmpty()) continue;
-    QJsonObject record = QJsonDocument::fromJson(text.mid(65)).object();
-    const QString id   = record.value("operation_id").toString();
-    const QString type = record.value("type").toString();
-    const QString kind = fate.value(id);
-    const bool operationRecord =
-        !id.isEmpty() && type != "job" && type != "package";
-    // A stub already written stays as it is.
-    if (kind.isEmpty() || !operationRecord ||
-        (kind == "stub" && type == "stub")) {
-      rewritten += text + '\n';
-      continue;
-    }
-    changed = true;
-    if (kind == "stub" && type == "admit")
-      rewritten += hashedLine(stubRecord(record, *find(id)));
+    const QJsonObject record = QJsonDocument::fromJson(text.mid(65)).object();
+    const QByteArray kept    = keptLine(text + '\n', record, plan);
+    rewrite.changed          = rewrite.changed || kept != text + '\n';
+    rewrite.bytes += kept;
   }
-  if (!changed) return;
+  if (!rewrite.changed) return false;
   const QString staged = path(segment.name + ".compact");
   const int descriptor = openFile(staged, O_WRONLY | O_CREAT | O_TRUNC);
-  if (descriptor < 0) return;
+  if (descriptor < 0) return false;
   const bool written =
-      fullyWritten(descriptor, rewritten) && flushDescriptor(descriptor);
+      fullyWritten(descriptor, rewrite.bytes) && flushDescriptor(descriptor);
   closeFile(descriptor);
   faultFires(m_start.faults, "journal:compaction");
   if (!written || !replaceFile(staged, path(segment.name))) {
     QFile::remove(staged);
-    return fail("io_error");
+    fail("io_error");
+    return false;
   }
   flushDirectory(m_root);
-  segment.offset = segment.size = rewritten.size();
-  for (auto it = fate.constBegin(); it != fate.constEnd(); ++it) {
+  segment.offset = segment.size = rewrite.bytes.size();
+  forgetCompacted(segment, plan);
+  return true;
+}
+
+// What one record becomes under the plan: itself, a stub, an expired mark,
+// or nothing.
+QByteArray Journal::keptLine(const QByteArray& same, const QJsonObject& record,
+                             const Retention& plan) const {
+  const QString type = record.value("type").toString();
+  if (type == "job")
+    return plan.jobs.contains(record.value("job_id").toString()) ? QByteArray()
+                                                                 : same;
+  if (type == "package") {
+    const QString id = record.value("package_id").toString();
+    if (!plan.packages.contains(id) || record.value("expired").toBool())
+      return same;
+    QJsonObject mark;
+    for (const char* key : {"v", "seq", "t", "w", "type", "package_id"})
+      mark.insert(key, record.value(QLatin1String(key)));
+    mark.insert("expired", true);
+    return hashedLine(mark);
+  }
+  const QString id   = record.value("operation_id").toString();
+  const QString fate = plan.operations.value(id);
+  if (id.isEmpty() || fate.isEmpty() || (fate == "stub" && type == "stub"))
+    return same;
+  if (fate == "stub" && type == "admit")
+    return hashedLine(stubRecord(record, *find(id)));
+  return {};
+}
+
+void Journal::forgetCompacted(const Segment& segment, const Retention& plan) {
+  for (auto it = plan.operations.constBegin(); it != plan.operations.constEnd();
+       ++it) {
     const auto found = m_operations.find(it.key());
     if (found == m_operations.end() || found->admittedSeq > segment.lastSeq)
       continue;
@@ -1064,20 +1192,26 @@ void Journal::compactSegment(Segment& segment,
         stubRecord(QJsonObject{}, *found).value("state").toString();
     found->outcome = found->intent = found->reconcile = QJsonObject();
   }
+  for (const QString& id : plan.jobs)
+    if (integer(m_jobs.value(id), "seq") <= segment.lastSeq) m_jobs.remove(id);
+  for (const QString& id : plan.packages) {
+    const auto found = m_packages.find(id);
+    if (found != m_packages.end() && integer(*found, "seq") <= segment.lastSeq)
+      found->insert("expired", true);
+  }
 }
 
 QJsonObject Journal::status() const {
   qint64 segmentBytes = 0;
   for (const auto& segment : m_segments) segmentBytes += segment->size;
-  qint64 blobBytes = 0;
-  if (readable())
-    for (const QFileInfo& blob :
-         QDir(path("blobs")).entryInfoList(QDir::Files | QDir::NoDotAndDotDot))
-      blobBytes += blob.size();
-  int full  = 0;
-  int stubs = 0;
+  const qint64 blobs = blobBytes();
+  int full           = 0;
+  int stubs          = 0;
   for (const JournalOperation& operation : m_operations)
     ++(operation.stubState.isEmpty() ? full : stubs);
+  int packages = 0;
+  for (const QJsonObject& record : m_packages)
+    packages += record.value("expired").toBool() ? 0 : 1;
   QJsonArray writers;
   for (int index = m_writerOrder.size() - 1;
        index >= 0 && writers.size() < MaximumWriterRows; --index) {
@@ -1113,11 +1247,11 @@ QJsonObject Journal::status() const {
           {"path", JournalPath},
           {"segments", int(m_segments.size())},
           {"segment_bytes", double(segmentBytes)},
-          {"blob_bytes", double(blobBytes)},
+          {"blob_bytes", double(blobs)},
           {"limits", m_start.limits.report()},
           {"retained", QJsonObject{{"full_receipts", full},
                                    {"receipt_stubs", stubs},
-                                   {"packages", 0},
+                                   {"packages", packages},
                                    {"jobs", m_jobs.size()}}},
           {"horizon", QJsonObject{{"seq", horizon ? QJsonValue(double(horizon))
                                                   : QJsonValue()},

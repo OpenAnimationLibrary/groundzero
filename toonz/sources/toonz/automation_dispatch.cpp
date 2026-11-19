@@ -718,17 +718,31 @@ void Dispatcher::recordJobStart(Journal* journal, const QString& operationId,
 void Dispatcher::recordJobOutcomes() {
   Journal* journal = workspaceJournal(m_context);
   if (!journal || !journal->available() || !m_context.jobs) return;
-  for (const auto& job : m_context.jobs->jobs()) {
-    const QString id = job->id();
-    if (!job->terminal() || m_journaledJobs.contains(id)) continue;
-    m_journaledJobs.insert(id);
-    const QJsonObject* admitted = journal->job(id);
-    if (!admitted) continue;
-    writeFaultFires(m_context, "journal:job-terminal");
-    journal->recordJob({{"job_id", id},
-                        {"operation_id", admitted->value("operation_id")},
-                        {"record", job->record()}});
-  }
+  for (const auto& job : m_context.jobs->jobs())
+    if (job->terminal()) recordJobEnd(*journal, job->id(), job->record());
+  // A scene host's job ends where the worker last observed it: a forwarded
+  // job.status or job.list, a capacity check, or the loss of the host.
+  const QHash<QString, QJsonObject> hosted = observedHostJobs(m_context);
+  for (auto it = hosted.constBegin(); it != hosted.constEnd(); ++it)
+    if (it.value().value("terminal").toBool())
+      recordJobEnd(*journal, it.key(), it.value());
+}
+
+void Dispatcher::idle() {
+  recordJobOutcomes();
+  if (Journal* journal = workspaceJournal(m_context)) journal->maintain();
+}
+
+void Dispatcher::recordJobEnd(Journal& journal, const QString& id,
+                              const QJsonObject& record) {
+  if (m_journaledJobs.contains(id)) return;
+  m_journaledJobs.insert(id);
+  const QJsonObject* admitted = journal.job(id);
+  if (!admitted) return;
+  writeFaultFires(m_context, "journal:job-terminal");
+  journal.recordJob({{"job_id", id},
+                     {"operation_id", admitted->value("operation_id")},
+                     {"record", record}});
 }
 
 bool Dispatcher::admit(Journal& journal, const QString& method,

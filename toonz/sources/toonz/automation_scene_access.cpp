@@ -1285,6 +1285,11 @@ void refuseReadOnlyEarly(Context& context, const QString& method,
   refuseReadOnly(method, descriptor);
 }
 
+QHash<QString, QJsonObject> observedHostJobs(Context& context) {
+  return context.sceneHosts ? context.sceneHosts->records
+                            : QHash<QString, QJsonObject>();
+}
+
 QJsonObject hostJobRecord(Context& context, const QString& id) {
   if (!context.sceneHosts) return {};
   auto& state              = *context.sceneHosts;

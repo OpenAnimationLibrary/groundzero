@@ -200,6 +200,52 @@ void verdictsFollowTheEffectClass(const QString& workspace) {
           "the start-up recovery did not reconcile a dead worker's operation");
 }
 
+// Each maintenance step rewrites at most one sealed segment and brings the
+// journal within its limits: settled operations become stubs, old jobs and
+// package registrations go, and past the size limit old operations go.
+void maintenanceKeepsTheLimits(const QString& workspace) {
+  Journal::Start start;
+  start.workspace           = workspace;
+  start.instance            = uuid();
+  start.runtimeName         = "runtime_" + uuid();
+  start.authorityDigest     = "authority";
+  start.limits.segmentBytes = 4096;
+  start.limits.fullReceipts = 4;
+  start.limits.receiptStubs = 8;
+  start.limits.jobs         = 2;
+  start.limits.packages     = 1;
+  auto journal              = Journal::open(start);
+  for (int index = 0; index < 30; ++index) {
+    const QString id = "op-" + QString::number(index);
+    require(journal->admit(admission(id, "memory")), "refused");
+    require(journal->outcome(id, {{"result", QJsonObject{{"n", index}}}}, {}),
+            "outcome refused");
+    journal->recordJob({{"job_id", "job-" + QString::number(index)},
+                        {"record", QJsonObject{{"terminal", true}}}});
+    journal->registerPackage(
+        {{"package_id", "package:" + QString::number(index)},
+         {"manifest_bytes", 10}});
+  }
+  for (int step = 0; step < 64; ++step) {
+    journal->recordJob({{"job_id", "job-tick"}, {"record", QJsonObject{}}});
+    journal->maintain();
+  }
+  const QJsonObject retained = journal->status().value("retained").toObject();
+  require(retained.value("receipt_stubs").toInt() > 0, "nothing became a stub");
+  require(!journal->find("op-0") || !journal->find("op-0")->stubState.isEmpty(),
+          "the oldest operation kept its full receipt");
+  require(journal->find("op-29") && journal->find("op-29")->stubState.isEmpty(),
+          "the newest operation lost its receipt");
+  require(!journal->job("job-0"), "an old job record was kept");
+  require(journal->package("package:0") &&
+              journal->package("package:0")->value("expired").toBool(),
+          "an old package registration was not marked expired");
+  auto reader = openJournal(workspace, uuid(), "runtime_" + uuid());
+  require(reader->status().value("retained").toObject() ==
+              journal->status().value("retained").toObject(),
+          "a second reader sees a different journal");
+}
+
 void reservedPathsAreRefused(Context& context) {
   for (const QString& path : {QString(".groundzero"), QString(".groundzero/x"),
                               QString(".GROUNDZERO/journal/FORMAT")}) {
@@ -226,6 +272,7 @@ void runAutomationJournalTests(Context& context) {
   damageIsQuarantinedAndReported(fresh()->path());
   newerFormatIsReadOnly(fresh()->path());
   verdictsFollowTheEffectClass(fresh()->path());
+  maintenanceKeepsTheLimits(fresh()->path());
   reservedPathsAreRefused(context);
 }
 

@@ -743,7 +743,15 @@ void openJournal(Context& context, const Options& options,
   start.instance        = jobRegistry(context).instance();
   start.runtimeName     = QFileInfo(runtime).fileName();
   start.authorityDigest = authorityReport(context).value("digest").toString();
-  start.faults          = &context;
+  // The build digest every other report names; computed on another thread
+  // since prefetchBuildIdentity, so this waits for what is left of it.
+  try {
+    start.buildDigest = buildIdentity().value("build_digest").toString();
+  } catch (const Error& error) {
+    std::cerr << "automation-worker: journal start without a build digest: "
+              << error.message.toStdString() << '\n';
+  }
+  start.faults = &context;
 #ifdef BUILD_UI_PORT_TESTS
   if (options.smallJournal) start.limits = JournalLimits::small();
 #else
@@ -833,7 +841,7 @@ int executeWorker(QApplication& application, QFile& output,
   // Jobs that end between requests get their terminal record within a second.
   QTimer jobRecords;
   QObject::connect(&jobRecords, &QTimer::timeout, &application,
-                   [&dispatcher]() { dispatcher.recordJobOutcomes(); });
+                   [&dispatcher]() { dispatcher.idle(); });
   if (!host) jobRecords.start(1000);
   QMutex outputLock;
   // A poll answer is as fresh as the last request this process answered or

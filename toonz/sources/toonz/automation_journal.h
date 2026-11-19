@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QSet>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
@@ -73,7 +74,8 @@ public:
     QString instance;
     QString runtimeName;
     QString authorityDigest;
-    QString executableSha256;
+    // The shared build digest (runtime.inspect, the live handshake).
+    QString buildDigest;
     JournalLimits limits;
     // Test fault points (journal:...) are read from it; may be null.
     const Context* faults = nullptr;
@@ -141,6 +143,20 @@ public:
   const QJsonObject* job(const QString& jobId) const;
   QStringList jobIds() const;
 
+  // Applies the retention limits to at most one sealed segment: one bounded
+  // step, run between requests on the application thread.
+  void maintain();
+
+  // Package registrations (R3), newest first; an evicted one keeps an
+  // expired mark.
+  const QJsonObject* package(const QString& packageId) const;
+  QStringList packageIds() const;
+  // Appends and flushes a package registration.
+  void registerPackage(const QJsonObject& fields);
+  // A content-addressed payload: stored once under its SHA-256 (returned).
+  QString storeBlob(const QByteArray& bytes);
+  QByteArray readBlob(const QString& digest, qint64 bytes) const;
+
   // Operations, newest admission first, for operation.list.
   std::vector<const JournalOperation*> operationsNewestFirst() const;
   qint64 horizonSeq() const;
@@ -163,16 +179,27 @@ private:
   void quarantineSegment(Segment& segment, const std::vector<QByteArray>& good,
                          qint64 firstSeq, qint64 lastSeq);
   void reconcileDead();
+  struct Retention final {
+    // operation id -> stub or forget
+    QHash<QString, QString> operations;
+    QSet<QString> jobs;
+    QSet<QString> packages;
+    bool empty() const;
+  };
+  Retention retention() const;
   void compactSegments();
-  void compactSegment(Segment& segment, const QHash<QString, QString>& fate);
+  bool compactSegment(Segment& segment, const Retention& plan);
+  QByteArray keptLine(const QByteArray& same, const QJsonObject& record,
+                      const Retention& plan) const;
+  void forgetCompacted(const Segment& segment, const Retention& plan);
+  qint64 journalBytes() const;
+  qint64 blobBytes() const;
   QJsonObject jobLoss(const QJsonObject& record) const;
   // Appends records under the lock; `check` runs after the tail is read
   // under the lock and returns false to append nothing.
   bool append(QList<QJsonObject> records, int waitMs, bool flush,
               const std::function<bool()>& check = {});
   QByteArray line(QJsonObject& record, qint64 seq) const;
-  QString storeBlob(const QByteArray& bytes);
-  QByteArray readBlob(const QString& digest, qint64 bytes) const;
   Segment& writableSegment(qint64 nextSeq, qint64 bytes);
   QString path(const QString& name) const;
   void listSegments();
@@ -186,6 +213,11 @@ private:
   QHash<QString, QJsonObject> m_writers;
   QStringList m_writerOrder;
   QHash<QString, QJsonObject> m_jobs;
+  QHash<QString, QJsonObject> m_packages;
+  qint64 m_blobBytes         = 0;
+  qint64 m_plannedSeq        = 0;
+  int m_maintenance          = 0;
+  int m_registeredByRecovery = 0;
   QJsonArray m_damage;
   QJsonArray m_quarantined;
   QJsonObject m_lastRecovery;
