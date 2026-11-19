@@ -8,9 +8,11 @@
 #include <QTemporaryDir>
 #include <QUuid>
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 
 namespace GroundzeroAutomation {
 namespace {
@@ -153,6 +155,27 @@ void damageIsQuarantinedAndReported(const QString& workspace) {
           "writes stopped after damage");
 }
 
+void formatBeingWrittenIsAwaited(const QString& workspace) {
+  // Another worker has created FORMAT and not written its line yet.
+  const QString path = workspace + "/.groundzero/journal/FORMAT";
+  require(QDir().mkpath(workspace + "/.groundzero/journal"),
+          "cannot create the journal folder");
+  QFile empty(path);
+  require(empty.open(QIODevice::WriteOnly), "cannot create FORMAT");
+  empty.close();
+  std::thread writer([path] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    QFile format(path);
+    if (format.open(QIODevice::WriteOnly))
+      format.write("{\"format\":\"groundzero-journal\",\"version\":1}\n");
+  });
+  auto journal = openJournal(workspace, uuid(), "runtime_" + uuid());
+  writer.join();
+  require(journal->available(),
+          "a FORMAT file another worker was still writing made the journal "
+          "unavailable");
+}
+
 void newerFormatIsReadOnly(const QString& workspace) {
   openJournal(workspace, uuid(), "runtime_" + uuid());
   QFile format(workspace + "/.groundzero/journal/FORMAT");
@@ -224,6 +247,7 @@ void runAutomationJournalTests(Context& context) {
   largeResultsGoToBlobs(fresh()->path());
   tornTailIsQuarantined(fresh()->path());
   damageIsQuarantinedAndReported(fresh()->path());
+  formatBeingWrittenIsAwaited(fresh()->path());
   newerFormatIsReadOnly(fresh()->path());
   verdictsFollowTheEffectClass(fresh()->path());
   reservedPathsAreRefused(context);

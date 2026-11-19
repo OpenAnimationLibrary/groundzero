@@ -351,10 +351,22 @@ QString checkFormat(const QString& path) {
     closeFile(created);
     if (!written) return "io_error";
   }
-  QFile file(path);
-  if (!file.open(QIODevice::ReadOnly)) return "io_error";
-  const QJsonObject read =
-      QJsonDocument::fromJson(file.read(4096).trimmed()).object();
+  // Another worker starting in the same workspace may have created the file
+  // a moment ago and not written its line yet: wait for the line, briefly.
+  QJsonObject read;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  for (;;) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return "io_error";
+    const QByteArray line = file.read(4096);
+    if (line.endsWith('\n')) {
+      read = QJsonDocument::fromJson(line.trimmed()).object();
+      break;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) return "io_error";
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
   if (read.value("format") != "groundzero-journal") return "io_error";
   return read.value("version").toInt() > FormatVersion ? "newer_format"
                                                        : QString();
