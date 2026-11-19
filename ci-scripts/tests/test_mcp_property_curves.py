@@ -45,6 +45,11 @@ class SampleTest(unittest.TestCase):
         self.assertAlmostEqual(curves.sample([first, last], 1), 4.4 / 4)
         self.assertAlmostEqual(curves.sample([first, last], 4), 4.4 * 3)
 
+    def test_a_step_above_one_holds_the_value_between_steps(self) -> None:
+        keys = [Key(0, 0, "linear", 3), Key(12, 12, "linear")]
+        values = [curves.sample(keys, frame) for frame in (2, 3, 4, 5, 6)]
+        self.assertEqual(values, [0, 3, 3, 3, 6])
+
     def test_constant_and_linear_follow_their_first_key(self) -> None:
         # Linear from 240 at frame 24 to 360 at 36, then constant until the last key.
         self.assertEqual(self.values([30, 36, 42, 48]), [300, 360, 360, 100])
@@ -100,6 +105,14 @@ class EditTest(unittest.TestCase):
             curves.duplicate_keys(keys, [36], -20, 0)[0],
             {"unsupported_interpolation", "invalid_argument/incoming_kind_changed"},
         )
+
+    def test_a_copy_after_its_source_gets_the_sources_kind_of_segment_not_the_original(self) -> None:
+        keys = {
+            0: Key(0, 0, "speed_in_out", 1, ("none",), ("speed", 2, 0), linked=False),
+            6: Key(6, 10, "linear", 1, ("speed", -2, 0), None, linked=False),
+        }
+        error, _ = curves.duplicate_keys(keys, [6], 14, 0)
+        self.assertEqual(error, "invalid_argument/incoming_kind_changed")
 
     def test_a_linked_copy_after_a_rich_segment_is_unsupported(self) -> None:
         keys = {
