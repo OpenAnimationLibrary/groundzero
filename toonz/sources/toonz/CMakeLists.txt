@@ -228,6 +228,7 @@ set(HEADERS
     automation_shutdown.h
     automation_scene_host.h
     automation_scene_shared.h
+    automation_sheet_record.h
     automation_runtime.h
     activechecks.h
     batchtaskexecution.h
@@ -324,6 +325,7 @@ set(SOURCES
     automation_vector_opacity.cpp
     automation_scene.cpp
     automation_scene_shared.cpp
+    automation_sheet_record.cpp
     automation_camera.cpp
     automation_levels.cpp
     automation_columns.cpp
@@ -1339,6 +1341,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_group_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_production_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_scene_check_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_sheet_record_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_motion_path_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_audio_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_rig_test.cpp)

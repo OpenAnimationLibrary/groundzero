@@ -8,6 +8,7 @@
 #include "automation_drawing.h"
 #include "automation_fx.h"
 #include "automation_macro.h"
+#include "automation_sheet_record.h"
 #include "automation_storyboard.h"
 
 #include "timage.h"
@@ -323,12 +324,37 @@ private:
   std::vector<Entry> m_paths;
 };
 
-void writeScene(ToonzScene& scene, const QString& directory) {
+// Level settings by name, read after the package paths and DPI are applied:
+// what the saver writes, which differs from the document in DPI policy.
+QJsonObject levelSettings(ToonzScene& scene) {
+  QJsonObject settings;
+  TLevelSet* cast = scene.getLevelSet();
+  for (int index = 0; index < cast->getLevelCount(); ++index)
+    if (TXshSimpleLevel* level = cast->getLevel(index)->getSimpleLevel())
+      settings.insert(QString::fromStdWString(level->getName()),
+                      automationLevelSettings(*level));
+  return settings;
+}
+
+QJsonObject writeScene(ToonzScene& scene, const QString& directory) {
   PathRestore restore(scene);
   restore.rebase();
+  const QJsonObject settings = levelSettings(scene);
   AutomationSoundPaths sounds(scene);
   scene.saveCopy(
       TFilePath(QDir(directory).absoluteFilePath("scene.tnz").toStdWString()));
+  return settings;
+}
+
+QJsonArray withLevelSettings(const QJsonArray& levels,
+                             const QJsonObject& settings) {
+  QJsonArray result;
+  for (const QJsonValue& value : levels) {
+    QJsonObject entry = value.toObject();
+    entry.insert("settings", settings.value(entry.value("name").toString()));
+    result.append(entry);
+  }
+  return result;
 }
 
 Package writePackage(Document& document, const QString& directory) {
@@ -337,16 +363,19 @@ Package writePackage(Document& document, const QString& directory) {
     throw Error("package_write_failed",
                 "Cannot create the package assets directory.");
   const QByteArray macroFingerprint = automationMacroFingerprint(*document.scene, directory);
+  const QJsonObject record   = automationSheetRecord(*document.scene);
   const QJsonArray levels = writeLevels(*document.scene, directory);
   const QJsonObject sounds = writeAutomationSounds(*document.scene, directory);
-  writeScene(*document.scene, directory);
+  const QJsonObject settings = writeScene(*document.scene, directory);
   Package package;
   package.macroFingerprint = macroFingerprint;
   package.manifest         = {{"version", 1},
                               {"profile", "worker-generated-v1"},
                               {"scene_file", "scene.tnz"},
                               {"source_revision", document.revisionText()},
-                              {"levels", levels}};
+                              {"levels", withLevelSettings(levels, settings)}};
+  for (auto entry = record.begin(); entry != record.end(); ++entry)
+    package.manifest.insert(entry.key(), entry.value());
   for (auto entry = sounds.begin(); entry != sounds.end(); ++entry)
     package.manifest.insert(entry.key(), entry.value());
   const QString tags = automationTagsDigest(*document.scene);
@@ -468,6 +497,14 @@ void reopenLevel(ToonzScene& scene, const QJsonObject& entry) {
                 "The reopened palette differs from the source palette.");
 }
 
+void requireLevelSettings(const QJsonArray& entries, ToonzScene& scene) {
+  QJsonObject saved;
+  for (const QJsonValue& entry : entries)
+    saved.insert(entry.toObject().value("name").toString(),
+                 entry.toObject().value("settings"));
+  requireEqualRecord("level_settings", saved, levelSettings(scene));
+}
+
 std::unique_ptr<ToonzScene> reopenPackage(Context& context,
                                           const QString& directory,
                                           const Package& package) {
@@ -489,6 +526,8 @@ std::unique_ptr<ToonzScene> reopenPackage(Context& context,
     throw Error("invalid_package",
                 "Reopened storyboard panels differ from the published scene.");
   validateAutomationScene(*scene);
+  requireAutomationSheetRecord(package.manifest, *scene);
+  requireLevelSettings(entries, *scene);
   indexAutomationMacroMembers(*scene);
   if (automationMacroFingerprint(*scene, context.scratchDirectory()) !=
       package.macroFingerprint)
@@ -535,6 +574,18 @@ QString admittedDirectory(Context& context, const QJsonObject& params) {
   return directory;
 }
 
+// Handles of the empty columns after the last used one: the native saver
+// writes no column, object or effect for them.
+QJsonArray droppedColumns(Document& document) {
+  TXsheet* sheet = document.scene->getXsheet();
+  QJsonArray handles;
+  for (int index = sheet->getFirstFreeColumnIndex();
+       index < sheet->getColumnCount(); ++index)
+    if (TXshColumn* column = sheet->getColumn(index))
+      handles.append(document.idForColumn(column));
+  return handles;
+}
+
 QJsonObject saveCopy(Context& context, const QJsonObject& params) {
   if (publishedPackages.size() >= MaxPackages)
     throw Error("package_limit",
@@ -548,6 +599,7 @@ QJsonObject saveCopy(Context& context, const QJsonObject& params) {
   for (const QJsonValue& entry : package.manifest.value("levels").toArray())
     drawings += entry.toObject().value("drawings").toArray().size();
   return {{"package_directory", directory},
+          {"trailing_empty_columns_dropped", droppedColumns(document)},
           {"scene_path", directory + "/scene.tnz"},
           {"manifest_path", directory + "/manifest.json"},
           {"verified_drawings", drawings},

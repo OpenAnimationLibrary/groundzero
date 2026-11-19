@@ -23603,6 +23603,16 @@
         "minLength": 0,
         "type": "string"
       },
+      "trailing_empty_columns_dropped": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 4096,
+        "minItems": 0,
+        "type": "array"
+      },
       "verified_drawings": {
         "maximum": 1.7976931348623157e+308,
         "minimum": -1.7976931348623157e+308,
@@ -23616,6 +23626,7 @@
       "package_directory",
       "revision",
       "scene_path",
+      "trailing_empty_columns_dropped",
       "verified_drawings"
     ],
     "type": "object"
