@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
@@ -12,6 +13,22 @@ from typing import Any, BinaryIO
 
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 SDK_CLIENT = "native-client.mjs"
+
+
+def joined_capabilities(fetch: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
+    """Return automation.capabilities with every page of tool descriptors joined.
+
+    Args:
+        fetch: Calls automation.capabilities with the given paging arguments and returns its
+            result.
+    """
+    result = fetch({"limit": 64})
+    tools = list(result["tools"])
+    page = result
+    while page["next_offset"] is not None:
+        page = fetch({"limit": 64, "offset": page["next_offset"]})
+        tools.extend(page["tools"])
+    return {**result, "tools": tools, "next_offset": None}
 
 
 class Worker:

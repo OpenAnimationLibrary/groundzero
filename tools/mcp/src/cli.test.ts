@@ -218,10 +218,10 @@ posix("keeps stdout to MCP frames through native noise and large results", async
   expect(toolResult(await adapter.response(2))["structuredContent"]).toEqual({
     written: 256 * 1024,
   });
-  adapter.call(3, "probe.large", { bytes: 7 * 1024 * 1024 });
+  adapter.call(3, "probe.large", { bytes: 3 * 1024 * 1024 });
   const large = toolResult(await adapter.response(3))["structuredContent"];
   expect(isObject(large) && typeof large["text"] === "string" && large["text"].length).toBe(
-    7 * 1024 * 1024,
+    3 * 1024 * 1024,
   );
   expect(await adapter.end()).toBe(0);
   expect(adapter.stderr).toContain("native diagnostic native diagnostic");

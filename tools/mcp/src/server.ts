@@ -49,14 +49,53 @@ const descriptorSchema: Parameters<typeof fromJsonSchema>[0] = {
 };
 
 const MAX_CATALOG_TOOLS = 1024;
+const CATALOG_PAGE = 64;
 
 async function discover(worker: NativeApi, requested: string[]): Promise<ToolsetState> {
-  const result = await worker.request("automation.capabilities");
-  if (!isObject(result) || result["protocol_version"] !== 3) {
+  const first = await worker.request("automation.capabilities", { limit: CATALOG_PAGE });
+  if (!isObject(first) || first["protocol_version"] !== 3) {
     throw new WorkerError("INCOMPATIBLE_WORKER", "Expected native automation protocol version 3");
   }
-  const tools = await catalog(result["tools"]);
-  return new ToolsetState(parseToolsets(result["toolsets"], tools), tools, requested);
+  const entries = await catalogPages(worker, first);
+  const tools = await catalog(entries);
+  return new ToolsetState(parseToolsets(first["toolsets"], tools), tools, requested);
+}
+
+/** Read every page of the native tool descriptors, which come a page at a time. */
+async function catalogPages(worker: NativeApi, first: Record<string, unknown>): Promise<unknown[]> {
+  const entries: unknown[] = [];
+  let page: Record<string, unknown> = first;
+  for (;;) {
+    const tools = page["tools"];
+    if (!Array.isArray(tools)) throw new WorkerError("INVALID_CATALOG", "Expected a tools page");
+    entries.push(...tools);
+    const next = page["next_offset"];
+    if (next === null) return entries;
+    if (typeof next !== "number" || entries.length > MAX_CATALOG_TOOLS) {
+      throw new WorkerError("INVALID_CATALOG", "Invalid native tool catalog paging");
+    }
+    const result = await worker.request("automation.capabilities", {
+      limit: CATALOG_PAGE,
+      offset: next,
+    });
+    if (!isObject(result)) throw new WorkerError("INVALID_CATALOG", "Expected a tools page");
+    page = result;
+  }
+}
+
+const ROOT_KEYWORDS = ["oneOf", "anyOf", "allOf", "not", "$ref"];
+
+/** Several clients and model APIs accept only a plain object at the root of an input schema. */
+function requirePlainRoot(tool: NativeTool): void {
+  const schema: Record<string, unknown> = tool.inputSchema;
+  const keyword = ROOT_KEYWORDS.find((name) => name in schema);
+  if (schema["type"] !== "object" || keyword !== undefined) {
+    throw new WorkerError(
+      "INVALID_CATALOG",
+      `The input schema of ${tool.name} must be a plain object at its root` +
+        (keyword === undefined ? "" : `, without ${keyword}`),
+    );
+  }
 }
 
 async function catalog(entries: unknown): Promise<Tool[]> {
@@ -73,6 +112,7 @@ async function catalog(entries: unknown): Promise<Tool[]> {
     const parsed = await schema["~standard"].validate(entry);
     if (parsed.issues) throw new WorkerError("INVALID_CATALOG", "Invalid native tool descriptor");
     const tool = parsed.value;
+    requirePlainRoot(tool);
     if (names.has(tool.name)) {
       throw new WorkerError("INVALID_CATALOG", "Duplicate native tool name");
     }

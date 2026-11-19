@@ -167,6 +167,15 @@ def _no_arguments(_f: Fixture) -> list[Call]:
     return [Call("no arguments", {})]
 
 
+def _capabilities(_f: Fixture) -> list[Call]:
+    return [
+        Call("default page", {}),
+        Call("second page", {"limit": 2, "offset": 2}),
+        Call("zero limit", {"limit": 0}, SCHEMA),
+        Call("offset past the catalog", {"offset": 4000}, "invalid_params"),
+    ]
+
+
 def _projects(_f: Fixture) -> list[Call]:
     return [
         Call("roots", {}),
@@ -689,7 +698,7 @@ ROUTED_WRITES = frozenset({"render.preview", "render.submit", "scene.discard"})
 
 
 READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
-    "automation.capabilities": _no_arguments,
+    "automation.capabilities": _capabilities,
     "automation.list_documents": _no_arguments,
     "project.inspect": _project_inspect,
     "project.scenes": _project_scenes,

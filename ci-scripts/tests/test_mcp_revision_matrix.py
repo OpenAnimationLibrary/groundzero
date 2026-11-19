@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import mcp_census
 import mcp_revision_cases as cases
 import mcp_revision_matrix as table
+from mcp_worker import joined_capabilities
 
 PROPERTIES = {"document_id": {}, "expected_revision": {}, "operation_id": {}, "delta": {}}
 SCHEMAS = {
@@ -211,6 +212,9 @@ class FakeCase(unittest.TestCase):
     def success(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         return self.worker.call(method, params)["result"]
 
+    def capabilities(self) -> dict[str, Any]:
+        return joined_capabilities(lambda params: self.success("automation.capabilities", params))
+
     def schema_code(self) -> str:
         return "INVALID_ARGUMENTS"
 
@@ -225,7 +229,7 @@ class KnownViolations(unittest.TestCase):
         cases.load_matrix = lambda: table_data
         self.addCleanup(setattr, cases, "load_matrix", original)
         worker_call = worker.call
-        catalog = {"tools": [{"name": n, **v} for n, v in SCHEMAS.items()]}
+        catalog = {"tools": [{"name": n, **v} for n, v in SCHEMAS.items()], "next_offset": None}
         worker.call = lambda m, p: (  # type: ignore[method-assign]
             {"id": "x", "result": catalog} if m == "automation.capabilities" else worker_call(m, p)
         )

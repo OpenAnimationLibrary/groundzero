@@ -435,9 +435,17 @@ def opacity_set_accepts_selection_handle(case: NativeAcceptance) -> None:
         document,
         {**write, "stroke_indices": [0], "selection_id": "selection_x", "opacity_per_mille": 1},
     )
-    case.schema_failure("vector.opacity.set", both)
+    case.handler_failure("vector.opacity.set", both, "invalid_params")
     neither = case.write_params(document, {**write, "opacity_per_mille": 1})
-    case.schema_failure("vector.opacity.set", neither)
+    case.handler_failure("vector.opacity.set", neither, "invalid_params")
+    profile = {**write, "knots": PROFILE}
+    both_profile = {**profile, "stroke_indices": [0], "selection_id": "selection_x"}
+    case.handler_failure(
+        "vector.opacity.profile.set", case.write_params(document, both_profile), "invalid_params"
+    )
+    case.handler_failure(
+        "vector.opacity.profile.set", case.write_params(document, profile), "invalid_params"
+    )
     nearest = {"mode": "nearest_centerline", "x": 0, "y": 28, "max_distance": 5}
     handle = _select(case, document, target, query=nearest)
     case.assertEqual(handle["stroke_indices"], [1])

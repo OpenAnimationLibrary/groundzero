@@ -321,14 +321,18 @@ void requiredInputs(Context& context) {
 
 QSet<QString> catalogTools(Context& context) {
   Dispatcher dispatcher(context);
-  const QJsonObject response =
-      dispatcher.dispatch({{"id", "tools"},
-                           {"method", "automation.capabilities"},
-                           {"params", QJsonObject{}}});
   QSet<QString> names;
-  for (const QJsonValue& tool :
-       response.value("result").toObject().value("tools").toArray())
-    names.insert(tool.toObject().value("name").toString());
+  QJsonValue offset = 0;
+  while (!offset.isNull()) {
+    const QJsonObject response =
+        dispatcher.dispatch({{"id", "tools"},
+                             {"method", "automation.capabilities"},
+                             {"params", QJsonObject{{"offset", offset}}}});
+    const QJsonObject page = response.value("result").toObject();
+    for (const QJsonValue& tool : page.value("tools").toArray())
+      names.insert(tool.toObject().value("name").toString());
+    offset = page.value("next_offset");
+  }
   return names;
 }
 

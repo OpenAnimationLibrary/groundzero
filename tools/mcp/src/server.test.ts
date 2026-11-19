@@ -45,6 +45,7 @@ async function session() {
       return {
         protocol_version: 3,
         tools: [{ ...tool, mutates_document: true, toolset: "core" }],
+        next_offset: null,
         toolsets: [{ name: "core", description: "Core tools", tools: [tool.name] }],
       };
     }
@@ -63,6 +64,37 @@ test("advertises only tools implemented by the current native worker", async () 
   const { client } = await session();
   const result = await client.listTools();
   expect(result.tools).toEqual([tool, ...TOOLSET_TOOLS]);
+});
+
+test("reads every page of the native tool catalog", async () => {
+  const second = { ...tool, name: "scene.retitle" };
+  const request = vi.fn(async (_method: string, params: Record<string, unknown> = {}) => {
+    const offset = params["offset"] ?? 0;
+    return {
+      protocol_version: 3,
+      tools: [offset === 0 ? tool : second],
+      next_offset: offset === 0 ? 1 : null,
+      toolsets: [{ name: "core", description: "Core tools", tools: [tool.name, second.name] }],
+    };
+  });
+  const client = await connected(createServer({ request, close: vi.fn() }));
+  const names = (await client.listTools()).tools.map((listed) => listed.name);
+  expect(names).toEqual([tool.name, second.name, ...TOOLSET_TOOLS.map((listed) => listed.name)]);
+  expect(request.mock.calls).toEqual([
+    ["automation.capabilities", { limit: 64 }],
+    ["automation.capabilities", { limit: 64, offset: 1 }],
+  ]);
+});
+
+test("refuses a catalog page that never ends", async () => {
+  const request = vi.fn(async () => ({
+    protocol_version: 3,
+    tools: [tool],
+    next_offset: 1,
+    toolsets: [{ name: "core", description: "Core tools", tools: [tool.name] }],
+  }));
+  const client = await connected(createServer({ request, close: vi.fn() }));
+  await expect(client.listTools()).rejects.toThrow(/INVALID_CATALOG|catalog/u);
 });
 
 test("passes operation identities unchanged to native mutations", async () => {
@@ -147,7 +179,7 @@ test("negotiates without the worker and reads its catalog once, on first use", a
   expect(request).not.toHaveBeenCalled();
   await client.listTools();
   await client.listTools();
-  expect(request.mock.calls).toEqual([["automation.capabilities"]]);
+  expect(request.mock.calls).toEqual([["automation.capabilities", { limit: 64 }]]);
 });
 
 function liveCatalog() {

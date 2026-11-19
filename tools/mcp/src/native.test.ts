@@ -664,6 +664,33 @@ test("drives a rig journey in the rigging toolset through actual MCP stdio", asy
   }
 }, 30_000);
 
+type ListedTool = Awaited<ReturnType<Client["listTools"]>>["tools"][number];
+
+/** The name and schema limits Claude Code and Codex document for the tools they load. */
+function requireClientLoadable(tools: ListedTool[]): void {
+  const qualified = tools.map((tool) => `mcp__groundzero__${tool.name.replace(/[^\w-]/gu, "_")}`);
+  const owners = new Map<string, string>();
+  for (const [index, name] of qualified.entries()) {
+    const tool = tools[index]?.name ?? "";
+    const other = owners.get(name);
+    expect(other, `${tool} and ${other} are both ${name} once a client rewrites the dot`).toBe(
+      undefined,
+    );
+    owners.set(name, tool);
+  }
+  expect(Math.max(...qualified.map((name) => name.length))).toBeLessThanOrEqual(64);
+  for (const tool of tools) {
+    expect(tool.inputSchema.type, tool.name).toBe("object");
+    for (const keyword of ["oneOf", "anyOf", "allOf", "not", "$ref"]) {
+      expect(tool.inputSchema, tool.name).not.toHaveProperty(keyword);
+    }
+    expect(tool.inputSchema, tool.name).not.toHaveProperty("$schema");
+    for (const property of Object.keys(tool.inputSchema.properties ?? {})) {
+      expect(property, tool.name).toMatch(/^[A-Za-z0-9_.-]{1,64}$/u);
+    }
+  }
+}
+
 test("advertises a catalog that Claude Code and Codex can both load", async () => {
   const executable = process.env["GROUNDZERO_EXECUTABLE"];
   if (!executable) throw new Error("test:native requires GROUNDZERO_EXECUTABLE");
@@ -687,21 +714,7 @@ test("advertises a catalog that Claude Code and Codex can both load", async () =
       }),
     );
     const { tools } = await client.listTools();
-    const qualified = tools.map((tool) => `mcp__groundzero__${tool.name.replace(/[^\w-]/gu, "_")}`);
-    expect(new Set(qualified).size).toBe(tools.length);
-    expect(Math.max(...qualified.map((name) => name.length))).toBeLessThanOrEqual(64);
-    const combinators = ["anyOf", "oneOf", "allOf"];
-    const rootUnions = tools
-      .filter((tool) => combinators.some((keyword) => keyword in tool.inputSchema))
-      .map((tool) => tool.name);
-    expect(rootUnions).toEqual(["drawing.create"]);
-    for (const tool of tools) {
-      expect(tool.inputSchema.type, tool.name).toBe("object");
-      expect(tool.inputSchema, tool.name).not.toHaveProperty("$schema");
-      for (const property of Object.keys(tool.inputSchema.properties ?? {})) {
-        expect(property, tool.name).toMatch(/^[A-Za-z0-9_.-]{1,64}$/u);
-      }
-    }
+    requireClientLoadable(tools);
   } finally {
     try {
       await client.close();

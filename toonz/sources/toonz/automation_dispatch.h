@@ -8,6 +8,11 @@
 
 namespace GroundzeroAutomation {
 
+// Every tool's input schema is a plain object at its root: type "object" and no
+// oneOf, anyOf, allOf, not or $ref there. Several clients and model APIs accept
+// nothing else, so a native operation that breaks this cannot be registered.
+void requirePlainInputSchema(const QJsonObject& descriptor);
+
 class Dispatcher final {
 public:
   explicit Dispatcher(Context& context);
@@ -30,6 +35,7 @@ private:
            const QString& toolset);
   void addWorkerOperation(QJsonObject descriptor);
   QJsonArray toolsetCatalog() const;
+  QJsonObject capabilities(const QJsonObject& params) const;
   void checkReceiptCapacity(bool control) const;
   void rememberReceipt(const QString& operationId, const Receipt& receipt,
                        const QString& controlJob);

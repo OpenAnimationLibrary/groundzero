@@ -69,6 +69,8 @@ const handlers = {
     respond(id, {
       protocol_version: 3,
       tools: catalog,
+      tool_count: catalog.length,
+      next_offset: null,
       toolsets,
     }),
   "probe.echo": (id, params) => respond(id, { value: params.value }),

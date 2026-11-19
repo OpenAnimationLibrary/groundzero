@@ -54,7 +54,7 @@ def integers_beyond_exact_precision_are_refused(case: NativeAcceptance) -> None:
         params = case.write_params(None, {"name": "Limit", "width_px": value})
         case.schema_failure("scene.create", params)
     _no_documents(case)
-    tools = case.success("automation.capabilities", {})["tools"]
+    tools = case.capabilities()["tools"]
     integers = [
         found for tool in tools for found in _integer_properties(tool["inputSchema"], tool["name"])
     ]
@@ -332,7 +332,7 @@ def published_patterns_are_enforced_with_whole_string_semantics(case: NativeAcce
     """
     document = case.create("Patterns")
     before = case.success("scene.summary", {"document_id": document})
-    tools = case.success("automation.capabilities", {})["tools"]
+    tools = case.capabilities()["tools"]
     exercised = 0
     covered = set()
     for tool in tools:

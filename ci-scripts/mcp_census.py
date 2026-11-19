@@ -663,7 +663,7 @@ def refresh_tools(census: dict[str, Any], capabilities: dict[str, Any] | None) -
 
 def fetch_catalog(executable: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     """Start a worker and read its tool catalog and FX catalog."""
-    from mcp_worker import Worker
+    from mcp_worker import Worker, joined_capabilities
 
     with tempfile.TemporaryDirectory(prefix="census-") as scratch:
         base = Path(scratch)
@@ -671,7 +671,9 @@ def fetch_catalog(executable: Path) -> tuple[dict[str, Any], dict[str, Any]]:
             (base / name).mkdir()
         worker = Worker(executable, base / "workspace", base / "inputs", base / "worker.log")
         try:
-            capabilities = worker.call("automation.capabilities", {})["result"]
+            capabilities = joined_capabilities(
+                lambda params: worker.call("automation.capabilities", params)["result"]
+            )
             fx_catalog = worker.call("fx.catalog", {})["result"]
         finally:
             worker.close()

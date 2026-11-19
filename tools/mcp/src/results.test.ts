@@ -35,24 +35,38 @@ test.each([null, [], 42, "text"])("rejects non-object native results", (value) =
   expect(() => toolResult(value)).toThrow("must be an object");
 });
 
-test("keeps large metadata complete without duplicating it into the text content", () => {
-  const metadata = { payload: "x".repeat(7 * 1024 * 1024), revision: "7" };
+test("carries the same JSON in a text block and in structured content", () => {
+  const metadata = { revision: "7", nested: { rows: [1, 2, 3], note: "灯" } };
+  const result = toolResult(metadata);
+  expect(result.content).toEqual([{ type: "text", text: JSON.stringify(metadata) }]);
+  expect(result.structuredContent).toEqual(metadata);
+});
+
+test("keeps a result of several hundred kilobytes complete in its text", () => {
+  const metadata = { payload: "x".repeat(300 * 1024), revision: "7" };
   const result = boundedResult(toolResult(metadata), "large-result");
   expect(result.isError).not.toBe(true);
   expect(result.structuredContent).toEqual(metadata);
-  expect(JSON.stringify(result.content).length).toBeLessThan(1024);
-  const envelope = { jsonrpc: "2.0", id: "large-result", result };
-  expect(Buffer.byteLength(JSON.stringify(envelope))).toBeLessThan(9 * 1024 * 1024);
+  expect(result.content).toEqual([{ type: "text", text: JSON.stringify(metadata) }]);
 });
 
-test("retains image bytes while summarizing large accompanying metadata", () => {
+test("refuses a result whose text and structured copies exceed the response bound", () => {
+  const result = boundedResult(toolResult({ payload: "x".repeat(5 * 1024 * 1024) }), 1);
+  expect(result.isError).toBe(true);
+  expect(result.structuredContent).toMatchObject({ error: { code: "RESULT_TOO_LARGE" } });
+});
+
+test("retains image bytes with large accompanying metadata", () => {
   const metadata = { payload: "灯".repeat(64 * 1024), source_revision: "3" };
   const result = boundedResult(
     toolResult({ ...metadata, image: { mimeType: "image/png", data: png } }),
     1,
   );
   expect(result.structuredContent).toEqual(metadata);
-  expect(result.content).toContainEqual({ type: "image", mimeType: "image/png", data: png });
+  expect(result.content).toEqual([
+    { type: "text", text: JSON.stringify(metadata) },
+    { type: "image", mimeType: "image/png", data: png },
+  ]);
 });
 
 test.each(['"'.repeat(5 * 1024 * 1024), "灯".repeat(4 * 1024 * 1024)])(

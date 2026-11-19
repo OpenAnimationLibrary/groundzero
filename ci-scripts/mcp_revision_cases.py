@@ -454,7 +454,7 @@ def writing_tools(capabilities: dict[str, Any]) -> list[str]:
 
 def check_catalog(case: NativeAcceptance) -> None:
     """Fail when the table and the running worker's writing tools disagree."""
-    capabilities = case.success("automation.capabilities", {})
+    capabilities = case.capabilities()
     problems = mcp_revision_matrix.check_live(load_matrix(), capabilities)
     case.assertEqual(problems, [], "\n".join(problems))
 
@@ -462,7 +462,7 @@ def check_catalog(case: NativeAcceptance) -> None:
 def check_group(case: NativeAcceptance, group: str) -> None:
     """Run every entry of one group on this case's worker."""
     matrix = load_matrix()
-    capabilities = case.success("automation.capabilities", {})
+    capabilities = case.capabilities()
     schemas = {tool["name"]: tool for tool in capabilities["tools"]}
     variables = {"workspace": str(case.workspace), "inputs": str(case.inputs)}
     variables["fixture"] = str(case.fixture)
