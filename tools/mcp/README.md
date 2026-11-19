@@ -303,13 +303,15 @@ values. Launched with `--strict-results`, as the acceptance tests do, the adapte
 instead returns `INVALID_RESULT` with the tool, `outcome` (`applied` for a write,
 `none` for a read), the `operation_id` and at most 16 failing paths.
 
-Workers retain up to 2,048 ordinary write receipts within a 64 MiB serialized
-budget. The first cancellation for each retained job, at most 64, has separate
-reserved receipt capacity, capped at 16 KiB per result. That cancellation
-and its exact retry remain available when ordinary receipt capacity is exhausted.
-Further cancellation requests with new operation IDs use ordinary capacity;
-reuse the first ID to retrieve its receipt. Status queries remain available,
-and reusing an operation ID for different arguments always conflicts.
+Workers keep up to 2,048 ordinary write receipts in memory within a 64 MiB serialized
+budget. Past that, the oldest receipts the workspace journal holds leave memory and no
+write is refused: an exact retry of such an operation is answered from the journal with
+the result it recorded, unchanged (a later worker adds a `receipt`), until journal
+retention turns it into a stub (`receipt_expired`). A receipt the journal does not hold
+is never dropped; a worker whose journal is unavailable refuses writes as before. The
+first cancellation for each retained job, at most 64, has separate reserved receipt
+capacity, capped at 16 KiB per result. Status queries remain available, and reusing an
+operation ID for different arguments always conflicts.
 
 The native profile supports detached scenes, PNG imports, exposures, camera and
 peg animation, vector strokes and fills, RGBA8 and Toonz raster pixels, and solid
