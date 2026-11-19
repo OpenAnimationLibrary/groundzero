@@ -24,9 +24,7 @@ CellModel CellModel::read(TXsheet& sheet, int index) {
   model.m_cells.reserve(std::max(0, last - first + 1));
   for (int row = first; row <= last; ++row)
     model.m_cells.push_back(sheet.getCell(row, index));
-  model.rebuild(first, last, [&model](int row) {
-    return model.m_cells[row - model.m_first];
-  });
+  model.trim();
   return model;
 }
 
@@ -62,57 +60,73 @@ int CellModel::changedRows(const CellModel& other) const {
   return changed;
 }
 
-// Replace the cells by cellAt(row) over [from, to], then drop the blank cells
-// at both ends, as every native primitive does.
-template <typename CellAt>
-void CellModel::rebuild(int from, int to, const CellAt& cellAt) {
-  std::vector<TXshCell> cells;
-  if (to >= from) cells.reserve(to - from + 1);
-  for (int row = from; row <= to; ++row) cells.push_back(cellAt(row));
-  int head = 0;
-  while (head < int(cells.size()) && cells[head].isEmpty()) ++head;
-  int tail = int(cells.size());
-  while (tail > head && cells[tail - 1].isEmpty()) --tail;
-  m_cells.assign(cells.begin() + head, cells.begin() + tail);
-  m_first = m_cells.empty() ? 0 : from + head;
+// Drop the blank cells at both ends, as every native primitive does.
+void CellModel::trim() {
+  auto head = m_cells.begin();
+  while (head != m_cells.end() && head->isEmpty()) ++head;
+  m_first += int(head - m_cells.begin());
+  m_cells.erase(m_cells.begin(), head);
+  while (!m_cells.empty() && m_cells.back().isEmpty()) m_cells.pop_back();
+  if (m_cells.empty()) m_first = 0;
 }
 
 void CellModel::write(int row, const std::vector<TXshCell>& cells) {
   if (cells.empty()) return;
-  const int end         = row + int(cells.size()) - 1;
-  const int from        = empty() ? row : std::min(first(), row);
-  const int to          = empty() ? end : std::max(last(), end);
-  const CellModel prior = *this;
-  rebuild(from, to, [&](int at) {
-    return at >= row && at <= end ? cells[at - row] : prior.at(at);
-  });
+  const int end = row + int(cells.size()) - 1;
+  if (empty()) {
+    m_first = row;
+    m_cells = cells;
+    trim();
+    return;
+  }
+  if (row < m_first) {
+    m_cells.insert(m_cells.begin(), m_first - row, TXshCell());
+    m_first = row;
+  }
+  if (end > last()) m_cells.resize(end - m_first + 1);
+  std::copy(cells.begin(), cells.end(), m_cells.begin() + (row - m_first));
+  trim();
+}
+
+void CellModel::set(int row, const TXshCell& cell) {
+  if (row >= m_first && row <= last() && !cell.isEmpty()) {
+    m_cells[row - m_first] = cell;
+    return;
+  }
+  write(row, {cell});
 }
 
 void CellModel::clear(int row, int count) {
   if (empty() || count <= 0) return;
-  const CellModel prior = *this;
-  rebuild(first(), last(), [&](int at) {
-    return at >= row && at < row + count ? TXshCell() : prior.at(at);
-  });
+  const int from = std::max(row, m_first);
+  const int to   = std::min(row + count - 1, last());
+  for (int at = from; at <= to; ++at) m_cells[at - m_first] = TXshCell();
+  trim();
 }
 
 void CellModel::remove(int row, int count) {
   if (empty() || count <= 0 || row > last()) return;
-  const CellModel prior = *this;
-  const int from = first() < row ? first() : std::max(row, first() - count);
-  rebuild(from, last(), [&](int at) {
-    return at < row ? prior.at(at) : prior.at(at + count);
-  });
+  if (row < m_first) {
+    if (row + count <= m_first) {
+      m_first -= count;
+      return;
+    }
+    count -= m_first - row;
+    m_first = row;
+  }
+  count            = std::min(count, last() - row + 1);
+  const auto begin = m_cells.begin() + (row - m_first);
+  m_cells.erase(begin, begin + count);
+  trim();
 }
 
 void CellModel::insert(int row, int count) {
   if (empty() || count <= 0 || row > last()) return;
-  const CellModel prior = *this;
-  const int from        = first() < row ? first() : first() + count;
-  rebuild(from, last() + count, [&](int at) {
-    if (at < row) return prior.at(at);
-    return at < row + count ? TXshCell() : prior.at(at - count);
-  });
+  if (row <= m_first) {
+    m_first += count;
+    return;
+  }
+  m_cells.insert(m_cells.begin() + (row - m_first), count, TXshCell());
 }
 
 void modelCellPlan(CellPlan& plan) {
@@ -130,6 +144,9 @@ void modelCellPlan(CellPlan& plan) {
       break;
     case CellOp::Insert:
       plan.after.insert(op.row, op.count);
+      break;
+    case CellOp::Composite:
+      op.model(plan.after);
       break;
     }
   }
@@ -161,6 +178,9 @@ bool applyNative(TXsheet& sheet, int index, const CellOp& op) {
     return true;
   case CellOp::Insert:
     sheet.insertCells(op.row, index, op.count);
+    return true;
+  case CellOp::Composite:
+    op.native(sheet, index);
     return true;
   }
   return false;
@@ -197,12 +217,17 @@ struct CellRange {
   int start, length;
 };
 
+// Rows 0 to 999999: the native sheet holds at most 1,000,000 rows
+// (TXsheet::maxRowCount), the bound the save profile checks.
+constexpr int LastRow = 999999;
+
 CellRange readRange(const QJsonObject& params) {
-  const int start  = integerParam(params, "start_frame", 0, MaxFrame, -1);
+  const int start  = integerParam(params, "start_frame", 0, LastRow, -1);
   const int length = integerParam(params, "length", 1, MaxSpan, -1);
-  if (start < 0 || length < 1 || start > MaxFrame - length + 1)
-    throw Error("invalid_argument",
-                "The exposure interval exceeds the supported frame range.");
+  if (start < 0 || length < 1 || start > LastRow - length + 1)
+    throw Error("invalid_params",
+                "The interval ends past frame 999999, the last native row.",
+                {{"reason", "frame_range"}, {"frame", start + length - 1}});
   return {start, length};
 }
 
@@ -294,9 +319,8 @@ QJsonValue inspectCells(Context& context, const QJsonObject& params) {
 
 void addCellOperations(QJsonArray& catalog) {
   QJsonObject column = merge(documentSchema(), {{"column_id", textSchema()}});
-  QJsonObject range =
-      merge(column, {{"start_frame", integerSchema(0, MaxFrame)},
-                     {"length", integerSchema(1, MaxSpan)}});
+  QJsonObject range = merge(column, {{"start_frame", integerSchema(0, LastRow)},
+                                     {"length", integerSchema(1, MaxSpan)}});
   catalog.append(operation(
       "column.cells", "Read an interval of zero-based timeline cells.", range,
       {"document_id", "column_id", "start_frame", "length"}));

@@ -426,8 +426,13 @@ with `occupied_cells`). `cells.clear` blanks an interval and keeps later frame n
 rows and moves later cells down, leaving a column with nothing at or after the frame
 unchanged. `cells.copy` copies exposure references (never drawings) to as many
 destination columns, inserting or replacing, and `source_after: "clear"` makes it a move.
-`cells.replace` swaps one level for another, or explicit drawing pairs, inside an
-interval without changing timing. Each call checks every column first: a locked, sound,
+`cells.retime` applies one native timing function to the same interval of each column
+(reverse, swing, step, each, reframe, increase, decrease or reset step, repeat, roll up or
+down, time stretch); later cells of a column move with it. `cells.replace` swaps one level
+for another, or explicit drawing pairs, inside an interval without changing timing. Rows
+0 to 999999 are admitted everywhere, the native sheet's 1,000,000 rows: `column.expose`,
+`column.cells` and the cell tools refuse a later row with `invalid_params` and
+`details.reason: "frame_range"`, and a package saves any exposure inside it. Each call checks every column first: a locked, sound,
 generator or sub-xsheet column, a missing drawing, a cell past frame 999999 or more than
 1,000,000 stored cells refuses the whole call. The worker computes the result with its
 own cell model, applies it natively, and compares every touched column with the model; a
@@ -454,7 +459,9 @@ each level's interpretation settings. The package is reopened before it is
 published and any difference is refused with `invalid_package`, whose details
 name the `section` and the first differing `path`. The native saver writes no
 empty column after the last used one; `trailing_empty_columns_dropped` lists the
-handles of those columns, which the reopened scene does not have.
+handles of those columns, which the reopened scene does not have. Camera sizes in
+inches are written at full double precision, so a size set through `scene.settings` or
+`camera.update` reads back exactly after a reopen.
 Native PLI encoding quantizes stroke coordinates and widths, and PNG encoding
 can change premultiplied RGB values by one code value. These files are editable
 native representations, not bitwise copies of in-memory drawings. Saved raster
@@ -1011,28 +1018,28 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (120):
+- `core` toolset (121):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
   `automation.list_documents`, `camera.inspect`, `camera.update`, `cast.list`, `cast.usage`,
-  `cells.clear`, `cells.copy`, `cells.insert`, `cells.remove`, `cells.replace`, `cells.set`,
-  `column.cells`, `column.create`, `column.delete`, `column.expose`, `column.update`,
-  `drawing.analysis.submit`, `drawing.clone`, `drawing.create`, `drawing.inspect`,
-  `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`, `fx.create`, `fx.delete`,
-  `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`, `fx.macro.create`,
-  `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`, `fx.parameter.set`,
-  `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`, `fx.terminal.set`,
-  `job.cancel`, `job.list`, `job.result`, `job.status`, `level.create`, `level.import`,
-  `level.inspect`, `motion_path.create`, `motion_path.delete`, `motion_path.duplicate`,
-  `motion_path.inspect`, `motion_path.list`, `motion_path.rename`, `motion_path.update`,
-  `object.create`, `object.parent`, `object.path.attach`, `object.path.detach`,
-  `palette.clone_style`, `palette.create_style`, `palette.inspect`, `palette.page.create`,
-  `palette.page.move`, `palette.page.remove`, `palette.page.rename`, `palette.pages`,
-  `palette.rename_style`, `palette.style.move`, `palette.update_style`, `project.inspect`,
-  `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
-  `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
-  `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
+  `cells.clear`, `cells.copy`, `cells.insert`, `cells.remove`, `cells.replace`, `cells.retime`,
+  `cells.set`, `column.cells`, `column.create`, `column.delete`, `column.expose`,
+  `column.update`, `drawing.analysis.submit`, `drawing.clone`, `drawing.create`,
+  `drawing.inspect`, `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`,
+  `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`,
+  `fx.macro.create`, `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`,
+  `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`,
+  `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`, `job.status`, `level.create`,
+  `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
+  `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
+  `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
+  `object.path.detach`, `palette.clone_style`, `palette.create_style`, `palette.inspect`,
+  `palette.page.create`, `palette.page.move`, `palette.page.remove`, `palette.page.rename`,
+  `palette.pages`, `palette.rename_style`, `palette.style.move`, `palette.update_style`,
+  `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`,
+  `raster.patch`, `raster.read_pixels`, `render.capabilities`, `render.preflight`,
+  `render.preview`, `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
   `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
   `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
   `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,

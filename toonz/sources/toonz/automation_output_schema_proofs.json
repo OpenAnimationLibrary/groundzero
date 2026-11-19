@@ -107,6 +107,10 @@
     "handler": "replaceCells",
     "read": []
   },
+  "cells.retime": {
+    "handler": "retimeCells",
+    "read": []
+  },
   "cells.set": {
     "handler": "setCells",
     "read": []

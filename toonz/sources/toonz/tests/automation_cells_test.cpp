@@ -1,3 +1,4 @@
+#include "automation_cell_retime.h"
 #include "automation_cells.h"
 
 #include "toonz/toonzscene.h"
@@ -63,6 +64,9 @@ void applyDirect(TXsheet& sheet, const CellOp& op) {
     break;
   case CellOp::Insert:
     sheet.insertCells(op.row, 0, op.count);
+    break;
+  case CellOp::Composite:
+    op.native(sheet, 0);
     break;
   }
 }
@@ -156,6 +160,59 @@ void testDivergenceIsReported(Context& context) {
   require(reported, "a native result unlike the model must be reported");
 }
 
+RetimeRequest randomRetime(std::mt19937& random) {
+  std::uniform_int_distribution<int> kind(0, 11), start(0, 20), length(1, 12),
+      factor(2, 4), blank(-1, 2), coin(0, 1), extra(1, 10);
+  RetimeRequest request;
+  request.kind           = RetimeKind(kind(random));
+  request.start          = start(random);
+  request.length         = length(random);
+  request.factor         = factor(random);
+  request.withBlank      = blank(random);
+  request.extendOverHold = coin(random) == 1;
+  request.until          = request.start + request.length - 1 + extra(random);
+  request.newLength      = length(random);
+  if (request.kind == RetimeKind::Reframe) request.factor -= 1;
+  if (request.kind == RetimeKind::Swing && request.length < 2)
+    request.length = 2;
+  return request;
+}
+
+// A column of holds, blanks and drawings 1 to 3 over rows 0 to 40.
+void randomColumn(std::mt19937& random, TXsheet& sheet, TXshLevel* level) {
+  std::uniform_int_distribution<int> drawing(0, 3), hold(1, 4);
+  sheet.clearCells(0, 0, 200);
+  for (int row = 0; row < 40;) {
+    const int number = drawing(random);
+    const int length = hold(random);
+    for (int index = 0; index < length; ++index, ++row)
+      sheet.setCell(row, 0,
+                    number ? TXshCell(level, TFrameId(number)) : TXshCell());
+  }
+}
+
+// P-WS-2: each retime port equals its native range function on one column.
+void testRetimeMatchesNative(Context& context) {
+  std::mt19937 random(Seed + 1);
+  Fixture fixture(context);
+  for (int index = 0; index < 3000; ++index) {
+    randomColumn(random, fixture.sheet(), fixture.level);
+    const RetimeRequest request = randomRetime(random);
+    CellPlan plan;
+    plan.before = CellModel::read(fixture.sheet(), 0);
+    plan.ops    = {retimeOp(request, plan.before)};
+    modelCellPlan(plan);
+    plan.ops.front().native(fixture.sheet(), 0);
+    const int row =
+        CellModel::read(fixture.sheet(), 0).firstDifference(plan.after);
+    require(row < 0, "retime port and native differ at case " +
+                         std::to_string(index) + " kind " +
+                         std::to_string(int(request.kind)) + " row " +
+                         std::to_string(row) + " (seed " +
+                         std::to_string(Seed + 1) + ")");
+  }
+}
+
 }  // namespace
 
 void runAutomationCellsTests(Context& context) {
@@ -163,6 +220,7 @@ void runAutomationCellsTests(Context& context) {
   testModelMatchesNative(context);
   testRefusedWriteIsReported(context);
   testDivergenceIsReported(context);
+  testRetimeMatchesNative(context);
   std::cout << "automation-cells-test: model and native PASS" << std::endl;
 }
 

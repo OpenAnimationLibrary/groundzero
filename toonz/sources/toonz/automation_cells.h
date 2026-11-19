@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QString>
 
+#include <functional>
 #include <vector>
 
 class TXsheet;
@@ -48,21 +49,30 @@ public:
   /// empty column or past the last cell (TXshCellColumn::insertEmptyCells).
   void insert(int row, int count);
 
+  /// Write one cell; a blank above the first or below the last cell
+  /// changes nothing (TXsheet::setCell).
+  void set(int row, const TXshCell& cell);
+
 private:
-  template <typename CellAt>
-  void rebuild(int from, int to, const CellAt& cellAt);
+  void trim();
 
   int m_first = 0;
   std::vector<TXshCell> m_cells;
 };
 
 /// One native cell primitive on one column.
+///
+/// A composite op is one native range function (reverse, step, reframe and
+/// so on): `native` calls it on the sheet, `model` applies the worker's port
+/// of it, built from the model's primitives, to the model.
 struct CellOp final {
-  enum Kind { Write, Clear, Remove, Insert };
+  enum Kind { Write, Clear, Remove, Insert, Composite };
   Kind kind;
   int row;
   int count;
   std::vector<TXshCell> cells;
+  std::function<void(CellModel&)> model;
+  std::function<void(TXsheet&, int)> native;
 };
 
 /// The edit of one column: its primitives, and its cells before and after.

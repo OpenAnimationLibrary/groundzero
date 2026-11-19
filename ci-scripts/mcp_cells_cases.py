@@ -316,3 +316,79 @@ def cell_replacement_keeps_timing(case: NativeAcceptance) -> None:
     case.assertEqual([index for index, value in enumerate(levels) if value == other], [2, 5, 8])
     case.assertEqual(levels.count(level), 7)
     save_and_reopen(case, document, "replace")
+
+
+def _retime(case: NativeAcceptance, document: str, column: str, **operation: Any) -> dict:
+    return case.mutate(
+        "cells.retime", document, column_ids=[column], start_frame=0, length=4, operation=operation
+    )
+
+
+@acceptance_case
+def cell_retiming_follows_the_native_functions(case: NativeAcceptance) -> None:
+    """Reverse, step, each, roll and time stretch change the timing of an interval and shift
+    the rest of the column; invalid combinations are refused before any change."""
+    document, level, (column, other) = _fixture(case)
+    _counting(case, document, level, column)
+    before = _numbers(_rows(case, document, column, 10))
+    _retime(case, document, column, kind="reverse")
+    case.assertEqual(_numbers(_rows(case, document, column, 4)), before[3::-1])
+    _retime(case, document, column, kind="reverse")
+    stepped = _retime(case, document, column, kind="step", factor=2)
+    case.assertEqual(stepped["columns"][0]["rows_delta"], 4)
+    case.assertEqual(
+        _numbers(_rows(case, document, column, 14)),
+        [value for value in before[:4] for _ in (0, 1)] + before[4:10],
+    )
+    _retime(case, document, column, kind="each", factor=2)
+    case.assertEqual(
+        _numbers(_rows(case, document, column, 4)), [before[0], before[1], before[2], before[2]]
+    )
+    _counting(case, document, level, other)
+    stretched = case.mutate(
+        "cells.retime",
+        document,
+        column_ids=[other],
+        start_frame=0,
+        length=1,
+        operation={"kind": "time_stretch", "new_length": 4},
+    )
+    case.assertEqual(stretched["operation"], "time_stretch")
+    case.assertEqual(_numbers(_rows(case, document, other, 5)), [before[0]] * 4 + before[1:2])
+    _refused(
+        case,
+        "cells.retime",
+        document,
+        "invalid_params",
+        column_ids=[column],
+        start_frame=0,
+        length=4,
+        operation={"kind": "repeat", "until_frame": 2},
+    )
+    _refused(
+        case,
+        "cells.retime",
+        document,
+        "invalid_params",
+        column_ids=[column],
+        start_frame=0,
+        length=1,
+        operation={"kind": "swing"},
+    )
+    _refused(
+        case,
+        "cells.retime",
+        document,
+        "invalid_params",
+        column_ids=[column],
+        start_frame=0,
+        length=4,
+        operation={
+            "kind": "reframe",
+            "step": 2,
+            "blank_entries": "keep",
+            "inserted_blank_steps": 1,
+            "extend_over_hold": False,
+        },
+    )
+    save_and_reopen(case, document, "retime")

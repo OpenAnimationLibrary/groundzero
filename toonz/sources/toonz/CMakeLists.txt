@@ -229,6 +229,7 @@ set(HEADERS
     automation_scene_host.h
     automation_scene_shared.h
     automation_cells.h
+    automation_cell_retime.h
     automation_sheet_record.h
     automation_runtime.h
     activechecks.h
@@ -332,6 +333,7 @@ set(SOURCES
     automation_columns.cpp
     automation_cells.cpp
     automation_cell_tools.cpp
+    automation_cell_retime.cpp
     automation_fx.cpp
     automation_fx_preflight.cpp
     automation_fx_profile.cpp

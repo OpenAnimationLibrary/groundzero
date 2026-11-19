@@ -1,3 +1,4 @@
+#include "automation_cell_retime.h"
 #include "automation_cells.h"
 #include "automation_scene_host.h"
 #include "automation_scene_shared.h"
@@ -612,6 +613,90 @@ QJsonValue replaceCells(Context& context, const QJsonObject& params) {
   return runPlans(context, document, plans, noShift, start, length);
 }
 
+// ------------------------------------------------------------- cells.retime
+
+constexpr int MaxRowsAdded = 100000;
+
+const std::map<QString, RetimeKind>& retimeKinds() {
+  static const std::map<QString, RetimeKind> kinds{
+      {"reverse", RetimeKind::Reverse},
+      {"swing", RetimeKind::Swing},
+      {"step", RetimeKind::Step},
+      {"each", RetimeKind::Each},
+      {"reframe", RetimeKind::Reframe},
+      {"increase_step", RetimeKind::IncreaseStep},
+      {"decrease_step", RetimeKind::DecreaseStep},
+      {"reset_step", RetimeKind::ResetStep},
+      {"repeat", RetimeKind::Repeat},
+      {"roll_up", RetimeKind::RollUp},
+      {"roll_down", RetimeKind::RollDown},
+      {"time_stretch", RetimeKind::TimeStretch}};
+  return kinds;
+}
+
+void readReframe(const QJsonObject& operation, RetimeRequest& request) {
+  const bool keep  = operation.value("blank_entries").toString() == "keep";
+  const int blanks = operation.value("inserted_blank_steps").toInt();
+  if (keep && blanks > 0)
+    throw Error("invalid_params",
+                "Inserted blank steps require blank_entries drop.",
+                {{"reason", "inconsistent_reframe"}});
+  request.factor         = operation.value("step").toInt();
+  request.withBlank      = keep ? -1 : blanks;
+  request.extendOverHold = operation.value("extend_over_hold").toBool();
+}
+
+RetimeRequest readRetime(const QJsonObject& params) {
+  const QJsonObject operation = params.value("operation").toObject();
+  RetimeRequest request;
+  request.kind   = retimeKinds().at(operation.value("kind").toString());
+  request.start  = params.value("start_frame").toInt();
+  request.length = params.value("length").toInt();
+  const int last = request.start + request.length - 1;
+  requireFrameRange(last);
+  request.factor    = operation.value("factor").toInt(1);
+  request.until     = operation.value("until_frame").toInt();
+  request.newLength = operation.value("new_length").toInt(1);
+  if (request.kind == RetimeKind::Reframe) readReframe(operation, request);
+  if (request.kind == RetimeKind::Repeat && request.until <= last)
+    throw Error("invalid_params", "until_frame must follow the interval.",
+                {{"reason", "until_frame"}});
+  if (request.kind == RetimeKind::Swing && request.length < 2)
+    throw Error("invalid_params", "A swing needs at least two rows.",
+                {{"reason", "swing_length"}});
+  return request;
+}
+
+int retimeShift(const CellPlan& plan, int start, int length) {
+  if (plan.before.empty() || plan.before.last() < start + length) return 0;
+  return plan.after.last() - plan.before.last();
+}
+
+QJsonValue retimeCells(Context& context, const QJsonObject& params) {
+  Document& document = getDocument(context, params);
+  requireTopSheet(params);
+  const std::vector<Target> targets = readTargets(document, params, true);
+  const RetimeRequest request       = readRetime(params);
+  std::vector<CellPlan> plans;
+  qint64 added = 0;
+  for (const Target& target : targets) {
+    CellPlan plan = newPlan(document, target);
+    if (!plan.before.empty()) added += retimeRowsAdded(request);
+    if (added > MaxRowsAdded)
+      throw Error("resource_limit",
+                  "One retime adds at most 100000 rows over all columns.");
+    plan.ops.push_back(retimeOp(request, plan.before));
+    modelCellPlan(plan);
+    if (!plan.after.empty()) requireFrameRange(plan.after.last());
+    plans.push_back(plan);
+  }
+  QJsonObject result = runPlans(context, document, plans, retimeShift,
+                                request.start, request.length);
+  result.insert("operation",
+                params.value("operation").toObject().value("kind"));
+  return result;
+}
+
 // ------------------------------------------------------------------ catalog
 
 QJsonObject handleSchema() {
@@ -730,6 +815,51 @@ void addCopyOperation(QJsonArray& catalog) {
       true));
 }
 
+QJsonObject retimeSchema() {
+  const QJsonObject factor = integerSchema(2, 16);
+  QJsonArray kinds;
+  for (const char* plain :
+       {"reverse", "swing", "increase_step", "decrease_step", "reset_step",
+        "roll_up", "roll_down"})
+    kinds.append(
+        objectSchema({{"kind", QJsonObject{{"const", plain}}}}, {"kind"}));
+  kinds.append(objectSchema(
+      {{"kind", QJsonObject{{"const", "step"}}}, {"factor", factor}},
+      {"kind", "factor"}));
+  kinds.append(objectSchema(
+      {{"kind", QJsonObject{{"const", "each"}}}, {"factor", factor}},
+      {"kind", "factor"}));
+  kinds.append(
+      objectSchema({{"kind", QJsonObject{{"const", "reframe"}}},
+                    {"step", integerSchema(1, 16)},
+                    {"blank_entries", enumSchema({"keep", "drop"})},
+                    {"inserted_blank_steps", integerSchema(0, 16)},
+                    {"extend_over_hold", QJsonObject{{"type", "boolean"}}}},
+                   {"kind", "step", "blank_entries", "inserted_blank_steps",
+                    "extend_over_hold"}));
+  kinds.append(objectSchema({{"kind", QJsonObject{{"const", "repeat"}}},
+                             {"until_frame", integerSchema(0, LastRow)}},
+                            {"kind", "until_frame"}));
+  kinds.append(objectSchema({{"kind", QJsonObject{{"const", "time_stretch"}}},
+                             {"new_length", integerSchema(1, MaxCallCells)}},
+                            {"kind", "new_length"}));
+  return {{"oneOf", kinds}};
+}
+
+void addRetimeOperation(QJsonArray& catalog) {
+  QJsonObject properties = intervalSchema(MaxColumnCells);
+  properties.insert("operation", retimeSchema());
+  QJsonArray required = IntervalRequired;
+  required.append("operation");
+  catalog.append(operation(
+      "cells.retime",
+      "Apply one native timing operation to the same interval of up to 64 "
+      "level columns: reverse, swing, step, each, reframe, increase, decrease "
+      "or reset step, repeat, roll up or down, time stretch. Later cells of "
+      "a column shift with it.",
+      properties, required, true));
+}
+
 void addReplaceOperation(QJsonArray& catalog) {
   const QJsonObject reference = objectSchema(
       {{"level_id", handleSchema()}, {"drawing_id", drawingSchema()}},
@@ -765,6 +895,7 @@ void addCellToolOperations(QJsonArray& catalog) {
   addSetOperation(catalog);
   addIntervalOperations(catalog);
   addCopyOperation(catalog);
+  addRetimeOperation(catalog);
   addReplaceOperation(catalog);
 }
 
@@ -774,6 +905,7 @@ void addCellToolHandlers(SceneHandlers& handlers) {
                    {"cells.remove", removeCells},
                    {"cells.insert", insertCells},
                    {"cells.copy", copyCells},
+                   {"cells.retime", retimeCells},
                    {"cells.replace", replaceCells}});
 }
 

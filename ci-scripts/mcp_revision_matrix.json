@@ -6858,6 +6858,71 @@
     },
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
    }
+  },
+  "cells.retime": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "cell timing of the interval in each target column, with shift",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2,
+     "operation": {
+      "kind": "step",
+      "factor": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 2,
+      "operation": {
+       "kind": "repeat",
+       "until_frame": 1
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 2,
+     "operation": {
+      "kind": "reverse"
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
   }
  },
  "known_violations": []
