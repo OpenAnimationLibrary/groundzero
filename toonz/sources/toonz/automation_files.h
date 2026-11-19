@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QJsonObject>
 #include <QString>
 #include <QTemporaryDir>
 #include <QStringList>
@@ -65,8 +66,11 @@ PublishResult publishApproved(const QString& staged, const QString& path,
 // destination's folder after it, so a published name survives a power loss.
 // Every error names its stage (publish or flush) and whether the output was
 // published.
+// `intent` adds fields to the publication's journal intent, such as a
+// package's registration.
 void publishStaged(Context& context, const QString& staged, const QString& path,
-                   const QString& failureCode, const QString& failureMessage);
+                   const QString& failureCode, const QString& failureMessage,
+                   const QJsonObject& intent = {});
 
 // An error of a staged write: details.stage names the step that failed,
 // details.file the staged file (relative to the staged folder) or null, and

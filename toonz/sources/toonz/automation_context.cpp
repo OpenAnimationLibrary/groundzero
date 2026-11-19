@@ -330,7 +330,9 @@ void Context::removeDocument(const QString& id) {
     throw Error("document_not_found",
                 "The document handle is unknown or has expired.");
   if (!found->second->readOnly) removePrivateFiles(*found->second);
+  const QStringList copies = found->second->privateCopies;
   m_documents.erase(found);
+  for (const QString& copy : copies) removeApprovedTree(copy);
 }
 
 QJsonArray Context::documents() const {

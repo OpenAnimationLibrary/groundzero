@@ -77,6 +77,9 @@ struct Document final {
   QHash<QString, TDoubleParamP> offsetLayers;
   // Set only for read-only documents opened from user scenes.
   std::shared_ptr<ReadOnlyScene> readOnly;
+  // Private copies of packages this document was loaded from; removed with
+  // the document.
+  QStringList privateCopies;
   // Selection handles issued for this document's drawings.
   std::shared_ptr<SelectionRegistry> selections;
 

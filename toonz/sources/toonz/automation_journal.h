@@ -236,7 +236,8 @@ QString journalContentDigest(const QString& path);
 // and the digest of what will appear there. Nothing without a journal or
 // outside a write.
 void recordPublicationIntent(Context& context, const QString& staged,
-                             const QString& target);
+                             const QString& target,
+                             const QJsonObject& extra = {});
 
 // The worker's journal, or null outside a worker.
 Journal* workspaceJournal(Context& context);

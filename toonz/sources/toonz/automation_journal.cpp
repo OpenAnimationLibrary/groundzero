@@ -1278,7 +1278,7 @@ QString journalContentDigest(const QString& path) {
 }
 
 void recordPublicationIntent(Context& context, const QString& staged,
-                             const QString& target) {
+                             const QString& target, const QJsonObject& extra) {
   Journal* journal = workspaceJournal(context);
   if (!journal || context.writeOperation.isEmpty()) return;
   const QString content   = contentDigest(staged);
@@ -1289,11 +1289,13 @@ void recordPublicationIntent(Context& context, const QString& staged,
   const QString relative  = target.startsWith(workspace + '/')
                                 ? target.mid(workspace.size() + 1)
                                 : target;
-  journal->intent({{"operation_id", context.writeOperation},
-                   {"target", relative},
-                   {"expected_sha256", manifest.isEmpty() ? content : manifest},
-                   {"content_sha256", content},
-                   {"manifest_sha256", optional(manifest)}});
+  QJsonObject fields      = extra;
+  fields.insert("operation_id", context.writeOperation);
+  fields.insert("target", relative);
+  fields.insert("expected_sha256", manifest.isEmpty() ? content : manifest);
+  fields.insert("content_sha256", content);
+  fields.insert("manifest_sha256", optional(manifest));
+  journal->intent(fields);
   writeFaultFires(context, "journal:intent");
 }
 

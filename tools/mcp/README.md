@@ -257,9 +257,16 @@ refused with `path_denied`, `details.reason` `reserved`.
 - At start a worker reads the journal under its lock: a torn last line is cut off
   into `quarantine/`, a segment with a damaged line is copied there and rewritten
   without it (`state: "damaged"`; a lookup that finds nothing is then
-  `unknown_damaged`), operations and jobs of dead workers are reconciled, and old
-  settled operations beyond the newest 16,384 are compacted to stubs, whose retry
+  `unknown_damaged`), operations and jobs of dead workers are reconciled (a
+  package found published is registered), and old settled operations beyond the
+  newest 16,384 are compacted to stubs, whose retry
   is `receipt_expired`.
+- Between requests, once a second, a worker records the end of every job it has
+  seen end, its scene hosts' included, and takes one bounded retention step that
+  rewrites at most one sealed segment: the stub rule above, job records beyond the
+  newest 4,096, package registrations beyond the newest 4,096 or 512 MiB of
+  manifests (an expired mark stays), and past 1 GiB the oldest settled
+  operations.
 - When the journal cannot be written (`unsupported_volume` for a network file
   system, `newer_format`, `lock_unavailable`, `io_error`, `flush_failed`) every
   write is refused with `journal_unavailable` and reads still answer;
@@ -637,11 +644,22 @@ each returns or fails with `source_changed` when a source changed. Results repor
 refused with `render_busy` while one of the document's jobs is running.
 `automation.list_documents` reports each document's `access` and `host_state`.
 
-`scene.open` accepts unchanged packages produced by the same running worker.
-The worker retains the authoritative manifest privately; editing a public
-manifest cannot authorize a changed scene. Other native scenes and packages from
-previous worker sessions are rejected with `unregistered_package` and
-`details.hint: "scene.open_read_only"`. Saved files remain available for
+`scene.save_copy` registers each package in the workspace journal by the SHA-256
+of its exact `manifest.json` (`package_id: "package:<hex>"`, `registered`). `scene.open`
+and `scene.package_info` admit a package by that registered content, wherever it
+now lies inside the workspace or an input root and whichever worker of the
+workspace saved it: the manifest must hash to a registered id, and every file must
+match the registered manifest. `scene.open` copies the files into the worker's
+private storage, checking each while copying, and loads the copy, which goes with
+the document. The result says how it was admitted (`admission`: `this_worker` or
+`workspace_registry`), `package_id`, `relocated` (moved since it was saved),
+`published_by {worker_instance_id, current}` and `provenance`. Editing the
+manifest cannot authorize a changed scene. Refusals are `unregistered_package`
+with `details.reason` `not_registered` (another workspace, or never saved),
+`manifest_changed` (another manifest is registered at that place) or
+`registry_expired` (beyond the newest 4,096 registrations), `details.next:
+"scene.import_editable"` and `details.hint: "scene.open_read_only"`; a changed,
+missing or unlisted file is `invalid_package`. Saved files remain available for
 normal application use after the worker exits. Render jobs use separate copies
 of the scene and artwork. This process isolation is not an operating system
 sandbox for native image readers, and the workspace must not be modified

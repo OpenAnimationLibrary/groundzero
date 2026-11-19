@@ -23352,6 +23352,14 @@
   "scene.open": {
     "additionalProperties": false,
     "properties": {
+      "admission": {
+        "enum": [
+          "this_worker",
+          "workspace_registry",
+          "import_job"
+        ],
+        "type": "string"
+      },
       "document_id": {
         "maxLength": 65536,
         "minLength": 0,
@@ -23367,6 +23375,50 @@
         "minLength": 0,
         "type": "string"
       },
+      "package_id": {
+        "maxLength": 72,
+        "minLength": 1,
+        "pattern": "^package:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "provenance": {
+        "oneOf": [
+          {
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "published_by": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "current": {
+                "type": "boolean"
+              },
+              "worker_instance_id": {
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+              }
+            },
+            "required": [
+              "worker_instance_id",
+              "current"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "relocated": {
+        "type": "boolean"
+      },
       "revision": {
         "maxLength": 65536,
         "minLength": 0,
@@ -23374,9 +23426,14 @@
       }
     },
     "required": [
+      "admission",
       "document_id",
       "operation_id",
       "package_directory",
+      "package_id",
+      "provenance",
+      "published_by",
+      "relocated",
       "revision"
     ],
     "type": "object"
@@ -24030,6 +24087,14 @@
   "scene.package_info": {
     "additionalProperties": false,
     "properties": {
+      "admission": {
+        "enum": [
+          "this_worker",
+          "workspace_registry",
+          "import_job"
+        ],
+        "type": "string"
+      },
       "files": {
         "items": {
           "additionalProperties": false,
@@ -24292,10 +24357,54 @@
         "minItems": 0,
         "type": "array"
       },
+      "package_id": {
+        "maxLength": 72,
+        "minLength": 1,
+        "pattern": "^package:[0-9a-f]{64}$",
+        "type": "string"
+      },
       "profile": {
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "provenance": {
+        "oneOf": [
+          {
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "published_by": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "current": {
+                "type": "boolean"
+              },
+              "worker_instance_id": {
+                "maxLength": 36,
+                "minLength": 36,
+                "type": "string"
+              }
+            },
+            "required": [
+              "worker_instance_id",
+              "current"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "relocated": {
+        "type": "boolean"
       },
       "scene_file": {
         "maxLength": 65536,
@@ -24493,6 +24602,15 @@
         "minLength": 0,
         "type": "string"
       },
+      "package_id": {
+        "maxLength": 72,
+        "minLength": 1,
+        "pattern": "^package:[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "registered": {
+        "type": "boolean"
+      },
       "revision": {
         "maxLength": 65536,
         "minLength": 0,
@@ -24514,6 +24632,8 @@
       "manifest_path",
       "operation_id",
       "package_directory",
+      "package_id",
+      "registered",
       "revision",
       "scene_path",
       "verified_drawings"

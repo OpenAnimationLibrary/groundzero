@@ -636,3 +636,6 @@ def recipe_resume_lists_and_settles_unresolved(case: NativeAcceptance) -> None:
     case.assertEqual(packages, ["save-a", "save-b"])
     case.assertEqual(first["package_directory"], str(case.workspace / "save-a"))
     case.assertEqual(case.success("operation.list", {})["operations"], unresolved)
+    # The reconciler registered the published package, so the recipe goes on from it.
+    resumed = case.mutate("scene.open", None, path=str(case.workspace / "save-b"))
+    case.assertEqual(resumed["admission"], "workspace_registry")
