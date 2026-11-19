@@ -2780,7 +2780,7 @@ void validateVectorProfile(TXshSimpleLevel* level, const TFrameId& frame) {
     validateNativeStroke(*vector->getStroke(index), paletteFor(level));
 }
 
-void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
+void validateDrawingId(TXshSimpleLevel* level, const TFrameId& frame) {
   if (frame.getNumber() < 1 || frame.getNumber() > 999999 ||
       !QRegularExpression(QRegularExpression::anchoredPattern("[a-z]{0,8}"))
            .match(frame.getLetter())
@@ -2789,6 +2789,10 @@ void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
                 "Persistence requires drawing numbers 1..999999 and lowercase "
                 "ASCII suffixes");
   validateFrameNumber(level, frame);
+}
+
+void validateFrameProfile(TXshSimpleLevel* level, const TFrameId& frame) {
+  validateDrawingId(level, frame);
   const auto image  = imageFor(level, frame);
   const auto format = imageFormat(image);
   static const std::map<int, QString> formats{{PLI_XSHLEVEL, "vector"},
@@ -2926,6 +2930,50 @@ void validateDrawingProfile(TXshSimpleLevel* level) {
                                                   ? kMaxVectorFrame
                                                   : 999999);
   for (const auto& frame : level->getFids()) validateFrameProfile(level, frame);
+}
+
+QString drawingProfileLimit(TXshSimpleLevel* level, TPalette* palette,
+                            QString& detail) {
+  if (level->getType() != PLI_XSHLEVEL && level->getType() != TZP_XSHLEVEL &&
+      level->getType() != OVL_XSHLEVEL) {
+    detail = "Only vector, Toonz raster and RGBA8 levels are admitted.";
+    return "format";
+  }
+  if (level->getFrameCount() > 4096) {
+    detail = QString("The level has %1 drawings; at most 4096 are admitted.")
+                 .arg(level->getFrameCount());
+    return "drawing_limit";
+  }
+  try {
+    for (const auto& frame : level->getFids()) validateDrawingId(level, frame);
+  } catch (const Error& error) {
+    detail = error.message;
+    return "format";
+  }
+  if (level->getType() != PLI_XSHLEVEL) {
+    const TDimension size = level->getProperties()->getImageRes();
+    try {
+      rasterDimensions(size.lx, size.ly);
+    } catch (const Error&) {
+      detail = QString(
+                   "Drawings are %1 by %2 pixels; at most 8192 per axis "
+                   "and 16777216 pixels are admitted.")
+                   .arg(size.lx)
+                   .arg(size.ly);
+      return "raster_size";
+    }
+  }
+  if (level->getType() == OVL_XSHLEVEL) return QString();
+  try {
+    if (!palette)
+      throw Error("unsupported_palette", "The level has no palette.");
+    validatePaletteProfile(
+        palette, level->getType() == PLI_XSHLEVEL ? kMaxVectorFrame : 999999);
+  } catch (const Error& error) {
+    detail = error.message;
+    return "palette_limit";
+  }
+  return QString();
 }
 
 QJsonValue executeDrawing(Context& context, const QString& method,

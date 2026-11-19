@@ -38,6 +38,10 @@ void validateAutomationFxProfile(TFx* fx);
 // parameters (and constraints) outside their authoring ranges and returns
 // true; returns false when the type or version is not admitted.
 bool automationFxProfileViolations(TFx* fx, QStringList& violations);
+// Moves every stored number of an effect of an admitted type and version into
+// its authoring range: defaults and key values of scalar and point curves, and
+// integer parameters. Animation shapes and enumerations are left unchanged.
+void clampAutomationFxValues(TFx* fx);
 
 // Per-type profile facts for fx.catalog, fx.graph and render preflight.
 QJsonObject automationFxProfileDescription(const QString& type);

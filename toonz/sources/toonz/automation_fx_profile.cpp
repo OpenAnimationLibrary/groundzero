@@ -233,6 +233,30 @@ TDoubleParam* channel(TParamSet* set, int index) {
   return static_cast<TDoubleParam*>(set->getParam(index).getPointer());
 }
 
+// A finite number moved to the nearest value its schema admits.
+double clampedNumber(double value, const QJsonObject& schema) {
+  const double lowest  = std::numeric_limits<double>::lowest();
+  const double minimum = schema.value("minimum").toDouble(lowest);
+  const double maximum =
+      schema.value("maximum").toDouble(std::numeric_limits<double>::max());
+  double result = std::clamp(value, minimum, maximum);
+  if (schema.value("type") == "integer")
+    result =
+        std::clamp(std::round(result), std::ceil(minimum), std::floor(maximum));
+  return result;
+}
+
+void clampCurve(TDoubleParam* curve, const QJsonObject& schema) {
+  if (std::isfinite(curve->getDefaultValue()))
+    curve->setDefaultValue(clampedNumber(curve->getDefaultValue(), schema));
+  for (int index = 0; index < curve->getKeyframeCount(); ++index) {
+    TDoubleKeyframe key = curve->getKeyframe(index);
+    if (!std::isfinite(key.m_value)) continue;
+    key.m_value = clampedNumber(key.m_value, schema);
+    curve->setKeyframe(index, key);
+  }
+}
+
 void validateCurve(TDoubleParam* curve, const QJsonObject& schema) {
   if (curve->getKeyframeCount() > kMaximumKeys)
     throw Error("RESOURCE_LIMIT", "Effect parameter exceeds 4096 scalar keys.");
@@ -435,6 +459,28 @@ void validateAutomationFxProfile(TFx* fx) {
   }
   for (const char* constraint : profile.constraints)
     if (std::string(constraint) == kSeparation) requireGradientSeparation(fx);
+}
+
+void clampAutomationFxValues(TFx* fx) {
+  const TypeProfile* profile = findProfile(fx->getFxType());
+  if (!profile || fx->getFxVersion() != profile->version) return;
+  TParamContainer* params = fx->getParams();
+  for (int index = 0; index < params->getParamCount(); ++index) {
+    const TParamVar* entry = params->getParamVar(index);
+    if (entry->isObsolete()) continue;
+    TParam* param = entry->getParam();
+    const QJsonObject schema =
+        automationFxParameterSchema(fx, param, entry->getName());
+    if (schema.isEmpty()) continue;
+    if (auto* number = dynamic_cast<TDoubleParam*>(param)) {
+      clampCurve(number, schema);
+    } else if (auto* point = dynamic_cast<TPointParam*>(param)) {
+      clampCurve(channel(point, 0), schema.value("items").toObject());
+      clampCurve(channel(point, 1), schema.value("items").toObject());
+    } else if (auto* integer = dynamic_cast<TIntParam*>(param)) {
+      integer->setValue(int(clampedNumber(integer->getValue(), schema)));
+    }
+  }
 }
 
 bool automationFxProfileViolations(TFx* fx, QStringList& violations) {

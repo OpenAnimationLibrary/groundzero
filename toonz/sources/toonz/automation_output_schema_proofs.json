@@ -515,6 +515,30 @@
     "handler": "discardScene",
     "read": []
   },
+  "scene.import_plan": {
+    "handler": "importPlan",
+    "read": [
+      "cells",
+      "column_id",
+      "columns",
+      "count",
+      "decoded_pixels",
+      "detail",
+      "drawings",
+      "effect",
+      "fx_id",
+      "kind",
+      "level_id",
+      "levels",
+      "limit",
+      "maximum",
+      "name",
+      "package_bytes",
+      "samples",
+      "sheet_path",
+      "value"
+    ]
+  },
   "scene.inventory": {
     "handler": null,
     "read": []

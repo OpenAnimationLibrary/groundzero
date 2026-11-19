@@ -820,6 +820,11 @@
    "toolset": "core",
    "writes": true
   },
+  "scene.import_plan": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
   "scene.inventory": {
    "origin": "worker",
    "toolset": "core",
@@ -1289,6 +1294,18 @@
    "classification": "exposed",
    "tools": [
     "scene.save_preflight"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.editable_import",
+   "domain": "Projects and scenes",
+   "outcome": "Import a user scene as an editable copy: plan every loss by kind before consent, convert it in its scene host and open the verified package, the source left unchanged and attached.",
+   "classification": "exposed",
+   "tools": [
+    "scene.import_plan"
    ],
    "disposition": {
     "kind": "implemented"

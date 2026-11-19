@@ -163,6 +163,27 @@ def _editable_source_status(f: Fixture) -> list[Call]:
     return [Call("editable", _pinned(f), "unsupported_target")]
 
 
+def _editable_import_plan(f: Fixture) -> list[Call]:
+    return [
+        Call(
+            "editable",
+            {"document_id": f.document},
+            "unsupported_target",
+            "editable_document",
+            "plan imports of read-only documents only",
+        ),
+        Call("unknown document", {"document_id": "document_" + ZERO}, "document_not_found"),
+    ]
+
+
+def _ro_import_plan(_f: Fixture, document: str) -> list[Call]:
+    return [
+        Call("default samples", {"document_id": document}),
+        Call("one sample", {"document_id": document, "sample_limit": 1}),
+        Call("too many samples", {"document_id": document, "sample_limit": 17}, SCHEMA),
+    ]
+
+
 def _no_arguments(_f: Fixture) -> list[Call]:
     return [Call("no arguments", {})]
 
@@ -762,6 +783,7 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "job.list": _ro_jobs,
     "render.preflight": _ro_preflight,
     "scene.save_preflight": _ro_save_preflight,
+    "scene.import_plan": _ro_import_plan,
 }
 ROUTED_WRITES = frozenset(
     {"render.preview", "render.submit", "scene.discard", "scene.check.submit"}
@@ -808,6 +830,7 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "operation.list": _operations,
     "scene.package_info": _package,
     "scene.save_preflight": _save_preflight,
+    "scene.import_plan": _editable_import_plan,
     "cast.list": _pinned_with("stale_revision"),
     "cast.usage": _pinned_with("stale_revision"),
     "scene.dependencies": _pinned_with("stale_revision"),

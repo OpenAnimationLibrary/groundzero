@@ -218,6 +218,7 @@ set(HEADERS
     automation_ownership.h
     automation_files.h
     automation_package.h
+    automation_import.h
     automation_production.h
     automation_root_publish.h
     automation_scene_check.h
@@ -336,6 +337,7 @@ set(SOURCES
     automation_shutdown.cpp
     automation_persistence.cpp
     automation_preflight.cpp
+    automation_import.cpp
     automation_root_publish.cpp
     automation_production.cpp
     automation_scene_check.cpp
@@ -1349,6 +1351,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_shared_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_files_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_scene_host_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_import_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_storyboard_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_lipsync_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_vector_opacity_test.cpp)

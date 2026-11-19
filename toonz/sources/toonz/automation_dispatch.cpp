@@ -8,6 +8,7 @@
 #include "automation_path.h"
 #include "automation_audio.h"
 #include "automation_hook.h"
+#include "automation_import.h"
 #include "automation_files.h"
 #include "automation_jobs.h"
 #include "automation_journal.h"
@@ -432,6 +433,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(runtimeOperations(), executeRuntime, "core");
   add(jobOperations(), executeJobs, "core");
   add(persistenceOperations(), executePersistence, "core");
+  add(importOperations(), executeImport, "core");
   add(journalOperations(), executeJournal, "core");
   add(productionOperations(), executeProduction, "core");
   add(sceneCheckOperations(), executeSceneCheck, "core");

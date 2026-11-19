@@ -12,6 +12,7 @@
 #include "automation_ownership.h"
 #include "automation_scene_check.h"
 #include "automation_scene_host.h"
+#include "automation_import.h"
 #include "automation_runtime.h"
 #include "automation_shared_parse.h"
 #include "automation_shutdown.h"
@@ -763,6 +764,7 @@ int domainTestResult(Context& context) {
     runAutomationTextTests(context);
     runAutomationMediaProcessTests(context);
     runAutomationSceneHostTests(context);
+    runAutomationImportTests(context);
     runAutomationRuntimeTests(context);
     runAutomationJobsTests(context);
     runAutomationJournalTests(context);

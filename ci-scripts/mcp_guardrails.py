@@ -14,6 +14,9 @@ SCENE_HOST_SOURCES = (
     "toonz/sources/toonz/automation_scene_content.cpp",
     "toonz/sources/toonz/automation_scene_source.cpp",
     "toonz/sources/toonz/automation_scene_inventory.cpp",
+    # The import plan and job run in the host; the job writes its package only
+    # through writeVerifiedPackage.
+    "toonz/sources/toonz/automation_import.cpp",
 )
 # Native calls a scene host must never make: they bind or load through the
 # editor's project roots, discard load errors, write files, or create stage

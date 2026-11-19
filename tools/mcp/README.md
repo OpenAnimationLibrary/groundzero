@@ -685,6 +685,32 @@ it reaches the host: `details.reason` is `mutation` for writes, including
 `scene.save_copy`, and `not_qualified` for reads not yet available, with
 `details.slice`.
 
+`scene.import_plan` plans importing a read-only document as an editable package,
+in its host, decoding and writing nothing. It re-checks the pinned sources first
+(`source_changed`) and refuses an editable document with `unsupported_target`
+(`details.reason: "editable_document"`). Every item the editable profile cannot hold
+falls into one loss kind with its `effect`, a `count` and up to `sample_limit` (1-16,
+default 8) samples naming its level, column or effect handle: `unrecognized_scene_tag`
+(dropped; the parser kept only its name), `sub_xsheet` (its cells are cleared and
+its sheet is not imported; what lies inside goes with it), `fx_not_admitted` (an
+effect outside `builtin-2d-v2`, external code or a file resource, removed with its
+links bridged from its first input), `fx_value_out_of_range` (values clamped into the
+authoring ranges), `level_not_admitted` (removed and its cells cleared; `detail`
+starts with the reason: `format`, `drawing_limit`, `raster_size` or
+`palette_limit`), `level_load_failed`, `empty_level`, `raster_depth_reduced` (16-bit
+and float rasters become 8-bit RGBA), `style_not_admitted` (non-solid or linked
+styles become solid styles of their main colour), `column_not_admitted` (palette,
+mesh and sound-text columns), `exposure_not_admitted` (cells naming a drawing the
+level lacks) and `library_origin` (Linked Library and studio palette links).
+`blockers` refuse the import whatever the consent: `profile_limit` when the kept
+content would pass 256 levels, 4096 drawings, 4096 columns, 1,000,000 cells or
+256 MiB (never truncated), and `unclassified` for anything no rule names, including
+a refusal of the motion path, rig, hook, storyboard or sound checks. `conversions`
+counts the lossless changes, `estimate` sizes the result, `source_copy` is always
+`attach` (the original scene file goes into the package), and `plan_digest` covers
+the source fingerprint and every item's handles, so a changed source or plan reads
+as a different digest.
+
 `scene.inventory` pages through a document's `sheets`, `columns` or `stage_objects`,
 128 rows a page and at most 65,536 rows a section (`reasons: ["row_limit"]` past
 that). Every row carries `sheet_path`, the instance path of `{column_id, level_id}`
@@ -1150,7 +1176,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (119):
+- `core` toolset (120):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -1172,7 +1198,7 @@ the adapter and the live editor bridge add the rest.
   `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
   `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
   `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
-  `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
+  `scene.dependencies`, `scene.discard`, `scene.import_plan`, `scene.inventory`, `scene.open`,
   `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.save_preflight`,
   `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`,
   `tool.describe`, `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
