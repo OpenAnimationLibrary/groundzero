@@ -218,6 +218,17 @@ void validate(const QJsonValue& value, const QJsonObject& schema,
   if (value.isDouble()) validateNumber(value.toDouble(), schema, path);
 }
 
+// The effect class of a writing tool: publication when it writes outside the
+// worker's private folders, job when it starts a job, memory otherwise.
+QString effectClass(const QJsonObject& descriptor) {
+  const QJsonObject effects = descriptor.value("effects").toObject();
+  const QJsonArray files    = effects.value("files").toArray();
+  if (files.contains("writes_caller_path") ||
+      files.contains("writes_shared_roots"))
+    return "publication";
+  return effects.value("job") == "starts" ? "job" : "memory";
+}
+
 QJsonObject asObject(const QJsonValue& value) {
   return value.isObject() ? value.toObject() : QJsonObject{{"data", value}};
 }
@@ -642,6 +653,8 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
            0);
   m_context.resetMutationStarted();
+  QScopedValueRollback<QString> writing(m_context.writeClass,
+                                        effectClass(entry.descriptor));
   try {
     QJsonObject result = applyWrite(entry, method, params);
     checkResultSize(result, control);

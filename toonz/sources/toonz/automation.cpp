@@ -111,6 +111,7 @@ struct Options {
   QString childFault;
   QString renderFault;
   QString writeFault;
+  QString writeFaultMode = "fail";
   QStringList pathSwap;
   QStringList publishFaults;
 #endif
@@ -324,6 +325,19 @@ void validateWorkerInstance(const Options& options) {
                 "--worker-epoch milliseconds; a worker takes neither.");
 }
 
+#ifdef BUILD_UI_PORT_TESTS
+// --test-write-fault POINT[:MODE]: MODE fail (the default) makes the step throw
+// its typed error, crash ends the process at that point.
+void setWriteFault(Options& options, const QString& value) {
+  options.writeFault = value;
+  for (const QString& mode : {QString("fail"), QString("crash")})
+    if (value.endsWith(':' + mode)) {
+      options.writeFault.chop(mode.size() + 1);
+      options.writeFaultMode = mode;
+    }
+}
+#endif
+
 Options parseOptions(const QStringList& arguments) {
   Options options;
   for (int index = 2; index < arguments.size(); ++index) {
@@ -346,7 +360,7 @@ Options parseOptions(const QStringList& arguments) {
       continue;
     }
     if (key == "--test-write-fault" && index + 1 < arguments.size()) {
-      options.writeFault = arguments[++index];
+      setWriteFault(options, arguments[++index]);
       continue;
     }
     if (key == "--test-publish-fault" && index + 1 < arguments.size()) {
@@ -754,6 +768,7 @@ int executeWorker(QApplication& application, QFile& output,
                            : options.childFault;
   context.renderFault = options.renderFault;
   context.writeFault  = options.writeFault;
+  context.writeFaultMode = options.writeFaultMode;
   context.pathSwap    = options.pathSwap;
   armPublishFaults(options.publishFaults);
   setMacroVerifyCrash(options.writeFault == "macro_verify_crash");

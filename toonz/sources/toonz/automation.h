@@ -153,6 +153,9 @@ public:
   QMap<QString, SharedRootGrant> sharedRoots;
   // The private per-process runtime directory inside the workspace.
   QString runtimeDirectory;
+  // Set by the dispatcher while a write runs: the effect class of its tool
+  // (memory, publication or job); empty outside a write.
+  QString writeClass;
   // The read-only document a scene host process owns; empty in a worker.
   QString sceneHostDocument;
   // The worker's scene host processes, keyed by read-only document.
@@ -179,8 +182,10 @@ public:
   // hold-writers, fail-after-final-frame, encoder-failure, stray-callbacks,
   // gl-context-failure or teardown-hang (worker teardown never finishes).
   QString renderFault;
-  // Test-only file-writing fault: publish makes the final rename fail.
+  // Test-only file-writing fault point (publish, package:level, ...) and its
+  // mode: fail makes the step throw its typed error, crash ends the process.
   QString writeFault;
+  QString writeFaultMode = "fail";
 #endif
 
 private:

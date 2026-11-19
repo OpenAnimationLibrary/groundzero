@@ -25,6 +25,7 @@
 #include "toonz/txsheet.h"
 #include "toonz/txshleveltypes.h"
 #include "toonz/txshsimplelevel.h"
+#include "texception.h"
 #include "toutputproperties.h"
 
 #include <QCryptographicHash>
@@ -247,7 +248,25 @@ void writeLevel(TXshSimpleLevel& level, const QString& path, double frameRate) {
   writer->finalize();
 }
 
-QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
+// The step of a package write in progress and the package-relative file it
+// writes, named by any error that step raises.
+struct SaveStep final {
+  QString stage = "stage";
+  QString file;
+};
+
+// A test write fault at `point` (package:level, ...): the step's typed error.
+void packageFault(const Context& context, const char* point,
+                  const SaveStep& step) {
+  if (writeFaultFires(context, point))
+    throw stagedWriteError("package_write_failed",
+                           "Cannot write the package at its " + step.stage +
+                               " step; nothing was published.",
+                           step.stage, step.file, false);
+}
+
+QJsonArray writeLevels(const Context& context, ToonzScene& scene,
+                       const QString& directory, SaveStep& step) {
   QJsonArray entries;
   TLevelSet* levels = scene.getLevelSet();
   const double frameRate =
@@ -257,7 +276,9 @@ QJsonArray writeLevels(ToonzScene& scene, const QString& directory) {
     if (!level) continue;  // Sound sources are copied by writeAutomationSounds.
     const QString relative = levelPath(index, level->getType());
     const QString file     = QDir(directory).absoluteFilePath(relative);
+    step                   = {"level", relative};
     writeLevel(*level, file, frameRate);
+    packageFault(context, "package:level", step);
     const QJsonValue hooks = writeAutomationHooks(*level, file);
     if (level->getType() == TZP_XSHLEVEL)
       readRegularFile(directory, relative.left(relative.size() - 3) + "tpl");
@@ -331,15 +352,21 @@ void writeScene(ToonzScene& scene, const QString& directory) {
       TFilePath(QDir(directory).absoluteFilePath("scene.tnz").toStdWString()));
 }
 
-Package writePackage(Document& document, const QString& directory) {
-  validateAutomationScene(*document.scene);
+Package writePackage(const Context& context, Document& document,
+                     const QString& directory, SaveStep& step) {
   if (!QDir(directory).mkdir("assets"))
     throw Error("package_write_failed",
                 "Cannot create the package assets directory.");
   const QByteArray macroFingerprint = automationMacroFingerprint(*document.scene, directory);
-  const QJsonArray levels = writeLevels(*document.scene, directory);
+  const QJsonArray levels =
+      writeLevels(context, *document.scene, directory, step);
+  step                     = {"sounds", QString()};
   const QJsonObject sounds = writeAutomationSounds(*document.scene, directory);
+  packageFault(context, "package:sounds", step);
+  step = {"scene", "scene.tnz"};
   writeScene(*document.scene, directory);
+  packageFault(context, "package:scene", step);
+  step = {"manifest", "manifest.json"};
   Package package;
   package.macroFingerprint = macroFingerprint;
   package.manifest         = {{"version", 1},
@@ -359,7 +386,18 @@ Package writePackage(Document& document, const QString& directory) {
       !file.commit())
     throw Error("package_write_failed", "Cannot publish the package manifest.");
   package.manifestHash = digest(bytes);
+  packageFault(context, "package:manifest", step);
   return package;
+}
+
+// An error raised while a package is staged, with the step that raised it.
+Error stepError(const QString& code, const QString& message,
+                QJsonObject details, const SaveStep& step) {
+  if (details.contains("stage")) return Error(code, message, details);
+  details.insert("stage", step.stage);
+  details.insert("file", step.file.isEmpty() ? QJsonValue() : step.file);
+  details.insert("published", false);
+  return Error(code, message, details);
 }
 
 std::vector<TFrameId> expectedFrames(const QJsonObject& entry) {
@@ -510,12 +548,28 @@ Package publishPackage(Context& context, Document& document,
   if (!QFileInfo(target.absolutePath()).isWritable())
     throw Error("package_write_failed",
                 "The package parent directory is not writable.");
+  validateAutomationScene(*document.scene);
   PrivateDirectory staging(context.runtimeDirectory + "/package-XXXXXX");
   if (!staging.isValid())
-    throw Error("package_write_failed",
-                "Cannot create a private package staging directory.");
-  const Package package = writePackage(document, staging.path());
-  reopenPackage(context, staging.path(), package);
+    throw stagedWriteError("package_write_failed",
+                           "Cannot create a private package staging directory.",
+                           "stage", QString(), false);
+  SaveStep step;
+  packageFault(context, "package:staged", step);
+  Package package;
+  try {
+    package = writePackage(context, document, staging.path(), step);
+    step    = {"verify", QString()};
+    reopenPackage(context, staging.path(), package);
+    packageFault(context, "package:verify", step);
+  } catch (const Error& error) {
+    throw stepError(error.code, error.message, error.details, step);
+  } catch (const TException& error) {
+    throw stepError("native_error", QString::fromStdWString(error.getMessage()),
+                    {}, step);
+  } catch (const std::exception& error) {
+    throw stepError("native_error", QString::fromUtf8(error.what()), {}, step);
+  }
   publishStaged(context, staging.path(), path, "package_write_failed",
                 "Cannot publish the verified package directory.");
   staging.setAutoRemove(false);
