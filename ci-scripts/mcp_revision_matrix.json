@@ -8526,6 +8526,39 @@
     "policy": "preserves",
     "documented": "Sources equal to the current ones leave the group alone."
    }
+  },
+  "delivery.publish": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "scene",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "publishes completed render jobs' files into a new directory below an output root",
+   "bumps": "none; a delivery copies render output and changes no document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "reject": [
+    {
+     "args": {
+      "destination": {
+       "root": "deliveries",
+       "path": "take"
+      },
+      "items": [
+       {
+        "job_id": "job_unknown",
+        "folder": "frames"
+       }
+      ]
+     },
+     "code": "root_unavailable"
+    }
+   ],
+   "success": null,
+   "unexercised": "the success path needs a worker started with a granted output root, which the matrix worker is not; mcp_delivery_cases.py publishes"
   }
  },
  "known_violations": []

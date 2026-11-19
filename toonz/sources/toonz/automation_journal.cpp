@@ -947,9 +947,17 @@ JournalVerdict Journal::verdict(const JournalOperation& operation) const {
                 {"reconciled", false},
                 {"evidence", evidence}};
       }
+      // A delivery is judged by its manifest, which lists every file's
+      // digest: it may exceed the bound of a whole-tree digest.
+      const QString manifest =
+          operation.intent.value("manifest_name").toString();
       const bool matches =
-          present && contentDigest(absolute) ==
-                         operation.intent.value("content_sha256").toString();
+          present &&
+          (manifest.isEmpty()
+               ? contentDigest(absolute) ==
+                     operation.intent.value("content_sha256").toString()
+               : contentDigest(absolute + '/' + manifest) ==
+                     operation.intent.value("manifest_sha256").toString());
       evidence.insert("found", !present  ? "absent"
                                : matches ? "matches"
                                          : "differs");
@@ -1054,7 +1062,7 @@ void Journal::removeStaging(const JournalOperation& operation) {
   if (stage.isEmpty()) return;
   const QJsonObject location = stage.value("location").toObject();
   if (locatedPath(location).isEmpty()) return;
-  QSet<QString> listed{"manifest.json"};
+  QSet<QString> listed{stage.value("manifest_name").toString("manifest.json")};
   const QByteArray manifest = readBlob(stage.value("manifest_blob").toString(),
                                        integer(stage, "manifest_bytes"));
   for (const QJsonValue& entry :
@@ -1479,9 +1487,15 @@ void recordPublicationIntentAt(Context& context, const QString& staged,
                                const QJsonObject& extra) {
   Journal* journal = workspaceJournal(context);
   if (!journal || context.writeOperation.isEmpty()) return;
-  const QString content  = contentDigest(staged);
+  // A caller that copies from several places names the tree's digest, which
+  // it computed from the verified files, and its manifest's name.
+  const QString content = extra.contains("content_sha256")
+                              ? extra.value("content_sha256").toString()
+                              : contentDigest(staged);
+  const QString manifestName =
+      extra.value("manifest_name").toString("manifest.json");
   const QString manifest = QFileInfo(staged).isDir()
-                               ? contentDigest(staged + "/manifest.json")
+                               ? contentDigest(staged + '/' + manifestName)
                                : QString();
   QJsonObject fields     = extra;
   fields.insert("operation_id", context.writeOperation);

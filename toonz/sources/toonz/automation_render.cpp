@@ -1,6 +1,7 @@
 #include "automation.h"
 #include "automation_audio.h"
 #include "automation_compare.h"
+#include "automation_delivery.h"
 #include "automation_files.h"
 #include "automation_fx.h"
 #include "automation_jobs.h"
@@ -1875,6 +1876,35 @@ QJsonValue RenderJob::result(Context& owner, const QJsonObject&) {
   return artifactList(owner, *this);
 }
 
+// The files of a completed render job, for renderedOutput.
+std::optional<RenderedOutput> exportOutput(const Job& job) {
+  const auto* render = dynamic_cast<const RenderJob*>(&job);
+  if (!render) return std::nullopt;
+  if (render->status != JobStatus::Completed)
+    throw Error("artifacts_unavailable",
+                "Only a completed render job's verified files can be "
+                "published.",
+                {{"status", statusText(render->status)},
+                 {"job_id", render->common.id}});
+  RenderedOutput output;
+  output.record = render->record();
+  for (const Artifact& artifact : render->artifacts) {
+    const bool movie           = profileInfo(artifact.profile).movie;
+    const QJsonObject metadata = artifact.metadata();
+    RenderedFile file;
+    file.path      = artifact.path;
+    file.name      = QFileInfo(artifact.path).fileName();
+    file.role      = movie ? "movie" : "frame";
+    file.frame     = movie ? -1 : artifact.frame;
+    file.bytes     = artifact.bytes;
+    file.sha256    = artifact.sha256;
+    file.mediaType = metadata.value("mime_type").toString();
+    if (movie) output.movie = metadata;
+    output.files.push_back(file);
+  }
+  return output;
+}
+
 static QJsonValue readImageArtifact(Context& context, const RenderJob& job,
                                     const Artifact& artifact) {
   if (artifact.profile != RenderProfile::Rgba8Png)
@@ -1984,6 +2014,10 @@ static QJsonObject jobOperation(const QString& name, const QString& description,
 }
 
 }  // namespace RenderDetail
+
+std::optional<RenderedOutput> renderedOutput(const Job& job) {
+  return RenderDetail::exportOutput(job);
+}
 
 // An explicit aspect export for one render: none, or letterbox or crop to a
 // ratio with an optional fill color.

@@ -182,6 +182,12 @@ int retainedJobs(Context& context, JobLane lane);
 QJsonObject retentionDetails(Context& context, JobLane lane);
 // The message of that refusal, naming job.discard.
 QString retentionMessage(JobLane lane);
+// The job this process retains under `id`, for reading its outputs. Refuses
+// a discarded job (job_discarded), a job of an earlier worker of the
+// workspace (artifacts_unavailable or result_unavailable, reason
+// previous_worker) and an id it never issued or no longer holds
+// (unknown_job), as job.result does.
+std::shared_ptr<Job> retainedJobForResult(Context& context, const QString& id);
 // Remove a terminal job's private directory, through the pinned-directory
 // functions, and return the bytes of the files it held. Throws io_error when
 // something stays.

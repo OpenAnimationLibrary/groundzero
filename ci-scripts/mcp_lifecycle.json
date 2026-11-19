@@ -1381,7 +1381,8 @@
    "cells": {
     "inspect": {
      "tools": [
-      "artifact.read"
+      "artifact.read",
+      "delivery.preflight"
      ]
     },
     "create": {
@@ -1389,7 +1390,8 @@
       "raster.export_png",
       "audio.mixdown",
       "fx.preset.save",
-      "vector.export_svg"
+      "vector.export_svg",
+      "delivery.publish"
      ]
     },
     "modify": {
@@ -1413,13 +1415,15 @@
       "raster.export_png",
       "audio.mixdown",
       "fx.preset.save",
-      "vector.export_svg"
+      "vector.export_svg",
+      "delivery.publish"
      ],
      "evidence": [
       "mcp_acceptance.py",
       "mcp_audio_cases.py",
       "mcp_fx_authoring_cases.py",
-      "mcp_intake_cases.py"
+      "mcp_intake_cases.py",
+      "mcp_delivery_cases.py"
      ]
     },
     "recover": {

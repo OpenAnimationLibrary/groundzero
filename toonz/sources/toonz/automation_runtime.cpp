@@ -449,6 +449,17 @@ QJsonObject mp4Report(Context& context) {
                                 : QJsonValue(QJsonValue::Null)}};
 }
 
+QJsonValue mediaToolIdentity(Context& context) {
+  const RuntimeState& state = runtimeState(context);
+  if (!state.media) return QJsonValue::Null;
+  const auto identity = [](const MediaFile& file) {
+    return QJsonObject{{"version_line", file.versionLine.left(256)},
+                       {"sha256", file.sha256}};
+  };
+  return QJsonObject{{"ffmpeg", identity(state.media->ffmpeg)},
+                     {"ffprobe", identity(state.media->ffprobe)}};
+}
+
 namespace {
 
 QJsonObject mediaReport(Context& context) {

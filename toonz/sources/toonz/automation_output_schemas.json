@@ -12895,6 +12895,562 @@
     ],
     "type": "object"
   },
+  "delivery.preflight": {
+    "additionalProperties": false,
+    "properties": {
+      "checks": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "oneOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "detail": {
+              "oneOf": [
+                {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "name": {
+              "enum": [
+                "root",
+                "path",
+                "parent",
+                "collision",
+                "jobs",
+                "artifacts",
+                "filesystem",
+                "space",
+                "journal"
+              ],
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "pass",
+                "fail",
+                "unknown"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "state",
+            "code",
+            "detail"
+          ],
+          "type": "object"
+        },
+        "maxItems": 9,
+        "minItems": 9,
+        "type": "array"
+      },
+      "files": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "folder": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "frame": {
+              "oneOf": [
+                {
+                  "maximum": 1000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "media_type": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "path": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            "role": {
+              "enum": [
+                "frame",
+                "movie"
+              ],
+              "type": "string"
+            },
+            "sha256": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "size_bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "folder",
+            "role",
+            "frame",
+            "size_bytes",
+            "sha256",
+            "media_type"
+          ],
+          "type": "object"
+        },
+        "maxItems": 256,
+        "minItems": 0,
+        "type": "array"
+      },
+      "files_total": {
+        "maximum": 1100,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "first_failure": {
+        "oneOf": [
+          {
+            "enum": [
+              "root",
+              "path",
+              "parent",
+              "collision",
+              "jobs",
+              "artifacts",
+              "filesystem",
+              "space",
+              "journal"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "next_offset": {
+        "oneOf": [
+          {
+            "maximum": 1100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "not_included": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "class": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "class",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "maxItems": 8,
+        "minItems": 0,
+        "type": "array"
+      },
+      "plan": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "files": {
+            "maximum": 1101,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "folders": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "bytes": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "files": {
+                  "maximum": 1100,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "folder": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "job_id": {
+                  "maxLength": 80,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "kind": {
+                  "oneOf": [
+                    {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "profile": {
+                  "oneOf": [
+                    {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "folder",
+                "job_id",
+                "kind",
+                "profile",
+                "files",
+                "bytes"
+              ],
+              "type": "object"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "type": "array"
+          },
+          "free_bytes": {
+            "oneOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "location": {
+            "additionalProperties": false,
+            "properties": {
+              "input_index": {
+                "oneOf": [
+                  {
+                    "maximum": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "path": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              "root": {
+                "maxLength": 32,
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+                "type": "string"
+              },
+              "root_sha256": {
+                "oneOf": [
+                  {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "root",
+              "path",
+              "input_index",
+              "root_sha256"
+            ],
+            "type": "object"
+          },
+          "manifest_bytes": {
+            "maximum": 4194304,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "same_volume_as_workspace": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "location",
+          "files",
+          "bytes",
+          "manifest_bytes",
+          "free_bytes",
+          "same_volume_as_workspace",
+          "folders"
+        ],
+        "type": "object"
+      },
+      "ready": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "ready",
+      "first_failure",
+      "checks",
+      "plan",
+      "files",
+      "files_total",
+      "next_offset",
+      "not_included"
+    ],
+    "type": "object"
+  },
+  "delivery.publish": {
+    "additionalProperties": false,
+    "properties": {
+      "bytes": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "content_sha256": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "files": {
+        "maximum": 1101,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "folders": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "files": {
+              "maximum": 1100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "folder": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "job_id": {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "oneOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "profile": {
+              "oneOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "folder",
+            "job_id",
+            "kind",
+            "profile",
+            "files",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "maxItems": 8,
+        "minItems": 1,
+        "type": "array"
+      },
+      "location": {
+        "additionalProperties": false,
+        "properties": {
+          "input_index": {
+            "oneOf": [
+              {
+                "maximum": 15,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          },
+          "root": {
+            "maxLength": 32,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+            "type": "string"
+          },
+          "root_sha256": {
+            "oneOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "input_index",
+          "root_sha256"
+        ],
+        "type": "object"
+      },
+      "manifest_sha256": {
+        "maxLength": 64,
+        "minLength": 64,
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+      },
+      "not_included": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "class": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "class",
+            "reason"
+          ],
+          "type": "object"
+        },
+        "maxItems": 8,
+        "minItems": 0,
+        "type": "array"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "published": {
+        "const": true
+      }
+    },
+    "required": [
+      "published",
+      "location",
+      "manifest_sha256",
+      "content_sha256",
+      "files",
+      "bytes",
+      "folders",
+      "not_included",
+      "operation_id"
+    ],
+    "type": "object"
+  },
   "drawing.analysis.submit": {
     "additionalProperties": false,
     "properties": {

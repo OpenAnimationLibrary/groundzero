@@ -4,6 +4,8 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMap>
+#include <QStringList>
 
 #include <functional>
 
@@ -42,6 +44,53 @@ struct PackageTarget final {
 //   grammar or reserved) for a root-relative path outside the grammar.
 PackageTarget packageTarget(Context& context, const QJsonObject& params,
                             const QString& field, bool write);
+
+// What the file system says about a destination at this moment.
+struct DestinationFacts final {
+  QString rootCode;
+  QString rootDetail;
+  QString pathCode;
+  QString pathDetail;
+  bool parentFound = false;
+  bool writable    = false;
+  int exists       = -1;  // 1, 0, or -1 when it cannot be told
+  qint64 freeBytes = -1;
+  int sameVolume   = -1;  // 1, 0, or -1 when it cannot be told
+  // expected, unknown or failed_last_attempt: whether the parent's volume
+  // renames without replacing.
+  QString rename = "unknown";
+};
+
+// The destination `target` in an output root, reached through the pinned
+// walk: the root's and the path's refusals, and the parent's facts.
+DestinationFacts observeOutputDestination(const Context& context,
+                                          const PackageTarget& target);
+
+// The checks of a preflight in their reporting order, each {name, state
+// (pass, fail or unknown), code, detail}; one not set reports unknown.
+class PreflightChecks final {
+public:
+  explicit PreflightChecks(QStringList names);
+  void pass(const QString& name) { set(name, "pass", {}, {}); }
+  void fail(const QString& name, const QString& code, const QString& detail) {
+    set(name, "fail", code, detail);
+  }
+  void unknown(const QString& name, const QString& detail) {
+    set(name, "unknown", {}, detail);
+  }
+  QJsonArray report() const;
+  // The name of the first failed check, or null.
+  QJsonValue firstFailure() const;
+  // The failed check of this name, or empty.
+  QJsonObject failed(const QString& name) const;
+
+private:
+  void set(const QString& name, const QString& state, const QString& code,
+           const QString& detail);
+
+  QStringList m_names;
+  QMap<QString, QJsonObject> m_checks;
+};
 
 // What a package never contains, as the fixed rows {class, reason}.
 QJsonArray packageNotContained();

@@ -212,6 +212,68 @@ same rule; its `operation.status` verdict is `published` once the package left i
 place and `not_published` while it is still there. Removal keeps the registration, so
 a copy of the same bytes elsewhere still opens.
 
+The `delivery` toolset publishes finished renders into an output root (start the
+adapter with `--toolsets delivery`; `--domains` must allow it). A delivery is a new
+directory holding one folder per completed render job of this worker
+(`render.submit` sequences of any profile, PNG, EXR or MP4, and `render.preview`
+frames) and `delivery.json`. Both tools take `destination {root, path}` (the path
+grammar and refusals above; the parent must already exist) and `items`, 1 to 8
+`{job_id, folder}`: each job and each folder once (`folder` is letters, digits, `.`,
+`_` or `-`, not `delivery.json`; otherwise `invalid_params` with `details.reason`
+`duplicate_job`, `duplicate_folder` or `reserved_folder`). Files keep the job's names
+(`frame.0001.png`, numbered scene frame + 1, or `movie.mp4`).
+
+- `delivery.preflight` writes nothing. It runs nine checks in order, each `{name,
+  state, code, detail}`: `root`, `path` (a link or variant spelling on the way:
+  `path_denied`), `parent` (`missing_parent`, `destination_unwritable`), `collision`
+  (`already_exists`), `jobs` (`job_discarded` for a job released by `job.discard`,
+  `unknown_job`, `artifacts_unavailable` for a job not completed or of an earlier
+  worker, `unsupported_target` with `reason` `not_a_render_job` or `scene_host_job`
+  for a read-only document's render), `artifacts` (each job file still the regular
+  file the render verified, at its size: `invalid_artifact`), `filesystem`
+  (`publication_unsupported` once a publication on that volume was refused), `space`
+  (free bytes at least the delivery's exact size plus 4 MiB: `insufficient_space`) and
+  `journal`. A failing check is a result: `ready` false and `first_failure`. It
+  reports the `plan` (`location`, `files` and `bytes` including `delivery.json`,
+  `manifest_bytes`, `free_bytes`, `same_volume_as_workspace`, `folders`), one page of
+  the planned `files` in publication order (`offset`, `limit` up to 256, default 64;
+  each `{path, folder, role, frame, size_bytes, sha256, media_type}`), `files_total`,
+  `next_offset` (null on the last page) and `not_included`.
+- `delivery.publish` (`operation_id`) runs the same checks and refuses on the first
+  failure before writing anything, with that check's code and `details.check`. It
+  then copies each job file into a staging container in the destination's parent,
+  hashing every byte against the digest the render verified, re-reads each copy and
+  publishes the directory by one rename that never replaces (the engine of
+  `scene.save_copy` above, with the same journal records and recovery). The result is
+  `published`, `location` (stored spelling), `manifest_sha256` (delivery.json's
+  SHA-256, which binds every file's), `content_sha256`, `files`, `bytes`, `folders`
+  and `not_included`. An exact retry returns the recorded result and writes nothing,
+  after a restart too (`receipt.source: journal`).
+
+A failure after copying began is `partially_applied` with `details.cause_code`
+`delivery_write_failed` (a refused rename is `publication_unsupported` itself),
+`details.stage` (`stage`, `copy`, `verify`, `flush`, `publish`), `details.reason`
+(`no_space`, `not_writable`, `device_lost`, `io_error`, `staged_changed` when a job
+file changed since its render, `copy_changed`, `name_taken`) and how far it got, file
+by file in the order the preflight lists: `files_total`, `files_copied`,
+`failed_file`, `not_reached`, `published: false` and `container_left`. Nothing ever
+exists under the final name before the rename.
+
+`delivery.json` (format `groundzero-delivery`, version 1; compact UTF-8, sorted keys,
+no absolute path) holds `publication {operation_id, request_sha256 (SHA-256 of the
+compact sorted request without operation_id), published_utc}`, `producer
+{application, version, build_digest, source_commit: null, platform, media_tools}`,
+one `folders` row per job as its record states it (`job_id`, `kind`, `profile`,
+`document_id`, `source_revision`, `snapshot_manifest_sha256`, `source_fingerprint`,
+`frames`, `frame_rate`, `width`, `height`, `alpha`, `color`, `conversions`,
+`omissions`, `fx_provenance`, `movie`, `files`, `bytes`), every file as `{path,
+folder, role, frame, size_bytes, sha256, media_type}`, `not_included` and `totals`.
+`not_included` names what a delivery never holds: the render snapshot
+(`private_to_job`), the scene package (`publish_with_scene_save_copy`), audio
+(`renders_are_video_only`) and the job records (`in_the_journal`).
+`ci-scripts/mcp_delivery_verify.py DIR [--manifest-sha256 X] [--ffprobe PATH]`
+checks a delivery with the standard library alone.
+
 What a session may do is fixed at launch, with no prompts and no tool that changes
 it. `--grants LIST` names grant classes, comma-separated:
 
@@ -1757,6 +1819,8 @@ the adapter and the live editor bridge add the rest.
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
+- `delivery` toolset (2):
+  `delivery.preflight`, `delivery.publish`
 - `fx-finishing` toolset (1):
   `fx.recipe.list`
 - `fx-graph` toolset (7):
