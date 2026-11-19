@@ -7904,6 +7904,11 @@
             "available": {
               "type": "boolean"
             },
+            "brief": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
             "category": {
               "maxLength": 65536,
               "minLength": 0,
@@ -7927,6 +7932,11 @@
                     "maxLength": 65536,
                     "minLength": 0,
                     "type": "string"
+                  },
+                  "step": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
                   }
                 },
                 "required": [],
@@ -7940,6 +7950,11 @@
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "input": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
                   "name": {
                     "maxLength": 65536,
                     "minLength": 0,
@@ -7951,6 +7966,41 @@
                     "type": "string"
                   },
                   "step": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "maxItems": 1048576,
+              "minItems": 0,
+              "type": "array"
+            },
+            "deliverables": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "id": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "label": {
+                    "enum": [
+                      "editable",
+                      "approximated",
+                      "baked"
+                    ],
+                    "type": "string"
+                  },
+                  "note": {
                     "maxLength": 65536,
                     "minLength": 0,
                     "type": "string"
@@ -7988,7 +8038,22 @@
               "minItems": 0,
               "type": "array"
             },
+            "limits": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 1048576,
+              "minItems": 0,
+              "type": "array"
+            },
             "missing_types": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
               "maxItems": 1048576,
               "minItems": 0,
               "type": "array"
@@ -7998,7 +8063,89 @@
               "minLength": 0,
               "type": "string"
             },
+            "ownership": {
+              "additionalProperties": false,
+              "properties": {
+                "creates": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "edits": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "leaves_alone": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "preconditions": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 1048576,
+              "minItems": 0,
+              "type": "array"
+            },
+            "required_capabilities": {
+              "additionalProperties": false,
+              "properties": {
+                "grants": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "tools": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "toolsets": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
             "required_sources": {
+              "items": {
+                "type": "object"
+              },
               "maxItems": 1048576,
               "minItems": 0,
               "type": "array"
@@ -8013,7 +8160,50 @@
               "minItems": 0,
               "type": "array"
             },
+            "review": {
+              "additionalProperties": false,
+              "properties": {
+                "frames": {
+                  "items": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "kind": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "preview_step": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "read_steps": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "required_before_success": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
             "seeds": {
+              "items": {
+                "type": "object"
+              },
               "maxItems": 1048576,
               "minItems": 0,
               "type": "array"
@@ -8023,87 +8213,49 @@
                 "additionalProperties": false,
                 "properties": {
                   "arguments": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "document_id": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "frame": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "frame_count": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "fx_id": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "name": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "parameter": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "port": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "source_fx_id": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "type": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "value": {
-                        "oneOf": [
-                          {
-                            "items": {
-                              "maximum": 1.7976931348623157e+308,
-                              "minimum": -1.7976931348623157e+308,
-                              "type": "number"
-                            },
-                            "maxItems": 1048576,
-                            "minItems": 0,
-                            "type": "array"
-                          },
-                          {
-                            "maximum": 1.7976931348623157e+308,
-                            "minimum": -1.7976931348623157e+308,
-                            "type": "number"
-                          },
-                          {
-                            "maxLength": 65536,
-                            "minLength": 0,
-                            "type": "string"
-                          }
-                        ]
-                      }
-                    },
-                    "required": [
-                      "document_id"
-                    ],
                     "type": "object"
                   },
                   "id": {
                     "maxLength": 65536,
                     "minLength": 0,
                     "type": "string"
+                  },
+                  "poll": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "field": {
+                        "maxLength": 65536,
+                        "minLength": 0,
+                        "type": "string"
+                      },
+                      "max_attempts": {
+                        "maximum": 1.7976931348623157e+308,
+                        "minimum": -1.7976931348623157e+308,
+                        "type": "number"
+                      },
+                      "success": {
+                        "items": {
+                          "maxLength": 65536,
+                          "minLength": 0,
+                          "type": "string"
+                        },
+                        "maxItems": 1048576,
+                        "minItems": 0,
+                        "type": "array"
+                      },
+                      "terminal": {
+                        "items": {
+                          "maxLength": 65536,
+                          "minLength": 0,
+                          "type": "string"
+                        },
+                        "maxItems": 1048576,
+                        "minItems": 0,
+                        "type": "array"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
                   },
                   "tool": {
                     "maxLength": 65536,
@@ -8122,6 +8274,33 @@
               "maxLength": 65536,
               "minLength": 0,
               "type": "string"
+            },
+            "units": {
+              "additionalProperties": false,
+              "properties": {
+                "frame_origin": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "frame_rate": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "frames": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "lengths": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
             },
             "version": {
               "maximum": 1.7976931348623157e+308,

@@ -2433,6 +2433,43 @@
    }
   },
   {
+   "id": "recipes.shot_rig_delivery",
+   "domain": "Stage, camera and animation",
+   "outcome": "Assemble a dolly shot, rig a pendulum swing and deliver a frame sequence from listed recipes of ordinary tool calls, each with a preview the client reads before it reports success.",
+   "classification": "compositional",
+   "tools": [
+    "fx.recipe.list",
+    "scene.create",
+    "level.import",
+    "column.create",
+    "column.expose",
+    "object.create",
+    "object.parent",
+    "object.pivot.set",
+    "offset_layer.create",
+    "animation.set_keys",
+    "animation.insert_breakdown",
+    "animation.set_cycle",
+    "animation.sample",
+    "scene.validate",
+    "scene.save_copy",
+    "render.preflight",
+    "render.preview",
+    "render.submit",
+    "job.status",
+    "job.result",
+    "artifact.read"
+   ],
+   "journey": [
+    "ci-scripts/mcp_acceptance.py::test_recipe_dolly_shot_assembly_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_pendulum_rig_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_frame_sequence_delivery_runs_literally"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
    "id": "fx.remaining_builtin_types",
    "domain": "Effects",
    "outcome": "Author with the native effect types beyond the admitted set.",

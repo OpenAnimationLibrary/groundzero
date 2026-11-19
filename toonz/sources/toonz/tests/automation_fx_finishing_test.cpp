@@ -319,28 +319,38 @@ void requiredInputs(Context& context) {
   context.removeDocument(document.id);
 }
 
-QSet<QString> catalogTools(Context& context) {
+struct Catalog {
+  std::map<QString, QJsonObject> tools;
+  QSet<QString> toolsets;
+};
+
+Catalog liveCatalog(Context& context) {
   Dispatcher dispatcher(context);
-  QSet<QString> names;
+  Catalog catalog;
   QJsonValue offset = 0;
   while (!offset.isNull()) {
     const QJsonObject response =
         dispatcher.dispatch({{"id", "tools"},
                              {"method", "automation.capabilities"},
-                             {"params", QJsonObject{{"offset", offset}}}});
+                             {"params", QJsonObject{{"offset", offset},
+                                                    {"limit", 64},
+                                                    {"declarations", true}}}});
     const QJsonObject page = response.value("result").toObject();
     for (const QJsonValue& tool : page.value("tools").toArray())
-      names.insert(tool.toObject().value("name").toString());
+      catalog.tools[tool.toObject().value("name").toString()] = tool.toObject();
+    for (const QJsonValue& toolset : page.value("toolsets").toArray())
+      catalog.toolsets.insert(toolset.toObject().value("name").toString());
     offset = page.value("next_offset");
   }
-  return names;
+  return catalog;
 }
 
-// Every placeholder names a declared input or an earlier step.
+// Every placeholder names a declared input or an earlier step, then dotted
+// field names and array indexes.
 void requirePlaceholders(const QJsonValue& value, const QSet<QString>& inputs,
                          const QSet<QString>& steps) {
   static const QRegularExpression pattern(
-      R"(^\$\{(input|steps)\.([a-z_]+)(\.[a-z_]+)?\}$)");
+      R"(^\$\{(input|steps)\.([a-z_]+)((\.[a-z_0-9]+)*)\}$)");
   if (value.isArray()) {
     for (const QJsonValue& item : value.toArray())
       requirePlaceholders(item, inputs, steps);
@@ -356,26 +366,172 @@ void requirePlaceholders(const QJsonValue& value, const QSet<QString>& inputs,
   if (!text.contains("${")) return;
   const auto match = pattern.match(text);
   require(match.hasMatch(), "A recipe placeholder is malformed");
-  require(match.captured(1) == "input" ? inputs.contains(match.captured(2))
+  require(match.captured(1) == "input" ? inputs.contains(match.captured(2)) &&
+                                             match.captured(3).isEmpty()
                                        : steps.contains(match.captured(2)),
           "A recipe placeholder names an unknown input or later step");
 }
 
-void requireRecipe(const QJsonObject& recipe, const QSet<QString>& tools,
+QStringList strings(const QJsonValue& value) {
+  QStringList result;
+  for (const QJsonValue& item : value.toArray()) result.append(item.toString());
+  return result;
+}
+
+QStringList sorted(QSet<QString> set) {
+  QStringList result(set.begin(), set.end());
+  result.sort();
+  return result;
+}
+
+// The capabilities a recipe lists are exactly what its steps use, and every
+// one exists in the live catalog.
+void requireCapabilities(const QJsonObject& recipe, const Catalog& catalog) {
+  QSet<QString> tools, toolsets, grants;
+  for (const QJsonValue& value : recipe.value("steps").toArray()) {
+    const QString name = value.toObject().value("tool").toString();
+    const auto found   = catalog.tools.find(name);
+    require(found != catalog.tools.end(),
+            "A recipe step names an unknown tool");
+    tools.insert(name);
+    toolsets.insert(found->second.value("toolset").toString());
+    for (const QJsonValue& grant :
+         found->second.value("effects").toObject().value("grants").toArray())
+      grants.insert(grant.toString());
+  }
+  const QJsonObject listed = recipe.value("required_capabilities").toObject();
+  require(listed.keys() == QStringList({"grants", "tools", "toolsets"}),
+          "Required capabilities have the wrong fields");
+  require(strings(listed.value("tools")) == sorted(tools),
+          "A recipe lists tools its steps do not use, or omits some");
+  require(strings(listed.value("toolsets")) == sorted(toolsets),
+          "A recipe lists toolsets its tools are not in, or omits some");
+  require(strings(listed.value("grants")) == sorted(grants),
+          "A recipe lists grants its tools do not need, or omits some");
+  for (const QString& toolset : strings(listed.value("toolsets")))
+    require(catalog.toolsets.contains(toolset),
+            "A recipe names a toolset the server lacks");
+  for (const QString& grant : strings(listed.value("grants")))
+    require(QStringList({"inspect", "draft", "file", "job"}).contains(grant),
+            "A recipe names a grant the server lacks");
+}
+
+QString stepReference(const QString& from) {
+  static const QRegularExpression pattern(
+      R"(^steps\.([a-z_]+)(\.[a-z_0-9]+)+$)");
+  const auto match = pattern.match(from);
+  return match.hasMatch() ? match.captured(1) : QString();
+}
+
+void requireOutputs(const QJsonObject& recipe, const QSet<QString>& steps,
+                    const QSet<QString>& inputs) {
+  const QJsonArray deliverables = recipe.value("deliverables").toArray();
+  require(!deliverables.isEmpty() && deliverables.size() <= 8,
+          "A recipe needs 1 to 8 deliverables");
+  QSet<QString> ids;
+  for (const QJsonValue& value : deliverables) {
+    const QJsonObject item = value.toObject();
+    require(item.keys() == QStringList({"from", "id", "label", "note"}) &&
+                !ids.contains(item.value("id").toString()),
+            "A deliverable has the wrong fields or repeats an id");
+    ids.insert(item.value("id").toString());
+    // externally_generated is not a label: this server has no such output.
+    require(
+        QStringList({"editable", "approximated", "baked"})
+            .contains(item.value("label").toString()),
+        "A deliverable carries a label outside editable, approximated, baked");
+    require(steps.contains(stepReference(item.value("from").toString())),
+            "A deliverable does not point at a step result");
+  }
+  const QJsonObject ownership = recipe.value("ownership").toObject();
+  require(ownership.keys() == QStringList({"creates", "edits", "leaves_alone"}),
+          "Ownership has the wrong fields");
+  for (const QString& id : strings(ownership.value("creates")))
+    require(steps.contains(id), "Ownership creates a step that does not exist");
+  for (const QString& name : strings(ownership.value("edits")))
+    require(inputs.contains(name),
+            "Ownership edits an input that does not exist");
+  const QJsonObject units = recipe.value("units").toObject();
+  require(units.keys() == QStringList({"frame_origin", "frame_rate", "frames",
+                                       "lengths"}) &&
+              units.value("frame_origin").toInt(-1) == 0,
+          "Units must state a zero frame origin, frames, lengths and rate");
+  const QJsonArray preconditions = recipe.value("preconditions").toArray();
+  require(!preconditions.isEmpty() && preconditions.size() <= 8,
+          "A recipe needs 1 to 8 preconditions");
+  const int brief = recipe.value("brief").toString().size();
+  require(brief >= 1 && brief <= 600, "A brief is 1 to 600 characters");
+}
+
+// A preview review names the render, then the steps that read its result.
+void requireReview(const QJsonObject& recipe, const QJsonArray& steps) {
+  const QJsonObject review = recipe.value("review").toObject();
+  const QString kind       = review.value("kind").toString();
+  if (kind == "checks") {
+    require(review.keys() == QStringList({"kind"}) &&
+                !recipe.value("checks").toArray().isEmpty(),
+            "A checks review needs checks and no other field");
+    return;
+  }
+  require(kind == "preview" &&
+              review.keys() ==
+                  QStringList({"frames", "kind", "preview_step", "read_steps",
+                               "required_before_success"}) &&
+              review.value("required_before_success").toBool(),
+          "A review is checks or a preview that is required before success");
+  QStringList order;
+  QMap<QString, QString> tools;
+  for (const QJsonValue& value : steps) {
+    order.append(value.toObject().value("id").toString());
+    tools[order.last()] = value.toObject().value("tool").toString();
+  }
+  const QString preview = review.value("preview_step").toString();
+  require(tools.value(preview) == "render.preview",
+          "The reviewed step is not a preview render");
+  const QStringList reads = strings(review.value("read_steps"));
+  require(reads.size() >= 2 && tools.value(reads.last()) == "artifact.read",
+          "A review ends by reading the preview artifact");
+  QSet<QString> readTools;
+  int position = order.indexOf(preview);
+  for (const QString& id : reads) {
+    require(order.indexOf(id) > position, "A review read precedes its preview");
+    position = order.indexOf(id);
+    readTools.insert(tools.value(id));
+  }
+  require(readTools.contains("job.result") && readTools.contains("job.status"),
+          "A review must wait for the job and read its result");
+  require(!review.value("frames").toArray().isEmpty(),
+          "A review names the frames it covers");
+}
+
+void requireRecipe(const QJsonObject& recipe, const Catalog& catalog,
                    const std::map<QString, QSet<QString>>& parameters) {
   QSet<QString> inputs, steps;
   for (const QJsonValue& input : recipe.value("inputs").toArray())
     inputs.insert(input.toObject().value("name").toString());
   std::map<QString, QString> created;
   const QJsonArray required = recipe.value("required_types").toArray();
+  require(recipe.value("steps").toArray().size() <= 32,
+          "A recipe has at most 32 steps");
   for (const QJsonValue& value : recipe.value("steps").toArray()) {
     const QJsonObject step = value.toObject();
-    require(tools.contains(step.value("tool").toString()),
+    require(catalog.tools.count(step.value("tool").toString()) == 1,
             "A recipe step names an unknown tool");
     requirePlaceholders(step.value("arguments"), inputs, steps);
     const QString id = step.value("id").toString();
     require(!steps.contains(id), "Recipe step ids must be unique");
     steps.insert(id);
+    if (step.contains("poll")) {
+      const QJsonObject poll = step.value("poll").toObject();
+      require(step.value("tool") == "job.status" &&
+                  poll.keys() == QStringList({"field", "max_attempts",
+                                              "success", "terminal"}) &&
+                  !strings(poll.value("success")).isEmpty(),
+              "Only job.status is polled, with a field, limits and successes");
+      for (const QString& state : strings(poll.value("success")))
+        require(strings(poll.value("terminal")).contains(state),
+                "A polled success is not terminal");
+    }
     if (step.value("tool") == "fx.create") {
       const QString type =
           step.value("arguments").toObject().value("type").toString();
@@ -385,12 +541,21 @@ void requireRecipe(const QJsonObject& recipe, const QSet<QString>& tools,
   }
   for (const QJsonValue& value : recipe.value("controls").toArray()) {
     const QJsonObject control = value.toObject();
-    const auto step           = created.find(control.value("step").toString());
+    if (control.contains("input")) {
+      require(steps.contains(control.value("step").toString()) &&
+                  inputs.contains(control.value("input").toString()),
+              "A recipe control names a missing step or input");
+      continue;
+    }
+    const auto step = created.find(control.value("step").toString());
     require(step != created.end() &&
                 parameters.at(step->second)
                     .contains(control.value("parameter").toString()),
             "A recipe control names a missing step parameter");
   }
+  requireCapabilities(recipe, catalog);
+  requireOutputs(recipe, steps, inputs);
+  requireReview(recipe, recipe.value("steps").toArray());
 }
 
 void recipeCatalog(Context& context) {
@@ -398,7 +563,8 @@ void recipeCatalog(Context& context) {
   require(listed.value("profile") == "builtin-2d-v2",
           "Recipes report the profile");
   const QJsonArray recipes = listed.value("recipes").toArray();
-  require(recipes.size() == 5, "S1 ships five recipes");
+  require(recipes.size() == 8 && recipes.size() <= 64,
+          "Eight recipes ship: five FX and three scene recipes");
   std::map<QString, QSet<QString>> parameters;
   for (const QJsonValue& value : executeFx(context, "fx.catalog", {})
                                      .toObject()
@@ -408,29 +574,57 @@ void recipeCatalog(Context& context) {
          value.toObject().value("parameters").toArray())
       parameters[value.toObject().value("type").toString()].insert(
           parameter.toObject().value("name").toString());
-  const QSet<QString> tools = catalogTools(context);
+  const Catalog catalog = liveCatalog(context);
   QSet<QString> ids;
   for (const QJsonValue& value : recipes) {
     const QJsonObject recipe = value.toObject();
     require(recipe.value("available").toBool() &&
                 recipe.value("missing_types").toArray().isEmpty(),
-            "Every S1 recipe uses only available effects");
+            "Every recipe uses only available effects");
     require(!ids.contains(recipe.value("id").toString()), "Duplicate recipe");
-    require(recipe.keys() ==
-                QStringList({"available", "category", "checks", "controls",
-                             "id", "inputs", "missing_types", "outcome",
-                             "required_sources", "required_types", "seeds",
-                             "steps", "title", "version"}),
+    require(recipe.keys() == QStringList({"available",
+                                          "brief",
+                                          "category",
+                                          "checks",
+                                          "controls",
+                                          "deliverables",
+                                          "id",
+                                          "inputs",
+                                          "limits",
+                                          "missing_types",
+                                          "outcome",
+                                          "ownership",
+                                          "preconditions",
+                                          "required_capabilities",
+                                          "required_sources",
+                                          "required_types",
+                                          "review",
+                                          "seeds",
+                                          "steps",
+                                          "title",
+                                          "units",
+                                          "version"}),
             "A recipe document has fields outside its contract");
+    require(recipe.value("version").toInt() >= 1 &&
+                recipe.value("id").toString().size() <= 64,
+            "A recipe has a version and an id of at most 64 characters");
+    require(recipe.value("seeds").toArray().isEmpty(),
+            "No recipe draws random numbers, so none lists a seed");
     ids.insert(recipe.value("id").toString());
-    requireRecipe(recipe, tools, parameters);
+    requireRecipe(recipe, catalog, parameters);
   }
-  require(listAutomationFxRecipes({{"category", "transition"}})
-                  .toObject()
-                  .value("recipes")
-                  .toArray()
-                  .size() == 2,
-          "Recipe category filter changed");
+  const std::map<QString, int> categories{{"transition", 2},
+                                          {"light", 3},
+                                          {"shot", 1},
+                                          {"rig", 1},
+                                          {"delivery", 1}};
+  for (const auto& [category, count] : categories)
+    require(listAutomationFxRecipes({{"category", category}})
+                    .toObject()
+                    .value("recipes")
+                    .toArray()
+                    .size() == count,
+            "Recipe category filter changed");
   require(listAutomationFxRecipes({{"recipe_id", "no-such-recipe"}})
               .toObject()
               .value("recipes")
