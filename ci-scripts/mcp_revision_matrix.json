@@ -1155,6 +1155,20 @@
      }
     }
    ]
+  },
+  "two_columns": {
+   "extends": "exposed",
+   "steps": [
+    {
+     "tool": "column.create",
+     "args": {
+      "name": "Second"
+     },
+     "save": {
+      "column2": "column_id"
+     }
+    }
+   ]
   }
  },
  "tools": {
@@ -6923,6 +6937,85 @@
     },
     "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
    }
+  },
+  "column.move": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_columns",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "column order",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "before_position": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column",
+       "$column"
+      ],
+      "before_position": 0
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "before_position": 2
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "column.duplicate": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "adds one column with a copied stage object",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_id": "$column",
+     "name": "Copy",
+     "parent_policy": "table",
+     "fx_policy": "column_only"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_id": "$column",
+      "name": "Copy",
+      "position": 99,
+      "parent_policy": "table",
+      "fx_policy": "column_only"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "every call adds a column"
   }
  },
  "known_violations": []

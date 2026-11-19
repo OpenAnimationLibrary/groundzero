@@ -365,7 +365,22 @@
    "toolset": "core",
    "writes": true
   },
+  "column.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
   "column.expose": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "column.kinds": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "column.move": {
    "origin": "worker",
    "toolset": "core",
    "writes": true
@@ -1648,7 +1663,7 @@
   {
    "id": "timeline.cell_and_time_edits",
    "domain": "Timeline and columns",
-   "outcome": "Write explicit drawing runs, clear cells, insert or remove time, copy or move blocks, retime intervals and replace exposed drawings over several columns at once.",
+   "outcome": "Write explicit drawing runs, clear cells, insert or remove time, copy or move blocks, retime intervals and replace exposed drawings over several columns at once; move columns and duplicate them with shared artwork.",
    "classification": "exposed",
    "tools": [
     "cells.set",
@@ -1657,7 +1672,9 @@
     "cells.remove",
     "cells.copy",
     "cells.retime",
-    "cells.replace"
+    "cells.replace",
+    "column.move",
+    "column.duplicate"
    ],
    "disposition": {
     "kind": "implemented"
@@ -2863,6 +2880,18 @@
    "disposition": {
     "kind": "restricted",
     "reason": "Needs separate authority; a live session stops through the editor's own action."
+   }
+  },
+  {
+   "id": "timeline.column_kinds",
+   "domain": "Timeline and columns",
+   "outcome": "See every native column kind with the tool that creates, edits and deletes it, or why it is unavailable.",
+   "classification": "exposed",
+   "tools": [
+    "column.kinds"
+   ],
+   "disposition": {
+    "kind": "implemented"
    }
   }
  ]

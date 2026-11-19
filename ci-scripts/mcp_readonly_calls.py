@@ -722,6 +722,7 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "animation.keys": _keys,
     "animation.sample": _sample,
     "fx.catalog": _no_arguments,
+    "column.kinds": _no_arguments,
     "fx.graph": _per_document,
     "fx.parameter.get": _parameter,
     "fx.recipe.list": _recipes,

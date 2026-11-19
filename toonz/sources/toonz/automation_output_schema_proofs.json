@@ -174,11 +174,46 @@
   },
   "column.delete": {
     "handler": "deleteColumn",
-    "read": []
+    "read": [
+      "object_id",
+      "parent_id"
+    ]
+  },
+  "column.duplicate": {
+    "handler": "duplicateColumn",
+    "read": [
+      "fx_id",
+      "source_fx_id"
+    ]
   },
   "column.expose": {
     "handler": "exposeColumn",
     "read": []
+  },
+  "column.kinds": {
+    "handler": "columnKinds",
+    "read": [
+      "available",
+      "cell_tools",
+      "create_tool",
+      "create_toolset",
+      "creatable",
+      "delete_tool",
+      "duplicable",
+      "kind",
+      "movable",
+      "native_type",
+      "reason"
+    ]
+  },
+  "column.move": {
+    "handler": "moveColumns",
+    "read": [
+      "column_id",
+      "position_after",
+      "position_before",
+      "level_id"
+    ]
   },
   "column.update": {
     "handler": "updateColumn",
