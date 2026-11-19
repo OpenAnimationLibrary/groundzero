@@ -248,6 +248,10 @@ void recordPublicationIntent(Context& context, const QString& staged,
 // {root: workspace | input, path (root-relative), input_index, root_sha256
 // (of the canonical input root)}.
 QJsonObject packageLocation(const Context& context, const QString& absolute);
+// The location of `relative` in the granted output root `name`, its
+// root_sha256 that of the root's canonical path.
+QJsonObject outputLocation(const Context& context, const QString& name,
+                           const QString& relative);
 bool sameLocation(const QJsonObject& first, const QJsonObject& second);
 
 // The worker's journal, or null outside a worker.

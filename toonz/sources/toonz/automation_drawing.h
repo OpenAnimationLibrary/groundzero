@@ -18,6 +18,8 @@ qint64 automationRasterBytes(int width, int height);
 qint64 automationImageBytes(const TImageP& image);
 void requireAssetGrowth(ToonzScene& scene, qint64 additionalBytes,
                         int additionalDrawings = 0, int additionalLevels = 0);
+// The estimate of one drawing level: its palette and every drawing.
+qint64 automationLevelBytes(TXshSimpleLevel& level);
 
 // Rejects drawings and palette dependencies outside the admitted persistence
 // profile.

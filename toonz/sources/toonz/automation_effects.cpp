@@ -301,6 +301,15 @@ const QHash<QString, Declaration>& declarations() {
                     false},
         {"invalid_package", "package_limit", "package_read_failed",
          "unregistered_package"}}},
+      {"scene.save_preflight",
+       {ToolEffects{"read",
+                    "reads",
+                    {"reads_roots", "reads_private", "reads_output_roots"},
+                    "none",
+                    {},
+                    false},
+        {"invalid_path", "path_denied", "root_unavailable", "stale_revision",
+         "unsupported_target"}}},
       {"scene.save_copy",
        {kExport,
         {"already_exists", "empty_level", "invalid_package", "missing_drawing",
@@ -388,7 +397,8 @@ QJsonArray grants(const ToolEffects& effects) {
   static const QSet<QString> drafting{"writes", "creates", "discards"};
   if (drafting.contains(effects.document)) result.append("draft");
   if (effects.files.contains("writes_caller_path") ||
-      effects.files.contains("writes_shared_roots"))
+      effects.files.contains("writes_shared_roots") ||
+      effects.files.contains("writes_output_roots"))
     result.append("file");
   if (effects.job == "starts" || effects.job == "controls")
     result.append("job");
@@ -620,10 +630,10 @@ QJsonObject strictObject(const QJsonObject& properties) {
 }
 
 QJsonObject effectsSchema() {
-  const QStringList files{"reads_roots",        "reads_shared_roots",
-                          "reads_application",  "reads_private",
-                          "writes_private",     "writes_caller_path",
-                          "writes_shared_roots"};
+  const QStringList files{
+      "reads_roots",         "reads_shared_roots", "reads_application",
+      "reads_private",       "writes_private",     "writes_caller_path",
+      "writes_shared_roots", "reads_output_roots", "writes_output_roots"};
   const QStringList processes{"parse_helper", "media_tools", "neural_helper",
                               "scene_host"};
   const QStringList grants{"inspect", "draft",        "file",
@@ -633,7 +643,7 @@ QJsonObject effectsSchema() {
                              "job_start", "job_control", "session"})},
        {"document", enumSchema({"none", "reads", "writes", "creates",
                                 "opens_read_only", "discards"})},
-       {"files", arraySchema(enumSchema(files), 0, 7)},
+       {"files", arraySchema(enumSchema(files), 0, 9)},
        {"job", enumSchema({"none", "starts", "controls", "reads"})},
        {"processes", arraySchema(enumSchema(processes), 0, 4)},
        {"overwrites", QJsonObject{{"type", "boolean"}}},

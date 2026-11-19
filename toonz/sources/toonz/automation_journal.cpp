@@ -1338,6 +1338,12 @@ QJsonObject packageLocation(const Context& context, const QString& absolute) {
               "A package path lies outside every root of this worker.");
 }
 
+QJsonObject outputLocation(const Context& context, const QString& name,
+                           const QString& relative) {
+  return location(name, relative, QJsonValue(),
+                  rootDigest(context.outputRoots.value(name).path));
+}
+
 bool sameLocation(const QJsonObject& first, const QJsonObject& second) {
   return first.value("root") == second.value("root") &&
          first.value("path") == second.value("path") &&

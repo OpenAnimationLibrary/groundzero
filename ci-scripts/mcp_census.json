@@ -840,6 +840,11 @@
    "toolset": "core",
    "writes": true
   },
+  "scene.save_preflight": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
   "scene.settings": {
    "origin": "worker",
    "toolset": "core",
@@ -1267,6 +1272,18 @@
    "classification": "exposed",
    "tools": [
     "scene.dependencies"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.collection_preflight",
+   "domain": "Projects and scenes",
+   "outcome": "Plan saving an editable document as a package: every check the save runs, where each dependency goes, an upper bound of its size and what it leaves out, writing nothing.",
+   "classification": "exposed",
+   "tools": [
+    "scene.save_preflight"
    ],
    "disposition": {
     "kind": "implemented"

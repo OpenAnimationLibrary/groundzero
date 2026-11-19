@@ -533,6 +533,18 @@
       "root_sha256"
     ]
   },
+  "scene.save_preflight": {
+    "handler": "savePreflight",
+    "read": [
+      "availability",
+      "coded_path",
+      "owner_id",
+      "owner_kind",
+      "package_path",
+      "role",
+      "source"
+    ]
+  },
   "scene.settings": {
     "handler": "updateSettings",
     "read": []

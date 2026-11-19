@@ -72,6 +72,10 @@ void publishStaged(Context& context, const QString& staged, const QString& path,
                    const QString& failureCode, const QString& failureMessage,
                    const QJsonObject& intent = {});
 
+// Whether a publication into the volume with device number `volume` was
+// refused as publication_unsupported earlier in this process.
+bool exclusivePublicationRefused(qint64 volume);
+
 // An error of a staged write: details.stage names the step that failed,
 // details.file the staged file (relative to the staged folder) or null, and
 // details.published whether anything appeared at the destination.

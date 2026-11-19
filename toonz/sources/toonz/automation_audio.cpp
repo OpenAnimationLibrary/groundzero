@@ -1162,16 +1162,11 @@ void muteAutomationSound(ToonzScene& scene) {
 
 namespace {
 
-QString assetPath(int index, const TXshSoundLevel& level) {
-  return "assets/sound-" + QString::number(index) + "." +
-         QString::fromStdString(level.getPath().getType());
-}
-
 QJsonObject soundEntry(ToonzScene& scene, int index, TXshSoundLevel& level,
                        const QString& directory) {
   QByteArray bytes;
   const QJsonObject meta = verifiedSource(scene, level, &bytes);
-  const QString relative = assetPath(index, level);
+  const QString relative = automationSoundPackagePath(index, level);
   writeFile(QDir(directory).absoluteFilePath(relative), bytes);
   const TSoundTrackP track = level.getSoundTrack();
   return {{"name", QString::fromStdWString(level.getName())},
@@ -1268,6 +1263,11 @@ QJsonArray missingAutomationSounds(ToonzScene& scene) {
   return missing;
 }
 
+QString automationSoundPackagePath(int index, const TXshSoundLevel& level) {
+  return "assets/sound-" + QString::number(index) + "." +
+         QString::fromStdString(level.getPath().getType());
+}
+
 QJsonObject writeAutomationSounds(ToonzScene& scene, const QString& directory) {
   QJsonArray sounds;
   for (const auto& source : soundSources(scene))
@@ -1313,7 +1313,8 @@ AutomationSoundPaths::AutomationSoundPaths(ToonzScene& scene) {
     TXshSoundLevel* level = source.second;
     m_paths.emplace_back(level, level->getPath());
     level->setPath(TFilePath(
-        ("$scenefolder/" + assetPath(source.first, *level)).toStdWString()));
+        ("$scenefolder/" + automationSoundPackagePath(source.first, *level))
+            .toStdWString()));
   }
 }
 

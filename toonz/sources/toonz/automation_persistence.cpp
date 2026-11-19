@@ -10,6 +10,7 @@
 #include "automation_drawing.h"
 #include "automation_fx.h"
 #include "automation_macro.h"
+#include "automation_package.h"
 #include "automation_storyboard.h"
 
 #include "timage.h"
@@ -48,10 +49,8 @@
 namespace GroundzeroAutomation {
 namespace {
 
-constexpr int MaxLevels          = 256;
-constexpr int MaxDrawings        = 4096;
-constexpr int MaxFiles           = 8192;
-constexpr qint64 MaxPackageBytes = 256 * 1024 * 1024;
+constexpr int MaxLevels   = 256;
+constexpr int MaxDrawings = 4096;
 
 struct Package final {
   QJsonObject manifest;
@@ -76,7 +75,7 @@ bool isPackageRelativePath(const QString& relative) {
 
 bool isOwnedPackageFile(const QFileInfo& info, const QString& path) {
   return info.canonicalFilePath() == QDir::cleanPath(path) && info.isFile() &&
-         !info.isSymLink() && info.size() <= MaxPackageBytes;
+         !info.isSymLink() && info.size() <= PackageMaxBytes;
 }
 
 QByteArray readRegularFile(const QString& directory, const QString& relative) {
@@ -90,7 +89,7 @@ QByteArray readRegularFile(const QString& directory, const QString& relative) {
   if (openApprovedFile(file, path) != OpenResult::Opened)
     throw Error("package_read_failed", "Cannot open a package file.",
                 {{"file", relative}});
-  const QByteArray bytes = file.read(MaxPackageBytes + 1);
+  const QByteArray bytes = file.read(PackageMaxBytes + 1);
   if (file.error() != QFileDevice::NoError || bytes.size() != info.size())
     throw Error("package_read_failed", "Cannot read a complete package file.",
                 {{"file", relative}});
@@ -114,11 +113,11 @@ QJsonArray fileManifest(const QString& directory) {
   while (iterator.hasNext()) {
     const QString path     = iterator.next();
     const QString relative = QDir(directory).relativeFilePath(path);
-    if (result.size() >= MaxFiles)
+    if (result.size() >= PackageMaxFiles)
       throw Error("package_limit", "The package contains too many files.");
     const QByteArray bytes = readRegularFile(directory, relative);
     totalBytes += bytes.size();
-    if (totalBytes > MaxPackageBytes)
+    if (totalBytes > PackageMaxBytes)
       throw Error("package_limit", "The package exceeds 256 MiB.");
     result.append(QJsonObject{{"path", relative},
                               {"size_bytes", double(bytes.size())},
@@ -153,15 +152,6 @@ void verifyFiles(const QString& directory, const Package& package) {
                   "The package contains an unrecorded file.");
   if (!expected.isEmpty())
     throw Error("invalid_package", "The package is missing a recorded file.");
-}
-
-QString levelPath(int index, int type) {
-  const QString prefix = "assets/level-" + QString::number(index);
-  if (type == PLI_XSHLEVEL) return prefix + ".pli";
-  if (type == TZP_XSHLEVEL) return prefix + ".tlv";
-  if (type == OVL_XSHLEVEL) return prefix + "..png";
-  throw Error("unsupported_level",
-              "Only vector, Toonz raster, and RGBA drawings can be saved.");
 }
 
 QJsonArray frameManifest(TXshSimpleLevel& level) {
@@ -288,7 +278,7 @@ QJsonArray writeLevels(const Context& context, ToonzScene& scene,
   for (int index = 0; index < levels->getLevelCount(); ++index) {
     TXshSimpleLevel* level = levels->getLevel(index)->getSimpleLevel();
     if (!level) continue;  // Sound sources are copied by writeAutomationSounds.
-    const QString relative = levelPath(index, level->getType());
+    const QString relative = packageLevelPath(index, level->getType());
     const QString file     = QDir(directory).absoluteFilePath(relative);
     step                   = {"level", relative};
     writeLevel(*level, file, frameRate);
@@ -340,7 +330,7 @@ public:
     for (const Entry& entry : m_paths) {
       TXshSimpleLevel* level = entry.level;
       const QString path =
-          "$scenefolder/" + levelPath(entry.index, level->getType());
+          "$scenefolder/" + packageLevelPath(entry.index, level->getType());
       level->setPath(TFilePath(path.toStdWString()), true);
       *level->getProperties() = entry.properties;
       if (level->getType() != PLI_XSHLEVEL) {
@@ -894,6 +884,15 @@ QJsonObject textSchema() { return {{"type", "string"}, {"minLength", 1}}; }
 
 }  // namespace
 
+QString packageLevelPath(int index, int type) {
+  const QString prefix = "assets/level-" + QString::number(index);
+  if (type == PLI_XSHLEVEL) return prefix + ".pli";
+  if (type == TZP_XSHLEVEL) return prefix + ".tlv";
+  if (type == OVL_XSHLEVEL) return prefix + "..png";
+  throw Error("unsupported_level",
+              "Only vector, Toonz raster, and RGBA drawings can be saved.");
+}
+
 void validateAutomationScene(ToonzScene& scene) {
   validateAutomationFxGraph(scene);
   validateAutomationPaths(scene);
@@ -940,7 +939,7 @@ QJsonArray persistenceOperations() {
       {{"document_id", textSchema()}, {"directory", textSchema()}},
       {"document_id", "directory"}, true);
   return {
-      save,
+      save, savePreflightOperation(),
       operation("scene.open",
                 "Open an unchanged package published by this running worker.",
                 {{"path", textSchema()}}, {"path"}, true),
@@ -952,6 +951,7 @@ QJsonArray persistenceOperations() {
 QJsonValue executePersistence(Context& context, const QString& method,
                               const QJsonObject& params) {
   if (method == "scene.save_copy") return saveCopy(context, params);
+  if (method == "scene.save_preflight") return savePreflight(context, params);
   if (method == "scene.open") return openPackage(context, params);
   if (method == "scene.package_info") {
     const Admission admission = admitPackage(context, params);

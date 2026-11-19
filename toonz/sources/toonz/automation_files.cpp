@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QSet>
 
 #include <chrono>
 #include <cstdlib>
@@ -773,6 +774,30 @@ bool writeFaultFires(const Context& context, const char* point) {
 #endif
 }
 
+namespace {
+
+QSet<qint64>& refusedVolumes() {
+  static QSet<qint64> volumes;
+  return volumes;
+}
+
+qint64 volumeOf(const QString& directory) {
+#ifdef _WIN32
+  Q_UNUSED(directory);
+  return -1;
+#else
+  struct stat info{};
+  if (::stat(QFile::encodeName(directory).constData(), &info) != 0) return -1;
+  return qint64(info.st_dev);
+#endif
+}
+
+}  // namespace
+
+bool exclusivePublicationRefused(qint64 volume) {
+  return refusedVolumes().contains(volume);
+}
+
 void publishStaged(Context& context, const QString& staged, const QString& path,
                    const QString& failureCode, const QString& failureMessage,
                    const QJsonObject& intent) {
@@ -794,6 +819,9 @@ void publishStaged(Context& context, const QString& staged, const QString& path,
     break;
   case PublishResult::Unsupported:
     context.resetMutationStarted();
+    if (const qint64 volume = volumeOf(QFileInfo(path).absolutePath());
+        volume >= 0)
+      refusedVolumes().insert(volume);
     throw Error("publication_unsupported",
                 "This file system can neither create a name exclusively nor "
                 "hard-link a finished file to it, so the output would risk "

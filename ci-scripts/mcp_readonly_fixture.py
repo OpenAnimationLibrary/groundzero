@@ -128,9 +128,15 @@ def require_redirect(case: NativeAcceptance, worker: Worker, temporary: Path) ->
         case.assertIn(f"TMPDIR={temporary}", _redirected(pid))
 
 
+def output_root(case: NativeAcceptance) -> Path:
+    """The output root `renders` the fixture's worker is granted."""
+    return (case.directory / "out-renders").resolve()
+
+
 def _start_worker(case: NativeAcceptance, shared: dict[str, Path], temporary: Path) -> Worker:
     case.worker.close()
     temporary.mkdir()
+    output_root(case).mkdir()
     variables = {"TMPDIR": str(temporary), "TMP": str(temporary), "TEMP": str(temporary)}
     with mock.patch.dict(os.environ, variables):
         worker = Worker(
@@ -140,6 +146,7 @@ def _start_worker(case: NativeAcceptance, shared: dict[str, Path], temporary: Pa
             case.directory / "readonly.stderr.log",
             shared_roots=shared,
             shared_write=("library",),
+            test_arguments=("--output-root", f"renders={output_root(case)}"),
         )
     case.addCleanup(worker.close)
     case.worker = worker
@@ -352,6 +359,7 @@ def build(case: NativeAcceptance) -> Fixture:
     read_only = _read_only_documents(case, worker, ids)
     roots: dict[str, Any] = {"workspace": case.workspace, "inputs": case.inputs, **shared}
     roots["temporary"] = temporary
+    roots["renders"] = output_root(case)
     user = user_level_directories()
     fixture = Fixture(case, worker, roots, document, reopened, bare, ids, package, copied)
     fixture.read_only = read_only

@@ -98,6 +98,10 @@ void muteAutomationSound(ToonzScene& scene);
 //   object when the scene has no sound.
 QJsonObject writeAutomationSounds(ToonzScene& scene, const QString& directory);
 
+// Where writeAutomationSounds copies the sound source at cast index `index`,
+// relative to the package directory.
+QString automationSoundPackagePath(int index, const TXshSoundLevel& level);
+
 // List the sound sources whose private copy a render snapshot could not read.
 //
 // A snapshot copies every sound source of the scene, exposed or not, after

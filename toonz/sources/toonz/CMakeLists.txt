@@ -217,6 +217,7 @@ set(HEADERS
     automation_containment.h
     automation_ownership.h
     automation_files.h
+    automation_package.h
     automation_production.h
     automation_scene_check.h
     automation_assistance.h
@@ -333,6 +334,7 @@ set(SOURCES
     automation_runtime.cpp
     automation_shutdown.cpp
     automation_persistence.cpp
+    automation_preflight.cpp
     automation_production.cpp
     automation_scene_check.cpp
     automation_assistance.cpp

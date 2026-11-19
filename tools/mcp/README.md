@@ -501,6 +501,31 @@ native representations, not bitwise copies of in-memory drawings. Saved raster
 levels use explicit custom DPI to preserve authored physical size, including
 fractional DPI that PNG metadata alone cannot represent exactly.
 
+`scene.save_preflight` plans the same save without writing anything. It takes
+`document_id`, `expected_revision`, `directory` (a workspace path, or a path relative
+to an output root named by `root`) and `offset`/`limit` (default 64, at most 128) for
+the dependency page. All ten checks run, in order, each `{name, state: pass | fail |
+unknown, code, detail}`: `document` (the save's scene validation), `root`, `path` (no
+link or case variant on the way), `parent` (exists, is a directory, writable),
+`collision` (the destination is absent now), `filesystem` (whether the volume renames
+without replacing: `unknown` when not known in advance, a failure after a refused
+publication on that volume, and a failure for a workspace destination on another
+volume), `space` (free bytes at least the upper bound plus 64 MiB), `size` (at most
+8,192 files; `unknown` when only the upper bound exceeds 256 MiB), `journal` (the package
+will be registered) and `external_paths` (no dependency keeps a path outside the
+package). A failing check is a result: `ready` is false and `first_failure` names it.
+`plan` gives the `location`, `staging` (`private_rename` in the workspace,
+`private_then_copy` in an output root), `save_mode: self_contained`, `files_estimate`,
+`bytes_estimate {upper_bound, known_bytes, encoded_bytes_bound}`, `free_bytes` and
+`same_volume_as_workspace`. The bound adds the copied sound files' sizes to the native
+drawing estimate plus 4 KiB per file and allowances for the scene file, hooks and
+manifest; it is never below what the save writes. `items` lists each dependency with
+its `package_path` and `source` (`memory`, `private_copy` or `not_packaged`), and
+`not_contained` the fixed list of what a package never holds. The preflight does not
+reserve the destination: the save checks the revision and refuses a destination that
+appeared since. A read-only document is refused as `unsupported_target`
+(`details.reason: read_only_document`, `details.next: scene.import_plan`).
+
 The `shared-library` toolset reads granted shared roots and never writes to them.
 `shared.roots` reports each role's grant, availability and native layout.
 `studio_palette.list` pages one folder (at most 8192 entries, 256 per page):
@@ -1077,7 +1102,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (117):
+- `core` toolset (118):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -1100,12 +1125,12 @@ the adapter and the live editor bridge add the rest.
   `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
   `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
   `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
-  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
-  `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
-  `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`, `vector.inspect`,
-  `vector.opacity.inspect`, `vector.opacity.profile.set`, `vector.opacity.set`,
-  `vector.order.move`, `vector.select`, `vector.structure`, `vector.text.create`,
-  `vector.transform`
+  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.save_preflight`,
+  `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`,
+  `tool.describe`, `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
+  `vector.inspect`, `vector.opacity.inspect`, `vector.opacity.profile.set`,
+  `vector.opacity.set`, `vector.order.move`, `vector.select`, `vector.structure`,
+  `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
