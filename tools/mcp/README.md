@@ -68,16 +68,46 @@ grant for a configured role; the current tools only read. The worker never uses
 the editor's own STUDIOPALETTE or LIBRARY folders. Without a grant, the tools
 stay listed and return `root_unavailable`.
 
+What a session may do is fixed at launch, with no prompts and no tool that changes
+it. `--grants LIST` names grant classes, comma-separated:
+
+- `inspect`: reads, `scene.open_read_only`, discarding a read-only document, and
+  job reads (`job.status`, `job.list`, `job.result`). Always required.
+- `draft`: create, change and discard editable documents, including the private
+  copies imports make in the workspace.
+- `file`: write a new file or directory at a path the caller names
+  (`scene.save_copy`, `raster.export_png`, `audio.mixdown`, `fx.preset.save`).
+- `job`: start or cancel jobs: renders, neural previews and analysis jobs.
+
+`--domains LIST` names the toolsets the session may use, or `all`; `core` is always
+granted. The defaults, `--grants inspect,draft,file,job --domains all`, are the
+full authority, so the configuration above needs neither option. For example,
+`--grants inspect --domains core` gives a review session that can open scenes
+read-only, read them and read jobs, and nothing more. Each tool needs the grants
+its effect declaration lists (`tool.describe`); a call outside them returns
+`grant_denied`, whose details give the `tool`, the classes it is `missing`, its
+`domain`, and the session's `granted` classes and `granted_domains`. Nothing is
+recorded for a denied call: no receipt, no revision change, no file. An unknown
+class, a list without `inspect`, a repeated name, `all` with other names, or a
+repeated option stops the adapter at startup; an unknown toolset name stops the
+worker, so the first tool call reports `WORKER_UNAVAILABLE`.
+`automation.capabilities` returns the session's `authority`: its grants and
+domains, the workspace, input roots, shared roots and media tools, and their
+SHA-256 `digest`. Write receipts are bound to that digest.
+
 Native tools are grouped into toolsets, so a session only carries the tool
 definitions it needs. The `core` toolset is always enabled. Add others at launch
-with `--toolsets audio,rigging`, or use `--toolsets all`. Unknown names stop the
-adapter at startup. During a session:
+with `--toolsets audio,rigging`, or use `--toolsets all` for every granted toolset.
+Unknown names, and toolsets outside `--domains`, stop the adapter at startup.
+During a session:
 
-- `toolsets.list` reports each toolset, what it covers, its tool count and
-  whether it is enabled.
+- `toolsets.list` reports each toolset, what it covers, its tool count, whether
+  the launch grants it and whether it is enabled.
 - `toolsets.enable` and `toolsets.disable` take `{"names": [...]}`. They change
   the advertised tool list and send `notifications/tools/list_changed`. Both are
-  idempotent, and `core` cannot be disabled.
+  idempotent, and `core` cannot be disabled. Enabling a toolset outside
+  `--domains` returns `GRANT_REQUIRED`, naming them in its details' `toolsets`, and
+  changes nothing.
 - Calling a tool whose toolset is disabled returns `TOOLSET_DISABLED`, with the
   toolset in `details.toolset`. Nothing reaches the worker.
 - A session exposes at most 256 native tools. A request that would exceed this
@@ -729,7 +759,8 @@ node /opt/groundzero-mcp/dist/cli.js \
 The adapter starts a non-GUI connector to the selected editor. Native code checks
 the session-file security and operating-system peer identity before authenticating.
 Live attachment excludes `--workspace`, `--input-root`, `--media-tools`,
-`--shared-root`, and `--shared-write`.
+`--shared-root`, `--shared-write`, `--toolsets`, `--grants` and `--domains`; the
+editor's own `inspect` or `edit` mode is the live grant.
 
 The editor and the connector must be the same build. The session file, the
 authentication and the editor's hello carry the bridge protocol
