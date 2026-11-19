@@ -732,6 +732,7 @@
       "found",
       "input_index",
       "kind",
+      "location",
       "outputs_present",
       "path",
       "reconciled",
