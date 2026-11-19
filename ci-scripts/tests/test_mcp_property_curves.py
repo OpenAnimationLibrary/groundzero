@@ -12,7 +12,7 @@ from mcp_property_curves import Key
 
 
 def rich() -> dict[int, Key]:
-    """Speed, ease, linear, constant and linear segments, the analytic curve of the animation cases."""
+    """Speed, ease, linear, constant and linear segments of the animation cases."""
     keys = [
         Key(0, 0, "speed_in_out", 1, ("none",), ("speed", 4, 0)),
         Key(12, 120, "ease_in_out", 1, ("speed", -4, -24), ("ease", 3), linked=False),

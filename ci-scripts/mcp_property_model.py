@@ -64,7 +64,6 @@ RETIME_KINDS = (
     "roll_up",
     "roll_down",
     "repeat",
-    "time_stretch",
 )
 SUFFIXES = ("", "a", "b", "ab", "zz", "abcdefgh")
 NAME_ALPHABET = "abcXYZ019 _-.<>&\"'中é "
@@ -458,12 +457,14 @@ def _locked(scene: Scene, names: list[str]) -> bool:
 
 
 def _rows_of(scene: Scene, name: str) -> sheet.Rows:
-    return sheet.to_rows(scene.column(name).cells)
+    rows = sheet.to_rows(scene.column(name).cells)
+    return [None if cell is None else (cell[0], cell[1][0], cell[1][1]) for cell in rows]
 
 
 def _store(scene: Scene, changes: dict[str, sheet.Rows]) -> None:
     for name, rows in changes.items():
-        scene.column(name).cells = sheet.to_cells(rows)
+        cells = sheet.to_cells(rows)
+        scene.column(name).cells = {row: (c[0], (c[1], c[2])) for row, c in cells.items()}
 
 
 def _run_choice(rng: random.Random, scene: Scene) -> dict[str, Any]:
@@ -615,12 +616,11 @@ def _operation_choice(rng: random.Random, start: int, length: int) -> dict[str, 
     if kind in ("step", "each"):
         operation["factor"] = rng.randint(2, 4)
     if kind == "reframe":
-        operation.update(step=rng.randint(1, 4), blank_entries="keep", inserted_blank_steps=0)
-        operation["extend_over_hold"] = False
+        drop = rng.random() < 0.5
+        operation.update(step=rng.randint(1, 4), blank_entries="drop" if drop else "keep")
+        operation.update(inserted_blank_steps=0, extend_over_hold=rng.random() < 0.4)
     if kind == "repeat":
         operation["until_frame"] = start + length - 1 + rng.randint(-1, 6)
-    if kind == "time_stretch":
-        operation["new_length"] = rng.randint(1, 8)
     return operation
 
 
@@ -1075,6 +1075,19 @@ OPERATIONS: dict[str, Operation] = {
 # the reason. Generated sequences never call them, so nothing here is checked by the model:
 # their own cases are their only evidence until an operation replaces the entry.
 NOT_MODELLED: dict[str, str] = {}
+
+
+# Retime variants of a modelled tool that no generated step asks for, each with the reason.
+NOT_MODELLED_KINDS: dict[str, str] = {
+    "cells.retime/time_stretch": (
+        "the rows after a stretch are not a function of the definition: stretching drawings 1 to "
+        "5 over 6 rows leaves a blank in row 1, and squeezing them to 2 rows shows 1 and 4"
+    ),
+    "cells.retime/reframe with inserted_blank_steps": (
+        "kept blank entries make the tool refuse (inconsistent_reframe); with them dropped the "
+        "blank rows it adds were not probed"
+    ),
+}
 
 
 def generate(seed: int, length: int) -> list[Step]:

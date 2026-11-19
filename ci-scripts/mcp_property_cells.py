@@ -10,13 +10,13 @@ Retime kinds, with an interval `s` of rows:
 - reverse: the rows in the opposite order.
 - swing: `s`, then the rows of `s` backwards without its last row repeated: a b c is a b c b a.
 - step n: every row n times. each n: every n-th row from the first (a b c d e, each 2: a c e).
-- reframe: the distinct neighbours of the interval, each shown for `step` rows.
+- reframe: the distinct neighbours of the interval, each shown for `step` rows; with
+  `blank_entries` drop the blank entries are left out. With `extend_over_hold` the interval
+  first grows over the rest of the hold its last row belongs to.
 - increase_step, decrease_step: every drawing's hold one row longer, or one shorter (at least
   one); blanks are left as they are. reset_step: every hold, blanks too, one row.
 - roll_up: the first row moves to the end; roll_down: the last row moves to the start.
 - repeat: the interval's rows over and over until the row `until_frame`, inserted.
-- time_stretch: the interval re-sampled to `new_length` rows, row i showing source row
-  floor(i * length / new_length).
 """
 
 from __future__ import annotations
@@ -138,8 +138,11 @@ def _each(segment: Rows, factor: int) -> Rows:
     return segment[::factor]
 
 
-def _stretch(segment: Rows, new_length: int) -> Rows:
-    return [segment[index * len(segment) // new_length] for index in range(new_length)]
+def _reframed(segment: Rows, operation: dict[str, Any]) -> Rows:
+    entries = [cell for cell, _ in _runs(segment)]
+    if operation.get("blank_entries") == "drop":
+        entries = [cell for cell in entries if cell is not None]
+    return [cell for cell in entries for _ in range(operation["step"])]
 
 
 def _repeat(segment: Rows, copies: int) -> Rows:
@@ -151,7 +154,7 @@ RETIMES: dict[str, Callable[[Rows, dict[str, Any]], Rows]] = {
     "swing": lambda segment, op: segment + segment[-2::-1],
     "step": lambda segment, op: [cell for cell in segment for _ in range(op["factor"])],
     "each": lambda segment, op: _each(segment, op["factor"]),
-    "reframe": lambda segment, op: [cell for cell, _ in _runs(segment) for _ in range(op["step"])],
+    "reframe": _reframed,
     "increase_step": lambda segment, op: [
         cell for cell, size in _runs(segment) for _ in range(size if cell is None else size + 1)
     ],
@@ -164,7 +167,6 @@ RETIMES: dict[str, Callable[[Rows, dict[str, Any]], Rows]] = {
     "roll_up": lambda segment, op: segment[1:] + segment[:1],
     "roll_down": lambda segment, op: segment[-1:] + segment[:-1],
     "repeat": lambda segment, op: _repeat(segment, op["until_frame"] - op["start"] + 1),
-    "time_stretch": lambda segment, op: _stretch(segment, op["new_length"]),
 }
 
 
@@ -173,8 +175,19 @@ def retimed(segment: Rows, operation: dict[str, Any]) -> Rows:
     return RETIMES[operation["kind"]](segment, operation)
 
 
+def held_length(rows: Rows, start: int, length: int) -> int:
+    """The interval's length grown over the hold that its last row belongs to."""
+    end = start + length
+    last = rows[end - 1] if end - 1 < len(rows) else None
+    while last is not None and end < len(rows) and rows[end] == last:
+        end += 1
+    return end - start
+
+
 def retime(rows: Rows, start: int, length: int, operation: dict[str, Any]) -> Rows:
     """Rows after a retime of an interval; the rows after it follow its new length."""
+    if operation.get("extend_over_hold"):
+        length = held_length(rows, start, length)
     rows = padded(list(rows), start + length)
     segment = retimed(rows[start : start + length], {**operation, "start": start})
     return trimmed(rows[:start] + segment + rows[start + length :])

@@ -116,6 +116,23 @@ class NotModelledTest(unittest.TestCase):
         missing = writing - self.requested() - set(model.NOT_MODELLED) - whole_curve
         self.assertEqual(missing, set(), "add an operation or a NOT_MODELLED entry with a reason")
 
+    def test_listed_retime_variants_are_never_generated(self) -> None:
+        seen = set()
+        for seed in range(1, 120):
+            for step in model.generate(seed, 24):
+                if step["op"] == "cells_retime":
+                    operation = step["args"]["operation"]
+                    seen.add(operation["kind"])
+                    self.assertEqual(
+                        operation["inserted_blank_steps"]
+                        if "inserted_blank_steps" in operation
+                        else 0,
+                        0,
+                    )
+        self.assertIn("cells.retime/time_stretch", model.NOT_MODELLED_KINDS)
+        self.assertEqual(seen - set(model.RETIME_KINDS), set())
+        self.assertEqual(set(model.RETIME_KINDS) - seen, set())
+
 
 class ExpectedTest(unittest.TestCase):
     def test_reopen_drops_trailing_empty_columns_only(self) -> None:

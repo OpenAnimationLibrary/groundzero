@@ -92,9 +92,18 @@ class RetimeTest(unittest.TestCase):
     def test_repeat_fills_to_the_row_and_inserts(self) -> None:
         self.assertEqual(retime([A, B, C], 0, 2, kind="repeat", until_frame=4), [A, B, A, B, A, C])
 
-    def test_time_stretch_resamples(self) -> None:
-        self.assertEqual(retime([A, B], 0, 1, kind="time_stretch", new_length=4), [A, A, A, A, B])
-        self.assertEqual(retime([A, B, C, D], 0, 4, kind="time_stretch", new_length=2), [A, C])
+    def test_reframe_extends_over_the_hold_the_interval_ends_in(self) -> None:
+        rows = [A, A, B, B, B, C, C]
+        self.assertEqual(
+            retime(
+                rows, 0, 4, kind="reframe", step=3, blank_entries="keep", extend_over_hold=False
+            ),
+            [A, A, A, B, B, B, B, C, C],
+        )
+        self.assertEqual(
+            retime(rows, 0, 4, kind="reframe", step=3, blank_entries="keep", extend_over_hold=True),
+            [A, A, A, B, B, B, C, C],
+        )
 
     def test_the_arguments_that_cannot_work_are_refused(self) -> None:
         self.assertEqual(
