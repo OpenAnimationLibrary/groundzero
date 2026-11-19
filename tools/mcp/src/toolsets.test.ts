@@ -1,5 +1,6 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { afterEach, expect, test, vi } from "vitest";
+import { outputSchema, sessionEffects } from "#mcp/declarations";
 import { createServer } from "#mcp/server";
 import { MAX_EXPOSED_TOOLS, TOOLSET_TOOLS } from "#mcp/toolsets";
 
@@ -9,6 +10,9 @@ function nativeTool(name: string) {
     description: `Native ${name}`,
     inputSchema: { type: "object", additionalProperties: false, properties: {} },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+    outputSchema: outputSchema({ type: "object" }),
+    effects: { ...sessionEffects("read"), document: "reads" },
+    errors: ["invalid_params"],
   };
 }
 
@@ -181,6 +185,28 @@ test.each([
   };
   const { client } = await session(undefined, catalog);
   await expect(names(client)).rejects.toMatchObject({ data: { code: "INVALID_CATALOG" } });
+});
+
+test("toolset tools are listed lean and described on request", async () => {
+  const { client } = await session();
+  const listed = (await client.listTools()).tools.filter((tool) =>
+    tool.name.startsWith("toolsets."),
+  );
+  expect(listed.map((tool) => tool.name)).toEqual(toolsetNames);
+  for (const tool of listed) {
+    expect(tool).not.toHaveProperty("outputSchema");
+    expect(tool).not.toHaveProperty("_meta");
+  }
+  expect(listed[0]?.annotations?.readOnlyHint).toBe(true);
+  for (const [name, args] of [
+    ["toolsets.list", {}],
+    ["toolsets.enable", { names: ["audio"] }],
+    ["toolsets.disable", { names: ["audio"] }],
+  ] as const) {
+    const result = await client.callTool({ name, arguments: args });
+    expect(result.isError).toBeUndefined();
+    expect(result._meta?.["groundzero/output_mismatch"]).toBeUndefined();
+  }
 });
 
 function toolsetState(configured: boolean, reasons: string[] = []) {

@@ -94,6 +94,35 @@ require an `operation_id`; changes to an existing document also require its late
 `expected_revision`. Keep the original operation ID when checking a retry within
 the same worker. Receipts and document handles expire when that worker exits.
 
+The tool list stays small: each tool carries its name, description, input schema
+and annotations. The annotations follow from the tool's effects: `readOnlyHint`
+for reads, `destructiveHint` for writes that can overwrite, `idempotentHint`
+always, and `openWorldHint: false` because no tool reaches a network or an outside
+service. `tool.describe` with `{"names": [...]}` (1 to 16 tool names, the toolset
+tools included) returns each tool's full declaration; `automation.capabilities`
+returns all of them at once. A declaration gives:
+
+- `effects`: the class (`read`, `document_write`, `document_lifecycle`,
+  `job_start`, `job_control` or `session`), the effect on documents, the files read
+  or written, the jobs and helper processes started, whether existing state can be
+  changed or removed (`overwrites`), and the grants needed. Writes keep no undo
+  history, never claim a rollback, replay their receipt on retry, keep the
+  revision on an exact no-op, and report `partially_applied` when they fail after
+  a change began.
+- `errors`: every error code the tool can return, the adapter's own included. An
+  unknown name returns `unknown_tool`, which lists the unknown names in its details.
+- `outputSchema`: the structured content (the result without its image) or the
+  error envelope `{error: {code, message, details}}` that every error result
+  carries, with messages of at most 2,048 characters.
+
+The adapter checks every successful result against its tool's output schema. A
+result that does not match is still returned, because its work may already have
+happened: the reply carries `_meta["groundzero/output_mismatch"]: true`, and the
+adapter writes one line to stderr naming the tool and the failing paths, never the
+values. Launched with `--strict-results`, as the acceptance tests do, the adapter
+instead returns `INVALID_RESULT` with the tool, `outcome` (`applied` for a write,
+`none` for a read), the `operation_id` and at most 16 failing paths.
+
 Workers retain up to 2,048 ordinary write receipts within a 64 MiB serialized
 budget. The first cancellation for each retained job, at most 64, has separate
 reserved receipt capacity, capped at 16 KiB per result. That cancellation
@@ -798,7 +827,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (112):
+- `core` toolset (113):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`, `animation.keys`,
   `animation.retime_curve`, `animation.sample`, `animation.set_keys`, `artifact.read`,
   `assistance.inspect`, `assistance.neural.preview`, `automation.capabilities`,
@@ -821,10 +850,10 @@ the adapter and the live editor bridge add the rest.
   `render.submit`, `runtime.inspect`, `scene.create`, `scene.dependencies`, `scene.discard`,
   `scene.inventory`, `scene.open`, `scene.open_read_only`, `scene.package_info`,
   `scene.save_copy`, `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`,
-  `text.fonts`, `vector.edit`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
-  `vector.inspect`, `vector.opacity.inspect`, `vector.opacity.profile.set`,
-  `vector.opacity.set`, `vector.order.move`, `vector.select`, `vector.structure`,
-  `vector.text.create`, `vector.transform`
+  `text.fonts`, `tool.describe`, `vector.edit`, `vector.fill`, `vector.group.create`,
+  `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
+  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
+  `vector.structure`, `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

@@ -1,5 +1,6 @@
 #include "automation_dispatch.h"
 #include "automation_drawing.h"
+#include "automation_effects.h"
 #include "automation_jobs.h"
 
 #include <QJsonDocument>
@@ -40,12 +41,17 @@ QJsonValue echoString(Context&, const QString&, const QJsonObject& params) {
   return params;
 }
 
+const ToolEffects fixtureRead{"read", "none", {}, "none", {}, false};
+const ToolEffects fixtureWrite{"document_write", "none", {}, "none", {}, false};
+
 QJsonArray unicodeOperations() {
-  return {operation("fixture.unicode", "Private Unicode length boundary",
-                    {{"value", QJsonObject{{"type", "string"},
-                                          {"minLength", 2},
-                                          {"maxLength", 2}}}},
-                    {"value"}, false)};
+  return {declaredTool(
+      operation("fixture.unicode", "Private Unicode length boundary",
+                {{"value",
+                  QJsonObject{
+                      {"type", "string"}, {"minLength", 2}, {"maxLength", 2}}}},
+                {"value"}, false),
+      fixtureRead)};
 }
 
 void unicodeBoundaries(Dispatcher& dispatcher) {
@@ -92,10 +98,9 @@ QJsonValue largeResult(Context&, const QString&, const QJsonObject&) {
 }
 
 QJsonArray boundaryOperations() {
-  QJsonObject descriptor =
-      operation("fixture.receipt", "Private receipt boundary", {}, {}, true);
-  descriptor.insert("mutates_document", false);
-  return {descriptor};
+  return {declaredTool(
+      operation("fixture.receipt", "Private receipt boundary", {}, {}, true),
+      fixtureWrite)};
 }
 
 void fillByteQuota(Dispatcher& dispatcher) {
@@ -200,7 +205,8 @@ QString bytePressure(Context& context, Dispatcher& dispatcher) {
 QJsonValue escapedCancellation(Context& context, const QString& method,
                                const QJsonObject& params) {
   QJsonObject response = executeJobs(context, method, params).toObject();
-  response.insert("error", QString(2048, QChar(1)));
+  response.insert("failure", QJsonObject{{"code", "padding"},
+                                         {"message", QString(2048, QChar(1))}});
   return response;
 }
 
@@ -222,7 +228,8 @@ void terminalPressure(Dispatcher& dispatcher, const QString& jobId) {
 QJsonValue oversizedCancellation(Context& context, const QString& method,
                                  const QJsonObject& params) {
   executeJobs(context, method, params);
-  throw Error("native_error", QString(32 * 1024, QChar(1)));
+  throw Error("native_error", "Cancellation failed after it began.",
+              {{"diagnostic", QString(32 * 1024, QChar(1))}});
 }
 
 QJsonValue oversizedResult(Context& context, const QString& method,
@@ -294,12 +301,14 @@ QJsonValue patternHandler(Context&, const QString&, const QJsonObject&) {
 }
 
 QJsonArray patternOperations() {
-  return {operation(
-      "fixture.pattern", "Private pattern boundary",
-      {{"suffix", QJsonObject{{"type", "string"}, {"pattern", "^[a-z]{0,8}$"}}},
-       {"revision",
-        QJsonObject{{"type", "string"}, {"pattern", "^(0|[1-9][0-9]*)$"}}}},
-      {"suffix"}, false)};
+  return {declaredTool(
+      operation("fixture.pattern", "Private pattern boundary",
+                {{"suffix",
+                  QJsonObject{{"type", "string"}, {"pattern", "^[a-z]{0,8}$"}}},
+                 {"revision", QJsonObject{{"type", "string"},
+                                          {"pattern", "^(0|[1-9][0-9]*)$"}}}},
+                {"suffix"}, false),
+      fixtureRead)};
 }
 
 void patternBoundaries(Dispatcher& dispatcher) {
@@ -435,11 +444,134 @@ void documentLimit(Context& context) {
   std::cout << "automation-dispatch-test: document limit PASS" << std::endl;
 }
 
+QJsonObject catalogEntry(const QJsonObject& capabilities, const QString& name) {
+  for (const QJsonValue& value : capabilities.value("tools").toArray())
+    if (value.toObject().value("name") == name) return value.toObject();
+  throw std::runtime_error("A worker operation is missing from the catalog");
+}
+
+bool refusedAs(const QJsonObject& descriptor, const QString& code,
+               const QString& phrase) {
+  try {
+    declaredTool(descriptor);
+  } catch (const Error& error) {
+    return error.code == code && error.message.contains(phrase);
+  }
+  return false;
+}
+
+void effectDeclarations(Context& context) {
+  Dispatcher dispatcher(context);
+  const QJsonObject capabilities =
+      result(dispatcher, "automation.capabilities", {});
+  checkResult(catalogEntry(capabilities, "automation.capabilities"),
+              capabilities);
+  checkResult(catalogEntry(capabilities, "automation.list_documents"),
+              result(dispatcher, "automation.list_documents", {}));
+  const QJsonObject described =
+      result(dispatcher, "tool.describe",
+             {{"names", QJsonArray{"scene.summary", "tool.describe"}}});
+  checkResult(catalogEntry(capabilities, "tool.describe"), described);
+  const QJsonObject summary =
+      described.value("tools").toArray().first().toObject();
+  require(
+      summary.value("name") == "scene.summary" &&
+          summary.value("outputSchema") ==
+              catalogEntry(capabilities, "scene.summary").value("outputSchema"),
+      "tool.describe did not return the catalog's declaration");
+  rejected(dispatcher, "tool.describe",
+           {{"names", QJsonArray{"scene.summary", "no.such.tool"}}},
+           "unknown_tool");
+  rejected(dispatcher, "tool.describe", {{"names", QJsonArray{}}},
+           "invalid_params");
+  QSet<QString> names;
+  for (const QJsonValue& value : capabilities.value("tools").toArray()) {
+    const QJsonObject tool = value.toObject();
+    names.insert(tool.value("name").toString());
+    require(!tool.contains("mutates_document"),
+            "Effect declarations replace mutates_document");
+  }
+  for (const QString& name : declaredToolNames())
+    require(names.contains(name),
+            "An effect declaration names no registered tool; remove its row");
+  for (const QString& name : outputSchemaNames())
+    require(names.contains(name),
+            "An output schema names no registered tool; remove its entry");
+  require(refusedAs(operation("fixture.undeclared", "Private", {}, {}),
+                    "internal_error", "add a row for it"),
+          "A tool without an effect declaration was registered");
+  require(refusedAs(operation("scene.summary", "Private", {}, {}, true),
+                    "internal_error", "needs a writing class"),
+          "A read declaration was accepted for a tool with receipts");
+  require(refusedAs(operation("automation.capabilities", "Private", {}, {}),
+                    "internal_error", "has no outputSchema"),
+          "A tool without an output schema was registered");
+  require(refusedAs(withOutputSchema(operation("scene.summary", "Private",
+                                               {{"document_id", QJsonObject{}}},
+                                               {"document_id"}),
+                                     QJsonObject{{"type", "object"}}),
+                    "internal_error", "keep one"),
+          "A tool published two output schemas");
+}
+
+QJsonValue strayField(Context&, const QString&, const QJsonObject&) {
+  return QJsonObject{{"value", 1}, {"stray", true}};
+}
+
+QJsonArray outputOperations() {
+  const QJsonObject success{
+      {"type", "object"},
+      {"additionalProperties", false},
+      {"required", QJsonArray{"value"}},
+      {"properties",
+       QJsonObject{{"value", QJsonObject{{"type", "integer"}}},
+                   {"operation_id", QJsonObject{{"type", "string"}}}}}};
+  return {
+      declaredTool(withOutputSchema(operation("fixture.output.read",
+                                              "Private output", {}, {}),
+                                    success),
+                   fixtureRead),
+      declaredTool(withOutputSchema(operation("fixture.output.write",
+                                              "Private output", {}, {}, true),
+                                    success),
+                   fixtureWrite)};
+}
+
+void outputSchemas(Dispatcher& dispatcher) {
+  rejected(dispatcher, "fixture.output.read", {}, "invalid_result");
+  rejected(dispatcher, "fixture.output.write", {{"operation_id", "stray"}},
+           "invalid_result");
+  const QJsonObject descriptor = outputOperations().first().toObject();
+  checkResult(descriptor, QJsonObject{{"value", 2}, {"image", "png"}});
+  bool refused = false;
+  try {
+    checkResult(descriptor, QJsonObject{{"value", 2.5}});
+  } catch (const Error& error) {
+    refused = error.code == "invalid_result";
+  }
+  require(refused, "A result outside its output schema was accepted");
+  const QString rocket = QString::fromUtf8("\xf0\x9f\x9a\x80");
+  const QString message =
+      errorObject(
+          Error("native_error", QString(2044, QChar('a')) + rocket.repeated(4)))
+          .value("message")
+          .toString();
+  require(
+      message.size() <= 2048 && QString::fromUtf8(message.toUtf8()) == message,
+      "An error message exceeded the envelope or split a character");
+}
+
 }  // namespace
 
 void runAutomationDispatcherTests(Context& context) {
   documentLimit(context);
   toolsetCatalog(context);
+  effectDeclarations(context);
+  {
+    Dispatcher dispatcher(context);
+    dispatcher.add(outputOperations(), strayField, "core");
+    outputSchemas(dispatcher);
+  }
   {
     Dispatcher dispatcher(context);
     dispatcher.add(patternOperations(), patternHandler, "core");

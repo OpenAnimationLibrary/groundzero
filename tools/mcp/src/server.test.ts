@@ -1,5 +1,6 @@
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { afterEach, expect, test, vi } from "vitest";
+import { ADAPTER_ERRORS, ERROR_ENVELOPE, outputSchema, sessionEffects } from "#mcp/declarations";
 import { WorkerError } from "#mcp/errors";
 import { createLiveServer, createServer } from "#mcp/server";
 import { TOOLSET_TOOLS } from "#mcp/toolsets";
@@ -17,7 +18,34 @@ const tool = {
       expected_revision: { type: "string" },
     },
   },
-  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    idempotentHint: true,
+    openWorldHint: false,
+  },
+};
+
+const renamed = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "revision"],
+  properties: { name: { type: "string" }, revision: { type: "string" } },
+};
+
+const declared = {
+  outputSchema: outputSchema(renamed),
+  effects: {
+    ...sessionEffects("read"),
+    class: "document_write",
+    document: "writes",
+    overwrites: true,
+    no_op: "revision_kept",
+    after_change_failure: "partially_applied",
+    retry: "receipt_replay",
+    grants: ["inspect", "draft"],
+  },
+  errors: ["invalid_params", "revision_conflict"],
 };
 
 const closers: (() => Promise<void>)[] = [];
@@ -39,19 +67,40 @@ async function connected(server: ReturnType<typeof createServer>): Promise<Clien
   return client;
 }
 
-async function session() {
+const describe = {
+  name: "tool.describe",
+  description: "Describe tools",
+  inputSchema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["names"],
+    properties: { names: { type: "array", items: { type: "string" }, maxItems: 16 } },
+  },
+  annotations: { ...tool.annotations, readOnlyHint: true, destructiveHint: false },
+  outputSchema: outputSchema({ type: "object" }),
+  effects: sessionEffects("read"),
+  errors: ["invalid_params", "unknown_tool"],
+};
+
+async function session(strict = false) {
   const request = vi.fn(async (method: string, params: Record<string, unknown> = {}) => {
     if (method === "automation.capabilities") {
       return {
         protocol_version: 3,
-        tools: [{ ...tool, mutates_document: true, toolset: "core" }],
-        toolsets: [{ name: "core", description: "Core tools", tools: [tool.name] }],
+        tools: [
+          { ...tool, ...declared, toolset: "core" },
+          { ...describe, toolset: "core" },
+        ],
+        toolsets: [{ name: "core", description: "Core tools", tools: [tool.name, describe.name] }],
       };
+    }
+    if (method === "tool.describe") {
+      return { tools: [{ name: tool.name, toolset: "core", ...declared }] };
     }
     return { name: params["name"], revision: "next" };
   });
   const close = vi.fn();
-  const client = await connected(createServer({ request, close }));
+  const client = await connected(createServer({ request, close }, ["core"], () => {}, strict));
   return { client, request, close };
 }
 
@@ -62,7 +111,107 @@ afterEach(async () => {
 test("advertises only tools implemented by the current native worker", async () => {
   const { client } = await session();
   const result = await client.listTools();
-  expect(result.tools).toEqual([tool, ...TOOLSET_TOOLS]);
+  expect(result.tools.map((entry) => entry.name)).toEqual([
+    tool.name,
+    describe.name,
+    ...TOOLSET_TOOLS.map((entry) => entry.name),
+  ]);
+});
+
+test("lists only name, description, input schema and annotations", async () => {
+  const { client } = await session();
+  const [listed] = (await client.listTools()).tools;
+  expect(listed).toEqual(tool);
+});
+
+test("describes native and toolset tools with the adapter's own error codes", async () => {
+  const { client, request } = await session();
+  const names = [tool.name, "toolsets.list"];
+  const result = await client.callTool({ name: describe.name, arguments: { names } });
+  expect(request).toHaveBeenLastCalledWith(describe.name, { names: [tool.name] });
+  const tools = (result.structuredContent as { tools: Record<string, unknown>[] }).tools;
+  expect(tools.map((entry) => entry["name"])).toEqual(names);
+  expect(tools[0]?.["errors"]).toEqual([...declared.errors, ...ADAPTER_ERRORS]);
+  expect(tools[0]?.["outputSchema"]).toEqual(declared.outputSchema);
+  expect(tools[1]?.["effects"]).toMatchObject({ class: "read", document: "none" });
+});
+
+test("returns a nonconforming result unchanged, flagged, with only its paths on stderr", async () => {
+  const { client, request } = await session();
+  await client.listTools();
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  request.mockResolvedValueOnce({ name: "Shot", revision: 7 } as never);
+  const args = { name: "Shot", operation_id: "rename-8", expected_revision: "epoch:6" };
+  const result = await client.callTool({ name: tool.name, arguments: args });
+  const lines = stderr.mock.calls.map(([line]) => String(line));
+  stderr.mockRestore();
+  expect(result.isError).toBeUndefined();
+  expect(result.structuredContent).toEqual({ name: "Shot", revision: 7 });
+  expect(result._meta).toEqual({ "groundzero/output_mismatch": true });
+  expect(lines).toEqual([
+    "groundzero-mcp: scene.rename result does not match its output schema at revision\n",
+  ]);
+});
+
+test("a strict session refuses nonconforming content and reports the applied write", async () => {
+  const { client, request } = await session(true);
+  await client.listTools();
+  request.mockResolvedValueOnce({ name: "Shot", revision: 7 } as never);
+  const args = { name: "Shot", operation_id: "rename-8", expected_revision: "epoch:6" };
+  const result = await client.callTool({ name: tool.name, arguments: args });
+  expect(result.isError).toBe(true);
+  expect(result.structuredContent).toMatchObject({
+    error: {
+      code: "INVALID_RESULT",
+      details: { tool: tool.name, outcome: "applied", operation_id: "rename-8" },
+    },
+  });
+  const issues = (result.structuredContent as { error: { details: { issues: string[] } } }).error
+    .details.issues;
+  expect(issues).toEqual(["revision"]);
+});
+
+test("names every failing path of a nonconforming result", async () => {
+  const { client, request } = await session(true);
+  await client.listTools();
+  request.mockResolvedValueOnce({ name: 4, revision: 7, stray: "x" } as never);
+  const args = { name: "Shot", operation_id: "rename-10", expected_revision: "epoch:6" };
+  const result = await client.callTool({ name: tool.name, arguments: args });
+  const details = (result.structuredContent as { error: { details: { issues: string[] } } }).error
+    .details;
+  expect(details.issues).toEqual(["(result)", "name", "revision"]);
+});
+
+test("error results conform to the error envelope of every output schema", async () => {
+  const { client, request } = await session();
+  request.mockRejectedValueOnce(new WorkerError("revision_conflict", "Scene changed", { a: 1 }));
+  const args = { name: "Shot", operation_id: "rename-9", expected_revision: "epoch:6" };
+  const failure = await client.callTool({ name: tool.name, arguments: args });
+  const invalid = await client.callTool({ name: tool.name, arguments: { name: 1 } });
+  for (const result of [failure, invalid]) {
+    expect(result.isError).toBe(true);
+    const content = result.structuredContent as { error: Record<string, unknown> };
+    expect(Object.keys(content)).toEqual(["error"]);
+    expect(Object.keys(content.error).sort()).toEqual(
+      [...ERROR_ENVELOPE.properties.error.required].sort(),
+    );
+  }
+});
+
+test.each([
+  { ...declared, outputSchema: { type: "array" } },
+  { ...declared, outputSchema: renamed },
+  { ...declared, outputSchema: { type: "object", oneOf: [renamed, renamed] } },
+  { ...declared, effects: undefined },
+  { ...declared, outputSchema: undefined },
+  { ...declared, errors: [] },
+  { ...declared, effects: { ...declared.effects, class: "writes_everything" } },
+])("rejects a catalog whose output schema or declarations are malformed", async (fields) => {
+  const tools = [{ ...tool, ...fields, toolset: "core" }];
+  await expectUnusableCatalog(
+    { protocol_version: 3, tools, toolsets: core([tool.name]) },
+    /^INVALID_CATALOG$/u,
+  );
 });
 
 test("passes operation identities unchanged to native mutations", async () => {
@@ -105,12 +254,19 @@ test("keeps native failures visible as tool errors", async () => {
 const core = (names: string[]) => [{ name: "core", description: "Core tools", tools: names }];
 
 test.each([
-  { protocol_version: 2, tools: [tool], toolsets: core([tool.name]) },
-  { protocol_version: 3, tools: [tool, tool], toolsets: core([tool.name]) },
+  { protocol_version: 1, tools: [{ ...tool, ...declared }], toolsets: core([tool.name]) },
+  {
+    protocol_version: 3,
+    tools: [
+      { ...tool, ...declared },
+      { ...tool, ...declared },
+    ],
+    toolsets: core([tool.name]),
+  },
   { protocol_version: 3, tools: [{ name: "missing-schema" }], toolsets: core(["missing-schema"]) },
   {
     protocol_version: 3,
-    tools: Array.from({ length: 1025 }, (_, i) => ({ ...tool, name: `tool.${i}` })),
+    tools: Array.from({ length: 1025 }, (_, i) => ({ ...tool, ...declared, name: `tool.${i}` })),
     toolsets: core(Array.from({ length: 1025 }, (_, i) => `tool.${i}`)),
   },
 ])("rejects an incompatible or malformed native catalog on first use", async (catalog) => {
@@ -120,6 +276,7 @@ test.each([
 test("compiles and rejects invalid native schemas before accepting tool calls", async () => {
   const invalid = {
     ...tool,
+    ...declared,
     inputSchema: { type: "object", properties: { name: { type: "not-a-schema-type" } } },
   };
   const catalog = { protocol_version: 3, tools: [invalid], toolsets: core([tool.name]) };

@@ -211,6 +211,7 @@ set(HEADERS
     automation_drawing_inspection.h
     automation_vector_opacity.h
     automation_dispatch.h
+    automation_effects.h
     automation_containment.h
     automation_ownership.h
     automation_files.h
@@ -305,6 +306,7 @@ set(SOURCES
     automation_files.cpp
     automation_error.cpp
     automation_dispatch.cpp
+    automation_effects.cpp
     automation_animation.cpp
     automation_path.cpp
     automation_audio.cpp
@@ -654,7 +656,7 @@ endif()
 set(OBJCSOURCES filebrowsermodel.cpp automation_activity.cpp)
 
 # Resource file(s)
-set(RESOURCES toonz.qrc)
+set(RESOURCES toonz.qrc automation_schemas.qrc)
 
 if(BUILD_ENV_MSVC)
     set(RC_FILE toonz.rc)

@@ -37,6 +37,8 @@ ENTRY_FIELDS = (
 NOOP_POLICIES = ("preserves", "rejects", "bumps")
 FILE_KINDS = ("file", "worker_state")
 OUTSIDE_KINDS = (*FILE_KINDS, "read_only_document")
+# Effects on a document that advance its revision when native state changes.
+ADVANCING_DOCUMENT_EFFECTS = ("writes", "creates", "discards")
 DOMAIN_ORDER = (
     "Scenes and levels",
     "Timeline and columns",
@@ -210,11 +212,11 @@ def check_live(matrix: dict[str, Any], capabilities: dict[str, Any]) -> list[str
     ]
     problems += [f"entry {name}: is not a writing tool" for name in sorted(primary - writing)]
     for name in sorted(writing & primary):
-        outside = tools[name].get("mutates_document", True) is False
+        outside = tools[name]["effects"]["document"] not in ADVANCING_DOCUMENT_EFFECTS
         kind = matrix["tools"][name]["kind"]
         if outside != (kind in OUTSIDE_KINDS):
             problems.append(
-                f"entry {name}: kind {kind} contradicts mutates_document in the catalog"
+                f"entry {name}: kind {kind} contradicts effects.document in the catalog"
             )
     return problems
 

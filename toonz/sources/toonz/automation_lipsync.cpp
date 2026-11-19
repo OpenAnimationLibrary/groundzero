@@ -736,7 +736,7 @@ QJsonObject importTool() {
                     {"expected_revision", revisionSchema()},
                     {"level_id", stringSchema(128)}},
                    {"document_id", "expected_revision", "level_id"});
-  QJsonObject descriptor = tool(
+  return tool(
       "lipsync.import",
       "Import a Papagayo DAT or Rhubarb TSV/JSON timing file as an immutable "
       "analysis after strict parsing.",
@@ -752,8 +752,6 @@ QJsonObject importTool() {
        {"frame_rate", rateSchema()},
        {"source_link", link}},
       {"operation_id", "path", "format", "shape_set"}, true);
-  descriptor.insert("mutates_document", false);
-  return descriptor;
 }
 
 QJsonObject applyTool() {

@@ -1823,12 +1823,10 @@ void rasterCatalog(QJsonArray& tools) {
       properties, {"document_id", "level_id", "drawing_id", "path", "dpi"},
       true));
   properties.remove("dpi");
-  auto exportOperation = operation(
+  tools.append(operation(
       "raster.export_png",
       "Write an RGBA8 drawing to a new workspace PNG artifact", properties,
-      {"document_id", "level_id", "drawing_id", "path"}, true);
-  exportOperation.insert("mutates_document", false);
-  tools.append(exportOperation);
+      {"document_id", "level_id", "drawing_id", "path"}, true));
 }
 
 QJsonObject inspectDrawing(Context&, Document& document,

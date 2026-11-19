@@ -1266,11 +1266,11 @@ QJsonArray authoringOperations() {
       QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 10000}};
   QJsonObject preset  = effect;
   preset["directory"] = stringSchema();
-  auto save = operation("fx.preset.save",
-                        "Publish a new native preset package; keep the "
-                        "document revision unchanged.",
-                        preset, {"document_id", "fx_id", "directory"}, true);
-  save["mutates_document"] = false;
+  const auto save =
+      operation("fx.preset.save",
+                "Publish a new native preset package; keep the "
+                "document revision unchanged.",
+                preset, {"document_id", "fx_id", "directory"}, true);
   return {
       operation("fx.rename", "Rename an admitted builtin effect.", rename,
                 {"document_id", "fx_id", "name"}, true),

@@ -26,6 +26,7 @@ import mcp_audio_cases
 import mcp_census_cases
 import mcp_color_composite_cases
 import mcp_curve_cases
+import mcp_declaration_cases
 import mcp_drawing_cases
 import mcp_edit_limit_cases
 import mcp_failure_cases
@@ -1224,6 +1225,13 @@ class NativeAcceptance(unittest.TestCase):
                     if "document_id" in schema["properties"]:
                         self.assertIn("expected_revision", schema["required"])
                 self.failure(tool["name"], {"unrecognized_acceptance_argument": True})
+        mcp_declaration_cases.descriptors_publish_declarations(self, tools)
+
+    def test_errors_are_declared(self) -> None:
+        mcp_declaration_cases.errors_are_declared(self)
+
+    def test_effect_declarations_match_behavior(self) -> None:
+        mcp_declaration_cases.effect_declarations_match_behavior(self)
 
     @worker_only("runs the native domain tests, which only the worker's --test-domains flag starts")
     def test_native_domain_regressions(self) -> None:

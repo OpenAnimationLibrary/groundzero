@@ -666,12 +666,11 @@ std::unique_ptr<ToonzScene> createRenderSnapshot(Context& context,
 }
 
 QJsonArray persistenceOperations() {
-  QJsonObject save = operation(
+  const QJsonObject save = operation(
       "scene.save_copy",
       "Save a new native scene package and independently decode every drawing.",
       {{"document_id", textSchema()}, {"directory", textSchema()}},
       {"document_id", "directory"}, true);
-  save.insert("mutates_document", false);
   return {
       save,
       operation("scene.open",

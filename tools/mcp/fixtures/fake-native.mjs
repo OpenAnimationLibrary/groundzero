@@ -1,4 +1,5 @@
 import { acceptControlChannel } from "#fixtures/control-channel";
+import { outputSchema } from "#mcp/declarations";
 import { appendFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,6 +9,20 @@ import { fileURLToPath } from "node:url";
 
 const object = { type: "object", additionalProperties: false };
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true };
+const effects = {
+  class: "read",
+  document: "none",
+  files: [],
+  job: "none",
+  processes: [],
+  overwrites: false,
+  undo: "none",
+  no_op: "not_applicable",
+  after_change_failure: "not_applicable",
+  rollback: "never_claimed",
+  retry: "repeat_safe",
+  grants: ["inspect"],
+};
 const tools = [
   {
     name: "probe.echo",
@@ -43,7 +58,14 @@ const tools = [
     description: "Exit without answering.",
     inputSchema: { ...object, properties: {} },
   },
-].map((tool) => ({ ...tool, annotations: readOnly, toolset: "core" }));
+].map((tool) => ({
+  ...tool,
+  annotations: readOnly,
+  outputSchema: outputSchema({ type: "object" }),
+  effects,
+  errors: ["invalid_params"],
+  toolset: "core",
+}));
 
 function respond(id, result) {
   process.stdout.write(JSON.stringify({ id, result }) + "\n");

@@ -147,8 +147,8 @@ export function bridgeResult(method, response) {
  *   executable: The absolute native executable the adapter launches.
  *   cli: The adapter entry point.
  * Returns:
- *   Adapter arguments enabling every toolset, with the grants passed on unchanged so the
- *   adapter alone validates them.
+ *   Adapter arguments enabling every toolset and strict result checks, with the grants
+ *   passed on unchanged so the adapter alone validates them.
  */
 export function adapterArguments(argv, executable, cli) {
   const [mode, ...grants] = argv;
@@ -157,7 +157,7 @@ export function adapterArguments(argv, executable, cli) {
     assert(!token.startsWith("-") || workerGrants.has(token), `Not a worker grant: ${token}`);
   }
   assert(executable && isAbsolute(executable), "GROUNDZERO_NATIVE_EXECUTABLE must be absolute");
-  return [cli, "--executable", executable, "--toolsets", "all", ...grants];
+  return [cli, "--executable", executable, "--toolsets", "all", "--strict-results", ...grants];
 }
 
 async function writeFrame(response) {

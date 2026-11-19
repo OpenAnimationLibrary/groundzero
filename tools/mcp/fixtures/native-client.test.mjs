@@ -163,7 +163,15 @@ test("passes worker grants to the adapter unchanged so it validates them alone",
     "/inputs",
   ];
   expect(adapterArguments(["--automation-worker", ...grants], "/bin/OpenToonz", "/cli.js")).toEqual(
-    ["/cli.js", "--executable", "/bin/OpenToonz", "--toolsets", "all", ...grants],
+    [
+      "/cli.js",
+      "--executable",
+      "/bin/OpenToonz",
+      "--toolsets",
+      "all",
+      "--strict-results",
+      ...grants,
+    ],
   );
 });
 

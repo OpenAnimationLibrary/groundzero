@@ -410,13 +410,12 @@ QJsonObject jobSummary(const QJsonObject& record) {
 
 QJsonArray jobOperations() {
   const QJsonObject job{{"job_id", jobIdSchema()}};
-  QJsonObject cancel = operation(
+  const QJsonObject cancel = operation(
       "job.cancel",
       "Request cancellation of a job and return its record; poll job.status "
       "until terminal. A job that ends completed despite the request reports "
       "cancellation.effective false.",
       job, {"job_id"}, true);
-  cancel.insert("mutates_document", false);
   QJsonObject result = job;
   result.insert("offset", boundedInteger(0, 65536));
   result.insert("limit", boundedInteger(1, 256));

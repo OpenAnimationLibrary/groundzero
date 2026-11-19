@@ -1342,16 +1342,14 @@ QJsonArray audioOperations() {
                        {"volume_permille", integerSchema(0, 1000)}},
                       true));
   addEditTools(catalog);
-  QJsonObject mix =
+  catalog.append(
       tool("audio.mixdown",
            "Write the native offline mix of a frame range to a new WAV file.",
            {{"start_frame", integerSchema(0, MaxFrame)},
             {"end_frame", integerSchema(0, MaxFrame)},
             {"output_path", stringSchema(4096)},
             {"format_policy", QJsonObject{{"const", "native_mix"}}}},
-           true);
-  mix.insert("mutates_document", false);
-  catalog.append(mix);
+           true));
   return catalog;
 }
 

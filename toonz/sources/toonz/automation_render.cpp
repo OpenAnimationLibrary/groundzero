@@ -1650,10 +1650,7 @@ static QJsonObject renderCapabilities(Context& context) {
 
 static QJsonObject jobOperation(const QString& name, const QString& description,
                                 QJsonObject properties, QJsonArray required) {
-  QJsonObject descriptor =
-      operation(name, description, properties, required, true);
-  descriptor.insert("mutates_document", false);
-  return descriptor;
+  return operation(name, description, properties, required, true);
 }
 
 }  // namespace RenderDetail

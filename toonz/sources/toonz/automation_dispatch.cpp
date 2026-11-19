@@ -1,4 +1,5 @@
 #include "automation_dispatch.h"
+#include "automation_effects.h"
 #include "automation_production.h"
 #include "automation_assistance.h"
 #include "automation_text.h"
@@ -33,6 +34,9 @@ constexpr qint64 maximumResultBytes  = 8 * 1024 * 1024 - 1024;
 // One reserved first cancellation per retained job: two lanes of 32.
 constexpr int maximumControlReceipts = 2 * JobsPerLane;
 constexpr qint64 maximumControlBytes = 16 * 1024;
+// The error envelope of every outputSchema bounds messages to 2048 characters.
+constexpr int maximumErrorMessage   = 2048;
+constexpr int maximumDescribedTools = 16;
 
 qint64 receiptSize(const QJsonObject& response) {
   return QJsonDocument(response).toJson(QJsonDocument::Compact).size();
@@ -282,23 +286,92 @@ QString toolsetDescription(const QString& toolset) {
   return found.value();
 }
 
+QJsonObject catalogEntry(const QJsonArray& catalog, const QString& name) {
+  for (const QJsonValue& value : catalog)
+    if (value.toObject().value("name") == name) return value.toObject();
+  return {};
+}
+
+QJsonObject describeTools(const QJsonArray& catalog,
+                          const QJsonObject& params) {
+  validate(
+      params,
+      catalogEntry(catalog, "tool.describe").value("inputSchema").toObject(),
+      "params", 0);
+  QJsonArray tools;
+  QJsonArray unknown;
+  for (const QJsonValue& name : params.value("names").toArray()) {
+    const QJsonObject tool = catalogEntry(catalog, name.toString());
+    if (tool.isEmpty()) {
+      unknown.append(name);
+      continue;
+    }
+    tools.append(QJsonObject{{"name", name},
+                             {"toolset", tool.value("toolset")},
+                             {"effects", tool.value("effects")},
+                             {"errors", tool.value("errors")},
+                             {"outputSchema", tool.value("outputSchema")}});
+  }
+  if (!unknown.isEmpty())
+    throw Error("unknown_tool", "No tool of this worker has these names.",
+                {{"names", unknown}});
+  return {{"tools", tools}};
+}
+
 }  // namespace
 
+void checkResult(const QJsonObject& descriptor, const QJsonValue& result) {
+  const QJsonObject schema = descriptor.value("outputSchema").toObject();
+  if (schema.isEmpty()) return;
+  QJsonObject content = asObject(result);
+  content.remove("image");
+  try {
+    validate(content, schema.value("oneOf").toArray().first().toObject(),
+             "result", 0);
+  } catch (const Error& error) {
+    if (error.code != "invalid_params") throw;
+    throw Error("invalid_result", descriptor.value("name").toString() +
+                                      " returned a result outside its "
+                                      "outputSchema: " +
+                                      error.message);
+  }
+}
+
 QJsonObject errorObject(const Error& error) {
-  return {{"code", error.code},
-          {"message", error.message},
-          {"details", error.details}};
+  QString message = error.message;
+  if (message.size() > maximumErrorMessage) {
+    message.truncate(maximumErrorMessage - 3);
+    if (message.at(message.size() - 1).isHighSurrogate()) message.chop(1);
+    message += "...";
+  }
+  return {
+      {"code", error.code}, {"message", message}, {"details", error.details}};
 }
 
 Dispatcher::Dispatcher(Context& context) : m_context(context) {
-  addWorkerOperation(
+  addWorkerOperation(withOutputSchema(
       operation("automation.capabilities",
                 "Inspect this worker's protocol, toolsets and available native "
                 "operations.",
-                {}, {}));
-  addWorkerOperation(operation(
-      "automation.list_documents",
-      "List detached documents and their current revisions.", {}, {}));
+                {}, {}),
+      capabilitiesResultSchema()));
+  addWorkerOperation(withOutputSchema(
+      operation("automation.list_documents",
+                "List detached documents and their current revisions.", {}, {}),
+      documentListResultSchema()));
+  addWorkerOperation(withOutputSchema(
+      operation(
+          "tool.describe",
+          "Return the full declaration of up to 16 tools: effects, every "
+          "error code, and the output schema of the structured result.",
+          {{"names", QJsonObject{{"type", "array"},
+                                 {"minItems", 1},
+                                 {"maxItems", maximumDescribedTools},
+                                 {"items", QJsonObject{{"type", "string"},
+                                                       {"minLength", 1},
+                                                       {"maxLength", 128}}}}}},
+          {"names"}),
+      toolDescriptionResultSchema(maximumDescribedTools)));
   add(sceneOperations(), executeScene, "core");
   add(sceneAccessOperations(), executeSceneAccess, "core");
   add(sceneInventoryOperations(), executeSceneInventory, "core");
@@ -328,6 +401,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
 }
 
 void Dispatcher::addWorkerOperation(QJsonObject descriptor) {
+  descriptor = declaredTool(descriptor);
   descriptor.insert("toolset", "core");
   m_toolsets["core"].append(descriptor.value("name").toString());
   m_catalog.append(descriptor);
@@ -348,13 +422,14 @@ void Dispatcher::add(const QJsonArray& operations, Handler handler,
   toolsetDescription(toolset);
   for (const QJsonValue& value : operations) {
     QJsonObject descriptor = value.toObject();
-    const QString name     = descriptor.value("name").toString();
+    if (!descriptor.contains("effects")) descriptor = declaredTool(descriptor);
+    const QString name = descriptor.value("name").toString();
     if (name.isEmpty() || m_entries.contains(name))
       throw Error(
           "internal_error",
           "The native operation catalog contains a duplicate or empty name.");
     if (name == "automation.capabilities" ||
-        name == "automation.list_documents")
+        name == "automation.list_documents" || name == "tool.describe")
       throw Error("internal_error",
                   "A native domain cannot replace a worker operation.");
     descriptor.insert("toolset", toolset);
@@ -386,6 +461,7 @@ QJsonObject Dispatcher::dispatch(const QJsonObject& request) {
 
 QJsonValue Dispatcher::execute(const QString& method,
                                const QJsonObject& params) {
+  if (method == "tool.describe") return describeTools(m_catalog, params);
   if (method == "automation.capabilities" ||
       method == "automation.list_documents") {
     if (!params.isEmpty())
@@ -419,7 +495,11 @@ QJsonValue Dispatcher::execute(const QString& method,
   if (!readOnly) return executeWrite(entry, method, params);
   validate(params, entry.descriptor.value("inputSchema").toObject(), "params",
            0);
-  return invoke(entry, method, params);
+  const QJsonValue result = invoke(entry, method, params);
+#ifdef BUILD_UI_PORT_TESTS
+  checkResult(entry.descriptor, result);
+#endif
+  return result;
 }
 
 QJsonValue Dispatcher::invoke(const Entry& entry, const QString& method,
@@ -468,6 +548,9 @@ QJsonObject Dispatcher::executeWrite(const Entry& entry, const QString& method,
   try {
     QJsonObject result = applyWrite(entry, method, params);
     checkResultSize(result, control);
+#ifdef BUILD_UI_PORT_TESTS
+    checkResult(entry.descriptor, result);
+#endif
     rememberReceipt(operationId, {fingerprint, {{"result", result}}},
                     controlJob);
     return result;
@@ -539,8 +622,7 @@ QJsonObject Dispatcher::applyWrite(const Entry& entry, const QString& method,
                                    const QJsonObject& params) {
   const QString documentId = params.value("document_id").toString();
   const quint64 revision   = checkRevision(params);
-  const bool mutatesDocument =
-      entry.descriptor.value("mutates_document").toBool(true);
+  const bool mutatesDocument = advancesRevision(entry.descriptor);
   try {
     QJsonObject result     = asObject(invoke(entry, method, params));
     const QString resultId = documentId.isEmpty()

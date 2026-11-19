@@ -176,6 +176,13 @@ def _projects(_f: Fixture) -> list[Call]:
     ]
 
 
+def _describe(_f: Fixture) -> list[Call]:
+    return [
+        Call("two tools", {"names": ["scene.summary", "tool.describe"]}),
+        Call("unknown tool", {"names": ["no.such.tool"]}, "unknown_tool"),
+    ]
+
+
 def _per_document(f: Fixture) -> list[Call]:
     return [
         Call("main", {"document_id": f.document}),
@@ -718,6 +725,7 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "render.capabilities": _no_arguments,
     "render.preflight": _preflight,
     "runtime.inspect": _runtime,
+    "tool.describe": _describe,
     "job.list": _jobs,
     "job.status": _job,
     "job.result": _job,
