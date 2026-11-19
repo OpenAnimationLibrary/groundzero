@@ -18,6 +18,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from mcp_delivery_verify import verify as verify_delivery
 from mcp_png import SIGNATURE, Pixel, decode_png
 from mcp_worker import Worker
 from run_harness_tests import annotation
@@ -27,6 +28,7 @@ PROBE_FRAMES = (0, 30, 60, 90, 119)
 MOVIE_SIZE = (320, 180)
 MOVIE_PROBE_FRAMES = (0, 60, 119)
 DRAWING = {"number": 1, "suffix": ""}
+DELIVERY_ROOT = "deliveries"
 TRANSPARENT: Pixel = (0, 0, 0, 0)
 INK: Pixel = (10, 24, 41, 255)
 CREAM: Pixel = (246, 230, 186, 255)
@@ -584,7 +586,7 @@ def reopen(shot: Shot, document: str, expected_pixels: str) -> str:
     return opened
 
 
-def render_sequence(shot: Shot, document: str, expected_frames: dict[int, str]) -> None:
+def render_sequence(shot: Shot, document: str, expected_frames: dict[int, str]) -> str:
     """Render every frame and independently verify all 120 retained PNG artifacts."""
     job = shot.write(
         "render.submit", document, start_frame=0, end_frame=FRAMES - 1, width=WIDTH, height=HEIGHT
@@ -631,6 +633,7 @@ def render_sequence(shot: Shot, document: str, expected_frames: dict[int, str]) 
         len({item["pixels_sha256"] for item in checks}) == FRAMES,
         "The continuously moving shot repeated a rendered frame",
     )
+    return job["job_id"]
 
 
 def reference_frames(shot: Shot, document: str, edited_preview: str) -> dict[int, str]:
@@ -848,7 +851,7 @@ def decode_movie(
     require(len(set(hashes)) == FRAMES, "The movie repeated a moving shot frame")
 
 
-def render_movie(shot: Shot, document: str, media_tools: Path) -> None:
+def render_movie(shot: Shot, document: str, media_tools: Path) -> str:
     """Deliver the full editable shot as verified MP4 within the worker storage budget.
 
     Args:
@@ -880,6 +883,72 @@ def render_movie(shot: Shot, document: str, media_tools: Path) -> None:
     }
     probe_movie(shot, media_tools, path, item)
     decode_movie(shot, media_tools, path, references)
+    return job["job_id"]
+
+
+def expected_delivery(shot: Shot) -> dict[str, str]:
+    """The SHA-256 of every file the delivery must hold, from the verified renders."""
+    files = {
+        f"frames/{Path(item['path']).name}": item["sha256"]
+        for item in shot.proof["render"]["artifacts"]
+    }
+    if "movie" in shot.proof:
+        files["movie/movie.mp4"] = shot.proof["movie"]["sha256"]
+    return files
+
+
+def check_published_frames(shot: Shot, directory: Path) -> None:
+    """Decode every published frame and require the pixels the render verified."""
+    for item in shot.proof["render"]["artifacts"]:
+        data = (directory / "frames" / Path(item["path"]).name).read_bytes()
+        width, height, pixels = decode_png(data)
+        require((width, height) == (WIDTH, HEIGHT), f"Published {item['path']} changed size")
+        require(
+            pixel_hash(pixels) == item["pixels_sha256"],
+            f"Published {item['path']} decodes to other pixels than the render",
+        )
+
+
+def publish_delivery(shot: Shot, items: list[dict[str, str]], media_tools: Path | None) -> None:
+    """Publish the verified renders into the output root and verify the delivery
+    independently: every file's bytes, every frame's decoded pixels and the movie stream.
+
+    Args:
+        shot: The active shot and retained evidence directory.
+        items: The completed render jobs and the folders they fill.
+        media_tools: Canonical directory of the admitted ffmpeg and ffprobe, if any.
+    """
+    request: dict[str, Any] = {
+        "destination": {"root": DELIVERY_ROOT, "path": "moonlight-courier"},
+        "items": items,
+    }
+    expected = expected_delivery(shot)
+    planned, offset, files = shot.read("delivery.preflight", request), 0, []
+    require(planned["ready"], f"The delivery preflight failed: {planned['first_failure']}")
+    while offset is not None:
+        page = shot.read("delivery.preflight", {**request, "offset": offset, "limit": 256})
+        files += page["files"]
+        offset = page["next_offset"]
+    require(
+        {row["path"]: row["sha256"] for row in files} == expected,
+        "The delivery preflight planned other files than the verified renders",
+    )
+    published = shot.write("delivery.publish", None, **request)
+    replayed = shot.read("delivery.publish", {**request, "operation_id": published["operation_id"]})
+    require(replayed == published, "An exact retry of the publication changed its result")
+    directory = shot.output / DELIVERY_ROOT / published["location"]["path"]
+    ffprobe = media_tools / "ffprobe" if media_tools is not None else None
+    report = verify_delivery(directory, published["manifest_sha256"], ffprobe)
+    require(report["sha256"] == expected, "Published bytes differ from the verified renders")
+    check_published_frames(shot, directory)
+    shot.proof["delivery"] = {
+        "location": published["location"],
+        "manifest_sha256": published["manifest_sha256"],
+        "files": published["files"],
+        "bytes": published["bytes"],
+        "not_included": published["not_included"],
+        "verified_independently": True,
+    }
 
 
 def create_shot(shot: Shot, media_tools: Path | None = None) -> None:
@@ -905,11 +974,12 @@ def create_shot(shot: Shot, media_tools: Path | None = None) -> None:
     expected_pixels = prove_effect_edit(shot, document, glow, layers[0])
     expected_frames = reference_frames(shot, document, expected_pixels)
     opened = reopen(shot, document, expected_pixels)
-    render_sequence(shot, opened, expected_frames)
+    items = [{"job_id": render_sequence(shot, opened, expected_frames), "folder": "frames"}]
     reserved = (WIDTH * HEIGHT * 4 + 65536) * (FRAMES + 7)
     if media_tools is not None:
-        render_movie(shot, opened, media_tools)
+        items.append({"job_id": render_movie(shot, opened, media_tools), "folder": "movie"})
         reserved += (MOVIE_SIZE[0] * MOVIE_SIZE[1] * 4 + 65536) * (FRAMES + len(MOVIE_PROBE_FRAMES))
+    publish_delivery(shot, items, media_tools)
     shot.proof.update(
         status="passed",
         artwork_license="BSD-3-Clause",
@@ -930,7 +1000,7 @@ def record_failure(shot: Shot, error: Exception) -> None:
 
 def run(executable: Path, output: Path, media_tools: Path | None = None) -> int:
     """Retain proof and native diagnostics even when a creative milestone fails."""
-    for name in ("workspace", "inputs", "sources", "previews", "frames"):
+    for name in ("workspace", "inputs", "sources", "previews", "frames", DELIVERY_ROOT):
         (output / name).mkdir()
     license_path = Path(__file__).resolve().parents[1] / "LICENSE.txt"
     (output / "artwork-LICENSE.txt").write_text(
@@ -942,6 +1012,7 @@ def run(executable: Path, output: Path, media_tools: Path | None = None) -> int:
         output / "inputs",
         output / "worker.stderr.log",
         media_tools=media_tools,
+        test_arguments=("--output-root", f"{DELIVERY_ROOT}={output / DELIVERY_ROOT}"),
     )
     shot = Shot(worker, output)
     try:
