@@ -1,5 +1,6 @@
 #include "automation.h"
 #include "automation_animation.h"
+#include "automation_animation_targets.h"
 #include "automation_audio.h"
 #include "automation_path.h"
 #include "automation_drawing.h"
@@ -832,6 +833,15 @@ bool isWeight(const CurveTarget& target) {
   return target.channel.native == TStageObject::T_ChannelCount;
 }
 
+// Cyclic curves are qualified for the base channels of stage objects only;
+// weights, path positions and offset-layer curves keep refusing them.
+CyclePolicy cyclePolicy(const CurveTarget& target) {
+  return target.layer < 0 && !isWeight(target) &&
+                 target.channel.native != TStageObject::T_Path
+             ? CyclePolicy::Allow
+             : CyclePolicy::Refuse;
+}
+
 CurveTarget readTarget(Document& document, const QJsonObject& params) {
   TStageObject* object  = document.object(requiredString(params, "object_id"));
   const Channel channel = readChannel(params);
@@ -862,21 +872,32 @@ QString curveAdmission(Document& document, const CurveTarget& target) {
     else
       requireEditable(document, target.object);
     if (target.curve->isEditorLocked()) return "The channel is editor-locked.";
-    return animationUnsupportedReason(*target.curve);
+    return animationUnsupportedReason(*target.curve, cyclePolicy(target));
   } catch (const Error& error) {
     return error.message;
   }
 }
 
 QJsonObject channelDescriptor(Document& document, const QString& name,
-                              const CurveTarget& target) {
+                              const CurveTarget& target,
+                              const QJsonObject& identity) {
   const QString reason = curveAdmission(document, target);
   const bool path      = target.channel.native == TStageObject::T_Path;
   const int bound      = isWeight(target) ? 10 : 1000000;
+  QJsonObject address  = identity;
+  address.insert("channel", name);
+  address.insert("unit", target.channel.unit);
   return {
       {"channel", name},
       {"unit", target.channel.unit},
+      {"kind", target.layer < 0   ? "stage_channel"
+               : isWeight(target) ? "offset_layer_weight"
+                                  : "offset_layer_channel"},
+      {"target", address},
+      {"edit_via", "animation.set_keys"},
       {"editor_locked", target.curve->isEditorLocked()},
+      {"cycle", target.curve->isCycleEnabled()},
+      {"cycle_supported", cyclePolicy(target) == CyclePolicy::Allow},
       {"key_count", target.curve->getKeyframeCount()},
       {"writable", reason.isEmpty()},
       {"unsupported_reason",
@@ -893,23 +914,27 @@ QJsonObject channelDescriptor(Document& document, const QString& name,
 
 QJsonValue inspectAnimationChannels(Context& context, const QJsonObject& params) {
   Document& document = getDocument(context, params);
+  if (isAnimationExternalRequest(params))
+    return describeAnimationExternalChannels(document, params);
   TStageObject* object = document.object(requiredString(params, "object_id"));
   const bool layered   = params.contains("layer_id");
+  QJsonObject identity{{"object_id", document.idForObject(object)}};
+  if (layered) identity.insert("layer_id", params.value("layer_id"));
   QJsonArray result;
   for (const auto& item : animationChannels()) {
     if (layered && item.second.native == TStageObject::T_Path) continue;
     QJsonObject request = params;
     request.insert("channel", item.first);
     request.insert("unit", item.second.unit);
-    result.append(
-        channelDescriptor(document, item.first, readTarget(document, request)));
+    result.append(channelDescriptor(document, item.first,
+                                    readTarget(document, request), identity));
   }
   if (layered) {
     QJsonObject request = params;
     request.insert("channel", "weight");
     request.insert("unit", "scalar");
-    result.append(
-        channelDescriptor(document, "weight", readTarget(document, request)));
+    result.append(channelDescriptor(document, "weight",
+                                    readTarget(document, request), identity));
   }
   return QJsonObject{
       {"object_id", document.idForObject(object)},
@@ -943,7 +968,9 @@ std::vector<int> readFrames(const QJsonObject& params) {
 }
 
 QJsonValue inspectKeys(Context& context, const QJsonObject& params) {
-  Document& document       = getDocument(context, params);
+  Document& document = getDocument(context, params);
+  if (isAnimationExternalRequest(params))
+    return inspectAnimationExternalKeys(document, params);
   const CurveTarget target = readTarget(document, params);
   if (target.channel.native == TStageObject::T_Path)
     requireAutomationPathTarget(*document.scene, *target.object, false);
@@ -952,6 +979,7 @@ QJsonValue inspectKeys(Context& context, const QJsonObject& params) {
                      {"unit", target.channel.unit},
                      {"value_space", target.valueSpace},
                      {"editor_locked", target.curve->isEditorLocked()},
+                     {"cycle", target.curve->isCycleEnabled()},
                      {"keys", inspectAnimationKeys(*target.curve)}};
 }
 
@@ -972,7 +1000,8 @@ QJsonValue setKeys(Context& context, const QJsonObject& params) {
   TDoubleParam* curve = target.curve;
   if (target.channel.native == TStageObject::T_Path)
     requireAutomationPathTarget(*document.scene, *target.object, true);
-  const auto edit = prepareAnimationKeyEdit(*curve, readArray(params, "keys"));
+  const auto edit = prepareAnimationKeyEdit(*curve, readArray(params, "keys"),
+                                            cyclePolicy(target));
   requireWeightKeys(target, edit.keys);
   if (target.channel.native == TStageObject::T_Path) {
     TDoubleParamP prospective(new TDoubleParam(*curve));
@@ -992,10 +1021,95 @@ QJsonValue deleteKeys(Context& context, const QJsonObject& params) {
   const std::vector<int> frames = readFrames(params);
   if (target.channel.native == TStageObject::T_Path)
     requireAutomationPathTarget(*document.scene, *target.object, true);
-  validateAnimationKeyDeletion(*target.curve, frames);
+  validateAnimationKeyDeletion(*target.curve, frames, cyclePolicy(target));
   context.markMutationStarted();
   for (const int frame : frames) target.curve->deleteKeyframe(frame);
   return inspectKeys(context, params);
+}
+
+void requireStageBaseChannel(const CurveTarget& target, const QString& tool) {
+  if (target.layer >= 0 || isWeight(target) ||
+      target.channel.native == TStageObject::T_Path)
+    throw Error("unsupported_channel",
+                tool +
+                    " edits stage base channels only; use "
+                    "animation.set_keys for path_position, weights and "
+                    "offset layers.");
+}
+
+QJsonValue insertBreakdown(Context& context, const QJsonObject& params) {
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  requireEditable(document, target.object);
+  requireStageBaseChannel(target, "animation.insert_breakdown");
+  const auto edit =
+      prepareAnimationBreakdown(*target.curve, params, cyclePolicy(target));
+  context.markMutationStarted();
+  applyAnimationKeyEdit(*target.curve, edit);
+  const int frame    = params.value("frame").toInt();
+  QJsonObject result = inspectKeys(context, params).toObject();
+  result.insert("inserted_frame", frame);
+  result.insert("inserted_value", target.curve->getValue(frame));
+  return result;
+}
+
+QJsonArray editedFrames(const AnimationKeyEdit& edit) {
+  QJsonArray frames;
+  for (const auto& key : edit.keys) frames.append(key.m_frame);
+  return frames;
+}
+
+QJsonValue changeKeys(Context& context, const QJsonObject& params,
+                      bool duplicate) {
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  requireEditable(document, target.object);
+  requireStageBaseChannel(
+      target, duplicate ? "animation.duplicate_keys" : "animation.move_keys");
+  const std::vector<int> frames = readFrames(params);
+  const int frameOffset =
+      integerParam(params, "frame_offset", -MaxFrame, MaxFrame, 0);
+  const double valueOffset =
+      numberParam(params, "value_offset", -2000000, 2000000, 0);
+  const CyclePolicy policy = cyclePolicy(target);
+  const auto edit =
+      duplicate ? prepareAnimationKeyDuplicate(*target.curve, frames,
+                                               frameOffset, valueOffset, policy)
+                : prepareAnimationKeyMove(*target.curve, frames, frameOffset,
+                                          valueOffset, policy);
+  if (edit.changed) {
+    context.markMutationStarted();
+    applyAnimationKeyEdit(*target.curve, edit);
+  }
+  QJsonObject result = inspectKeys(context, params).toObject();
+  if (duplicate)
+    result.insert("created_frames", editedFrames(edit));
+  else
+    result.insert("moved_frames", editedFrames(edit));
+  return result;
+}
+
+QJsonValue setCycle(Context& context, const QJsonObject& params) {
+  Document& document       = getDocument(context, params);
+  const CurveTarget target = readTarget(document, params);
+  requireEditable(document, target.object);
+  requireStageBaseChannel(target, "animation.set_cycle");
+  if (!params.value("enabled").isBool())
+    throw Error("invalid_argument", "enabled must be a boolean.");
+  const bool enabled = params.value("enabled").toBool();
+  if (prepareAnimationCycle(*target.curve, enabled)) {
+    context.markMutationStarted();
+    target.curve->enableCycle(enabled);
+  }
+  return inspectKeys(context, params);
+}
+
+QJsonValue moveKeys(Context& context, const QJsonObject& params) {
+  return changeKeys(context, params, false);
+}
+
+QJsonValue duplicateKeys(Context& context, const QJsonObject& params) {
+  return changeKeys(context, params, true);
 }
 
 TDoubleParam* wholeCurveTarget(Document& document, const QJsonObject& target,
@@ -1027,6 +1141,7 @@ QJsonValue copyAnimationCurve(Context& context, const QJsonObject& params) {
   return QJsonObject{{"source", source},
                      {"destination", destination},
                      {"default_value", destinationCurve->getDefaultValue()},
+                     {"cycle", destinationCurve->isCycleEnabled()},
                      {"keys", inspectAnimationKeys(*destinationCurve)},
                      {"independent", true},
                      {"affected_domains", QJsonArray{"destination_channel"}}};
@@ -1047,13 +1162,14 @@ QJsonValue retimeAnimationCurve(Context& context, const QJsonObject& params) {
                      {"channel", params.value("channel")},
                      {"unit", params.value("unit")},
                      {"default_value", curve->getDefaultValue()},
+                     {"cycle", curve->isCycleEnabled()},
                      {"keys", inspectAnimationKeys(*curve)},
                      {"time_mapping", mapping},
                      {"affected_domains", QJsonArray{"target_channel"}}};
 }
 
 void requireSampledLayers(const CurveTarget& target) {
-  requireSupportedAnimationCurve(*target.curve);
+  requireSupportedAnimationCurve(*target.curve, cyclePolicy(target));
   if (target.layer >= 0) {
     requireSupportedAnimationCurve(
         *target.object->getOffsetLayer(target.layer).m_weight);
@@ -1093,21 +1209,27 @@ QJsonObject sampleValue(const CurveTarget& target, double frame) {
 }
 
 QJsonValue sampleAnimation(Context& context, const QJsonObject& params) {
-  Document& document       = getDocument(context, params);
+  Document& document = getDocument(context, params);
+  if (isAnimationExternalRequest(params))
+    return sampleAnimationExternal(document, params);
   const CurveTarget target = readTarget(document, params);
   const QJsonArray frames  = readArray(params, "frames");
   requireSampledLayers(target);
   if (target.channel.native == TStageObject::T_Path)
     requireAutomationPathTarget(*document.scene, *target.object, false);
   QSet<double> seen;
-  QJsonArray values;
+  std::vector<double> requested;
   for (const auto& value : frames) {
     const double frame = numberParam({{"frame", value}}, "frame", 0, MaxFrame, 0);
     if (seen.contains(frame))
       throw Error("invalid_argument", "frames must not contain duplicates.");
     seen.insert(frame);
-    values.append(sampleValue(target, frame));
+    requested.push_back(frame);
   }
+  requireAnimationSampleBudget(*target.curve, requested);
+  QJsonArray values;
+  for (const double frame : requested)
+    values.append(sampleValue(target, frame));
   return QJsonObject{
       {"object_id", document.idForObject(target.object)},
       {"channel", params.value("channel")},
@@ -1343,11 +1465,19 @@ void addAnimationOperations(QJsonArray& catalog) {
       {"document_id", "object_id", "parent_id", "placement_policy"}, true));
   const QJsonObject layer{
       {"type", "string"}, {"minLength", 1}, {"maxLength", 128}};
+  const QJsonObject readTargets{{"object_id", textSchema()},
+                                {"layer_id", layer},
+                                {"fx_id", textSchema()},
+                                {"column_id", textSchema()}};
   catalog.append(operation(
       "animation.channels",
-      "Discover stage channels, units, bounds and edit admission; layer_id "
-      "lists that offset layer's channels and weight.",
-      merge(object, {{"layer_id", layer}}), {"document_id", "object_id"}));
+      "Discover animation channels, units, bounds, edit admission and the "
+      "target and tool for each: the stage channels of object_id (layer_id "
+      "lists that offset layer's channels and weight), the numeric parameters "
+      "of fx_id, or the time remap curve of a level column_id. Name exactly "
+      "one of object_id, fx_id and column_id; effect and remap curves are "
+      "read only here.",
+      merge(documentSchema(), readTargets), {"document_id"}));
   QJsonObject animation = merge(
       object,
       {{"channel", enumSchema({"x", "y", "z", "rotation", "scale_x", "scale_y",
@@ -1356,9 +1486,20 @@ void addAnimationOperations(QJsonArray& catalog) {
         enumSchema({"inch", "degree", "scalar", "native_z", "percent"})},
        {"layer_id", layer}});
   const QJsonArray required{"document_id", "object_id", "channel", "unit"};
-  catalog.append(operation("animation.keys",
-                           "Read native curve keys with explicit units.",
-                           animation, required));
+  QJsonObject readable =
+      merge(documentSchema(),
+            merge(readTargets, {{"channel", QJsonObject{{"type", "string"},
+                                                        {"minLength", 1},
+                                                        {"maxLength", 128}}},
+                                {"unit", QJsonObject{{"type", "string"},
+                                                     {"minLength", 1},
+                                                     {"maxLength", 64}}}}));
+  catalog.append(operation(
+      "animation.keys",
+      "Read native curve keys with explicit units, for a stage channel, an "
+      "offset layer curve, an effect parameter (fx_id) or a time remap curve "
+      "(column_id); take channel and unit from animation.channels.",
+      readable, {"document_id", "channel", "unit"}));
   QJsonArray withFrames = required;
   withFrames.append("frames");
   const QJsonObject frames =
@@ -1367,12 +1508,58 @@ void addAnimationOperations(QJsonArray& catalog) {
       "animation.sample",
       "Sample effective local channel values with their base and offset-layer "
       "parts at integral or fractional frames; layer_id samples one layer "
+      "curve; fx_id and column_id sample an effect parameter or a time remap "
       "curve.",
-      merge(animation, {{"frames", arraySchema(numberSchema(0, MaxFrame))}}),
-      withFrames));
+      merge(readable, {{"frames", arraySchema(numberSchema(0, MaxFrame))}}),
+      {"document_id", "channel", "unit", "frames"}));
   catalog.append(operation("animation.delete_keys",
                            "Delete existing keys after complete validation.",
                            frames, withFrames, true));
+  QJsonObject stage = animation;
+  stage.remove("layer_id");
+  stage.insert("channel", enumSchema({"x", "y", "z", "rotation", "scale_x",
+                                      "scale_y", "scale"}));
+  stage.insert("unit", enumSchema({"inch", "degree", "scalar", "native_z"}));
+  catalog.append(operation(
+      "animation.insert_breakdown",
+      "Insert a key inside a segment as the editor's Set Breakdown Key: "
+      "favour_percent (-100 to 200) of the way from the previous key's value "
+      "to the next one's, or an explicit value. The segment keeps its "
+      "interpolation and step; other keys are unchanged.",
+      merge(stage, {{"frame", integerSchema(0, MaxFrame)},
+                    {"favour_percent", numberSchema(-100, 200)},
+                    {"value", numberSchema(-1000000, 1000000)}}),
+      {"document_id", "object_id", "channel", "unit", "frame"}, true));
+  const QJsonObject keyFrames{
+      {"frames", arraySchema(integerSchema(0, MaxFrame))},
+      {"frame_offset", integerSchema(-MaxFrame, MaxFrame)},
+      {"value_offset", numberSchema(-2000000, 2000000)}};
+  catalog.append(operation(
+      "animation.move_keys",
+      "Shift existing keys by frame_offset frames and value_offset, as the "
+      "editor's key drag: each moved key keeps its interpolation, step and "
+      "handles, the key order is kept, and every other key is unchanged. A "
+      "shift that lands on or crosses another key, leaves a handle outside "
+      "its segment or leaves the bounds is refused.",
+      merge(stage, keyFrames),
+      {"document_id", "object_id", "channel", "unit", "frames"}, true));
+  catalog.append(operation(
+      "animation.duplicate_keys",
+      "Copy existing keys verbatim to frame_offset frames later (or earlier) "
+      "with value_offset added, as the editor's copy and paste. A copy may "
+      "not land on an existing key, and no key's incoming control kind may "
+      "change; existing keys are unchanged.",
+      merge(stage, keyFrames),
+      {"document_id", "object_id", "channel", "unit", "frames", "frame_offset"},
+      true));
+  catalog.append(operation(
+      "animation.set_cycle",
+      "Turn the editor's Cycle on or off for a stage base channel curve: past "
+      "its last key the curve repeats its key span, adding the last-minus-"
+      "first key value each repeat. Keys, default value and every sample "
+      "inside the key span are unchanged; the result reports cycle.",
+      merge(stage, {{"enabled", QJsonObject{{"type", "boolean"}}}}),
+      {"document_id", "object_id", "channel", "unit", "enabled"}, true));
   QJsonArray withKeys = required;
   withKeys.append("keys");
   catalog.append(operation(
@@ -1433,6 +1620,10 @@ QJsonValue executeScene(Context& context, const QString& method,
       {"animation.retime_curve", retimeAnimationCurve},
       {"animation.set_keys", setKeys},
       {"animation.delete_keys", deleteKeys},
+      {"animation.insert_breakdown", insertBreakdown},
+      {"animation.move_keys", moveKeys},
+      {"animation.set_cycle", setCycle},
+      {"animation.duplicate_keys", duplicateKeys},
       {"animation.sample", sampleAnimation}};
   const auto handler = handlers.find(method);
   if (handler == handlers.end())

@@ -1460,4 +1460,10 @@ QJsonValue executeFx(Context& context, const QString& method,
   return handler->second(context, document, params);
 }
 
+TFx* automationOwnedFx(Document& document, const QString& id) {
+  return ownedFx(document, id);
+}
+
+TFx* automationParameterFx(TFx* fx) { return parameterFx(fx); }
+
 }  // namespace GroundzeroAutomation

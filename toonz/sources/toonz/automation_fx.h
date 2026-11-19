@@ -22,6 +22,12 @@ QJsonObject describeAutomationFx(Document& document, TFx* fx);
 QByteArray automationFxPresetBytes(TFx* fx, const QString& path);
 QString automationFxName(const QJsonObject& params);
 
+// The effect a handle names, checked to still belong to the document's graph.
+TFx* automationOwnedFx(Document& document, const QString& id);
+// The effect that owns the parameters: a generator column wraps its zerary
+// effect.
+TFx* automationParameterFx(TFx* fx);
+
 bool isAutomationFxTypeSupported(const QString& type);
 // True when the admitted type is also registered in this worker.
 bool isAutomationFxTypeAvailable(const QString& type);

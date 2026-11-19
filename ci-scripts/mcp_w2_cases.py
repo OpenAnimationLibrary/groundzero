@@ -510,7 +510,7 @@ def _incompatible(
 ) -> None:
     code = _refused_copy(case, document, pair)
     if same_unit:
-        settle(case, "KV-2", code, _declared(case, "animation.copy_curve"))
+        case.assertIn(code, _declared(case, "animation.copy_curve"))
     else:
         case.assertEqual(code, "invalid_params")
 

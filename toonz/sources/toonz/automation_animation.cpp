@@ -17,6 +17,7 @@ namespace {
 constexpr int MaxAnimationFrame    = 1000000;
 constexpr int MaxAnimationKeys     = 10000;
 constexpr double MaxAnimationValue = 1000000;
+constexpr double MaxCycleFolds     = 2000000;
 
 enum class IncomingKind { None, Speed, Ease };
 
@@ -29,6 +30,12 @@ struct ProposedKey final {
                           const QString& field) {
   throw Error("invalid_argument", message,
               {{"frame", frame}, {"field", field}});
+}
+
+[[noreturn]] void refuse(const QString& reason, const QString& message,
+                         double frame, const QString& field) {
+  throw Error("invalid_argument", message,
+              {{"frame", frame}, {"field", field}, {"reason", reason}});
 }
 
 double number(const QJsonObject& object, const QString& field, double minimum,
@@ -214,8 +221,9 @@ void validateInterval(const TDoubleKeyframe& first,
             "controls");
 }
 
-void validateCurve(const TDoubleParam& curve) {
-  if (curve.isCycleEnabled())
+void validateCurve(const TDoubleParam& curve,
+                   CyclePolicy policy = CyclePolicy::Refuse) {
+  if (policy == CyclePolicy::Refuse && curve.isCycleEnabled())
     throw Error("unsupported_interpolation",
                 "Cyclic curve editing is not qualified.");
   if (curve.getKeyframeCount() > MaxAnimationKeys)
@@ -269,10 +277,10 @@ void validateTransition(const TDoubleParam& original, const TDoubleParam& next,
     if (deleting && index == 0) continue;
     const auto& before = exactKey(original, key.m_frame);
     if (controlKind(before.m_prevType) != controlKind(key.m_prevType))
-      invalid(
-          "Supply this end key's incoming control when changing its segment "
-          "kind.",
-          key.m_frame, "incoming");
+      refuse("incoming_kind_changed",
+             "Supply this end key's incoming control when changing its "
+             "segment kind.",
+             key.m_frame, "incoming");
   }
 }
 
@@ -349,7 +357,7 @@ QJsonObject keyJson(const TDoubleKeyframe& key) {
 void validateWholeCurve(const TDoubleParam& curve, bool writable) {
   if (writable && curve.isEditorLocked())
     throw Error("locked", "The destination animation channel is locked.");
-  validateCurve(curve);
+  validateCurve(curve, CyclePolicy::Allow);
   for (int index = 0; index < curve.getKeyframeCount(); ++index) {
     const double offset = curve.getKeyframe(index).m_similarShapeOffset;
     if (!std::isfinite(offset))
@@ -382,6 +390,7 @@ bool sameStoredKey(const TDoubleKeyframe& left, const TDoubleKeyframe& right) {
 bool matchesCurveEdit(const TDoubleParam& curve,
                       const AnimationCurveEdit& edit) {
   if (curve.getDefaultValue() != edit.defaultValue ||
+      curve.isCycleEnabled() != edit.cycle ||
       curve.getKeyframeCount() != static_cast<int>(edit.keys.size()))
     return false;
   for (int index = 0; index < curve.getKeyframeCount(); ++index)
@@ -458,13 +467,132 @@ TDoubleKeyframe retimedKey(TDoubleKeyframe key, const TimeMapping& mapping) {
   return key;
 }
 
+struct BreakdownRequest final {
+  int frame;
+  bool favoured;
+  double favourPercent;
+  double value;
+};
+
+BreakdownRequest readBreakdown(const QJsonObject& request) {
+  const double frame = number(request, "frame", 0, MaxAnimationFrame, -1);
+  if (frame != std::floor(frame))
+    invalid("Breakdown frames must be integers.", frame, "frame");
+  const bool favoured = request.contains("favour_percent");
+  if (favoured == request.contains("value"))
+    refuse("favour_percent_or_value",
+           "Give exactly one of favour_percent and value.", frame,
+           "favour_percent");
+  BreakdownRequest result{static_cast<int>(frame), favoured, 0, 0};
+  if (favoured)
+    result.favourPercent = number(request, "favour_percent", -100, 200, frame);
+  else
+    result.value =
+        number(request, "value", -MaxAnimationValue, MaxAnimationValue, frame);
+  return result;
+}
+
+struct SplitSegment final {
+  TDoubleKeyframe first;
+  TDoubleKeyframe key;
+  TDoubleKeyframe last;
+};
+
+// The editor's KeyframeSetter::createKeyframe for a key inside a segment. A
+// speed segment is cut so the shape is kept; an ease segment gives the new key
+// no ease and clamps its neighbours' eases to the new span (the editor clamps
+// the wrong key's ease on the right side).
+SplitSegment splitSegment(const TDoubleKeyframe& previous,
+                          const TDoubleKeyframe& next, int frame) {
+  SplitSegment split{previous, TDoubleKeyframe(frame, 0), next};
+  auto& key        = split.key;
+  key.m_isKeyframe = true;
+  key.m_type       = previous.m_type;
+  key.m_step       = previous.m_step;
+  if (previous.m_type == TDoubleKeyframe::SpeedInOut) {
+    splitSpeedInOutSegment(key, split.first, split.last);
+  } else if (previous.m_type == TDoubleKeyframe::EaseInOut) {
+    split.first.m_speedOut.x =
+        std::min(split.first.m_speedOut.x, frame - previous.m_frame);
+    split.last.m_speedIn.x =
+        std::max(split.last.m_speedIn.x, frame - next.m_frame);
+  }
+  key.m_linkedHandles = controlKind(previous.m_type) == IncomingKind::None;
+  return split;
+}
+
+// Validates a curve built by an edit, naming a handle that no longer fits its
+// segment as a reason.
+void validateProspective(const TDoubleParam& curve, CyclePolicy policy) {
+  try {
+    validateCurve(curve, policy);
+  } catch (Error& error) {
+    if (error.code == "invalid_argument" &&
+        error.details.value("field") == "controls")
+      error.details.insert("reason", "controls");
+    throw;
+  }
+}
+
+void requireWritable(const TDoubleParam& curve) {
+  if (curve.isEditorLocked())
+    throw Error("locked", "The animation channel is locked.");
+}
+
+std::vector<int> selectedIndices(const TDoubleParam& curve,
+                                 const std::vector<int>& frames) {
+  if (frames.empty() || frames.size() > MaxAnimationKeys)
+    throw Error("resource_limit", "frames must name 1 through 10000 keys.");
+  std::vector<int> result;
+  QSet<int> seen;
+  for (const int frame : frames) {
+    if (!curve.isKeyframe(frame))
+      throw Error("missing_key", "Every requested key must exist.",
+                  {{"frame", frame}});
+    if (seen.contains(frame))
+      refuse("duplicate_frame", "frames must not repeat a key.", frame,
+             "frames");
+    seen.insert(frame);
+    result.push_back(curve.getClosestKeyframe(frame));
+  }
+  std::sort(result.begin(), result.end());
+  return result;
+}
+
+void requireOffsets(int frameOffset, double valueOffset) {
+  if (std::abs(frameOffset) > MaxAnimationFrame)
+    refuse("frame_out_of_range", "frame_offset leaves the frame range.", 0,
+           "frame_offset");
+  if (!std::isfinite(valueOffset) ||
+      std::abs(valueOffset) > 2 * MaxAnimationValue)
+    refuse("value_out_of_bounds", "value_offset leaves the bounds.", 0,
+           "value_offset");
+}
+
+// The record shifted by the offsets, within the profile's frame and value
+// bounds.
+TDoubleKeyframe shifted(TDoubleKeyframe record, int frameOffset,
+                        double valueOffset) {
+  const double frame = record.m_frame + frameOffset;
+  if (frame < 0 || frame > MaxAnimationFrame)
+    refuse("frame_out_of_range", "A shifted key leaves the frame range.",
+           record.m_frame, "frame_offset");
+  record.m_frame = frame;
+  record.m_value += valueOffset;
+  if (!std::isfinite(record.m_value) ||
+      std::abs(record.m_value) > MaxAnimationValue)
+    refuse("value_out_of_bounds", "A shifted key leaves the value bounds.",
+           frame, "value_offset");
+  return record;
+}
+
 }  // namespace
 
 AnimationKeyEdit prepareAnimationKeyEdit(const TDoubleParam& curve,
-                                         const QJsonArray& keys) {
-  if (curve.isEditorLocked())
-    throw Error("locked", "The animation channel is locked.");
-  validateCurve(curve);
+                                         const QJsonArray& keys,
+                                         CyclePolicy policy) {
+  requireWritable(curve);
+  validateCurve(curve, policy);
   if (keys.isEmpty() || keys.size() > MaxAnimationKeys)
     throw Error("resource_limit", "keys must contain 1 through 10000 records.");
   TDoubleParamP prospective(new TDoubleParam(curve));
@@ -481,17 +609,138 @@ AnimationKeyEdit prepareAnimationKeyEdit(const TDoubleParam& curve,
                          !sameKey(exactKey(curve, key.m_frame), key);
     if (changed) result.keys.push_back(key);
   }
-  validateCurve(*prospective);
+  validateCurve(*prospective, policy);
   result.changed = !result.keys.empty();
   std::sort(result.keys.begin(), result.keys.end());
   return result;
 }
 
+AnimationKeyEdit prepareAnimationBreakdown(const TDoubleParam& curve,
+                                           const QJsonObject& request,
+                                           CyclePolicy policy) {
+  requireWritable(curve);
+  validateCurve(curve, policy);
+  const auto read = readBreakdown(request);
+  if (curve.isKeyframe(read.frame))
+    refuse("key_exists", "A key already exists at this frame.", read.frame,
+           "frame");
+  const int previousIndex = curve.getPrevKeyframe(read.frame);
+  const int nextIndex     = curve.getNextKeyframe(read.frame);
+  if (previousIndex < 0 || nextIndex < 0)
+    refuse("outside_segment", "The frame must lie between two existing keys.",
+           read.frame, "frame");
+  if (curve.getKeyframeCount() >= MaxAnimationKeys)
+    throw Error("resource_limit", "A channel may contain at most 10000 keys.");
+  const auto& previous = curve.getKeyframe(previousIndex);
+  const auto& next     = curve.getKeyframe(nextIndex);
+  auto split           = splitSegment(previous, next, read.frame);
+  split.key.m_value =
+      read.favoured ? previous.m_value + (next.m_value - previous.m_value) *
+                                             (read.favourPercent / 100.0)
+                    : read.value;
+  if (!std::isfinite(split.key.m_value) ||
+      std::abs(split.key.m_value) > MaxAnimationValue)
+    refuse("value_out_of_bounds", "The breakdown value leaves the bounds.",
+           read.frame, "value");
+  AnimationKeyEdit result;
+  if (split.first.m_speedOut != previous.m_speedOut)
+    result.keys.push_back(split.first);
+  result.keys.push_back(split.key);
+  if (split.last.m_speedIn != next.m_speedIn) result.keys.push_back(split.last);
+  std::sort(result.keys.begin(), result.keys.end());
+  TDoubleParamP prospective(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*prospective, result);
+  validateProspective(*prospective, policy);
+  validateTransition(curve, *prospective, {read.frame});
+  result.changed = true;
+  return result;
+}
+
+AnimationKeyEdit prepareAnimationKeyMove(const TDoubleParam& curve,
+                                         const std::vector<int>& frames,
+                                         int frameOffset, double valueOffset,
+                                         CyclePolicy policy) {
+  requireWritable(curve);
+  validateCurve(curve, policy);
+  const auto indices = selectedIndices(curve, frames);
+  requireOffsets(frameOffset, valueOffset);
+  AnimationKeyEdit result;
+  if (frameOffset == 0 && valueOffset == 0) return result;
+  QSet<int> oldFrames, newFrames;
+  std::vector<double> order;
+  for (int index = 0; index < curve.getKeyframeCount(); ++index) {
+    auto record = curve.getKeyframe(index);
+    if (std::binary_search(indices.begin(), indices.end(), index)) {
+      oldFrames.insert(static_cast<int>(record.m_frame));
+      record = shifted(record, frameOffset, valueOffset);
+      newFrames.insert(static_cast<int>(record.m_frame));
+      result.keys.push_back(record);
+    }
+    if (!order.empty() && record.m_frame <= order.back())
+      refuse(record.m_frame == order.back() ? "key_exists" : "order_changed",
+             "A moved key may not land on or cross another key.",
+             record.m_frame, "frame_offset");
+    order.push_back(record.m_frame);
+  }
+  for (const int frame : oldFrames)
+    if (!newFrames.contains(frame)) result.deletedFrames.push_back(frame);
+  std::sort(result.deletedFrames.begin(), result.deletedFrames.end());
+  std::sort(result.keys.begin(), result.keys.end());
+  TDoubleParamP prospective(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*prospective, result);
+  validateProspective(*prospective, policy);
+  validateTransition(curve, *prospective, newFrames);
+  result.changed = true;
+  return result;
+}
+
+AnimationKeyEdit prepareAnimationKeyDuplicate(const TDoubleParam& curve,
+                                              const std::vector<int>& frames,
+                                              int frameOffset,
+                                              double valueOffset,
+                                              CyclePolicy policy) {
+  requireWritable(curve);
+  validateCurve(curve, policy);
+  const auto indices = selectedIndices(curve, frames);
+  requireOffsets(frameOffset, valueOffset);
+  AnimationKeyEdit result;
+  QSet<int> created;
+  std::map<int, IncomingKind> sourceKinds;
+  for (const int index : indices) {
+    const auto& source = curve.getKeyframe(index);
+    auto record        = shifted(source, frameOffset, valueOffset);
+    if (curve.isKeyframe(record.m_frame))
+      refuse("key_exists", "A copy may not land on an existing key.",
+             record.m_frame, "frame_offset");
+    created.insert(static_cast<int>(record.m_frame));
+    sourceKinds[static_cast<int>(record.m_frame)] =
+        controlKind(source.m_prevType);
+    result.keys.push_back(record);
+  }
+  TDoubleParamP prospective(new TDoubleParam(curve));
+  applyAnimationKeyEdit(*prospective, result);
+  validateProspective(*prospective, policy);
+  validateTransition(curve, *prospective, created);
+  for (const auto& [frame, kind] : sourceKinds)
+    if (controlKind(exactKey(*prospective, frame).m_prevType) != kind)
+      refuse("incoming_kind_changed",
+             "A copy would change its incoming control kind; use "
+             "animation.set_keys to state it.",
+             frame, "incoming");
+  result.changed = true;
+  return result;
+}
+
+void applyAnimationKeyEdit(TDoubleParam& curve, const AnimationKeyEdit& edit) {
+  for (const int frame : edit.deletedFrames) curve.deleteKeyframe(frame);
+  for (const auto& key : edit.keys) curve.setKeyframe(key);
+}
+
 void validateAnimationKeyDeletion(const TDoubleParam& curve,
-                                  const std::vector<int>& frames) {
-  if (curve.isEditorLocked())
-    throw Error("locked", "The animation channel is locked.");
-  validateCurve(curve);
+                                  const std::vector<int>& frames,
+                                  CyclePolicy policy) {
+  requireWritable(curve);
+  validateCurve(curve, policy);
   TDoubleParamP prospective(new TDoubleParam(curve));
   for (const int frame : frames) {
     if (!curve.isKeyframe(frame))
@@ -500,7 +749,7 @@ void validateAnimationKeyDeletion(const TDoubleParam& curve,
     prospective->deleteKeyframe(frame);
   }
   validateTransition(curve, *prospective, {}, true);
-  validateCurve(*prospective);
+  validateCurve(*prospective, policy);
 }
 
 AnimationCurveEdit prepareAnimationCurveCopy(const TDoubleParam& source,
@@ -509,6 +758,7 @@ AnimationCurveEdit prepareAnimationCurveCopy(const TDoubleParam& source,
   validateWholeCurve(destination, true);
   AnimationCurveEdit edit;
   edit.defaultValue = source.getDefaultValue();
+  edit.cycle        = source.isCycleEnabled();
   for (int index = 0; index < source.getKeyframeCount(); ++index)
     edit.keys.push_back(source.getKeyframe(index));
   validateCurveEdit(destination, edit);
@@ -521,6 +771,7 @@ AnimationCurveEdit prepareAnimationCurveRetime(const TDoubleParam& curve,
   const auto time = readTimeMapping(mapping);
   AnimationCurveEdit edit;
   edit.defaultValue = curve.getDefaultValue();
+  edit.cycle        = curve.isCycleEnabled();
   for (int index = 0; index < curve.getKeyframeCount(); ++index)
     edit.keys.push_back(retimedKey(curve.getKeyframe(index), time));
   validateCurveEdit(curve, edit);
@@ -531,12 +782,14 @@ void applyAnimationCurveEdit(TDoubleParam& destination,
                              const AnimationCurveEdit& edit) {
   destination.clearKeyframes();
   destination.setDefaultValue(edit.defaultValue);
+  destination.enableCycle(edit.cycle);
   for (const auto& key : edit.keys) destination.setKeyframe(key);
 }
 
-QString animationUnsupportedReason(const TDoubleParam& curve) {
+QString animationUnsupportedReason(const TDoubleParam& curve,
+                                   CyclePolicy policy) {
   try {
-    validateCurve(curve);
+    validateCurve(curve, policy);
   } catch (const Error& error) {
     return error.message;
   }
@@ -555,8 +808,30 @@ QJsonArray inspectAnimationKeys(const TDoubleParam& curve) {
   return result;
 }
 
-void requireSupportedAnimationCurve(const TDoubleParam& curve) {
-  validateCurve(curve);
+void requireSupportedAnimationCurve(const TDoubleParam& curve,
+                                    CyclePolicy policy) {
+  validateCurve(curve, policy);
+}
+
+bool prepareAnimationCycle(const TDoubleParam& curve, bool enabled) {
+  requireWritable(curve);
+  validateCurve(curve, CyclePolicy::Allow);
+  return curve.isCycleEnabled() != enabled;
+}
+
+void requireAnimationSampleBudget(const TDoubleParam& curve,
+                                  const std::vector<double>& frames) {
+  if (!curve.isCycleEnabled() || curve.getKeyframeCount() < 2) return;
+  const double first = curve.getKeyframe(0).m_frame;
+  const double last  = curve.getKeyframe(curve.getKeyframeCount() - 1).m_frame;
+  double folds       = 0;
+  for (const double frame : frames)
+    if (frame >= last) folds += std::floor((frame - last) / (last - first)) + 1;
+  if (folds > MaxCycleFolds)
+    throw Error("resource_limit",
+                "Sampling this cyclic curve at these frames needs more than "
+                "2000000 cycle folds; sample fewer or earlier frames.",
+                {{"folds", folds}});
 }
 
 }  // namespace GroundzeroAutomation

@@ -551,6 +551,28 @@ OPERATIONS: dict[str, Operation] = {
 }
 
 
+# Writing tools of the modelled families that no operation above carries out yet, each with
+# the reason. Generated sequences never call them, so nothing here is checked by the model:
+# their own cases are their only evidence until an operation replaces the entry.
+NOT_MODELLED: dict[str, str] = {
+    "animation.insert_breakdown": (
+        "the model's keys are linear or constant only; the split of speed and ease segments "
+        "and the favour arithmetic are not written independently yet"
+    ),
+    "animation.move_keys": (
+        "the refusals (key_exists, order_changed, controls) depend on handles the model's "
+        "keys do not have"
+    ),
+    "animation.duplicate_keys": (
+        "the incoming_kind_changed refusal depends on handle kinds the model's keys do not have"
+    ),
+    "animation.set_cycle": (
+        "the model's sampler holds the last key's value; the cyclic fold with drift is not "
+        "written yet"
+    ),
+}
+
+
 def generate(seed: int, length: int) -> list[Step]:
     """Return `length` operations chosen from `seed`, each valid for the state before it.
 

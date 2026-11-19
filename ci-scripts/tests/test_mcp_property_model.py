@@ -90,6 +90,33 @@ class GenerationTest(unittest.TestCase):
         self.assertGreaterEqual(len(used), 10)
 
 
+class NotModelledTest(unittest.TestCase):
+    def requested(self) -> set[str]:
+        handles: Any = collections.defaultdict(lambda: collections.defaultdict(lambda: "handle"))
+        return {
+            model.OPERATIONS[step["op"]].request(step["args"], handles)[0]
+            for seed in range(1, 40)
+            for step in model.generate(seed, 24)
+        }
+
+    def test_listed_tools_write_and_have_no_operation(self) -> None:
+        requested = self.requested()
+        for tool, reason in model.NOT_MODELLED.items():
+            self.assertTrue(CENSUS["tools"][tool]["writes"], tool)
+            self.assertNotIn(tool, requested, f"{tool} has an operation: delete its entry")
+            self.assertGreater(len(reason), 20, tool)
+
+    def test_every_writing_animation_tool_is_modelled_or_listed(self) -> None:
+        writing = {
+            name
+            for name, entry in CENSUS["tools"].items()
+            if name.startswith("animation.") and entry["writes"]
+        }
+        whole_curve = {"animation.copy_curve", "animation.retime_curve"}
+        missing = writing - self.requested() - set(model.NOT_MODELLED) - whole_curve
+        self.assertEqual(missing, set(), "add an operation or a NOT_MODELLED entry with a reason")
+
+
 class ExpectedTest(unittest.TestCase):
     def test_reopen_drops_trailing_empty_columns_only(self) -> None:
         scene = model.new_scene()

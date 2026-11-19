@@ -1,7 +1,13 @@
 {
   "animation.channels": {
     "handler": "inspectAnimationChannels",
-    "read": []
+    "read": [
+      "cycle",
+      "cycle_supported",
+      "edit_via",
+      "kind",
+      "target"
+    ]
   },
   "animation.copy_curve": {
     "handler": "copyAnimationCurve",
@@ -11,9 +17,29 @@
     "handler": "deleteKeys",
     "read": []
   },
+  "animation.duplicate_keys": {
+    "handler": "duplicateKeys",
+    "read": [
+      "frame",
+      "created_frames"
+    ]
+  },
+  "animation.insert_breakdown": {
+    "handler": "insertBreakdown",
+    "read": [
+      "frame"
+    ]
+  },
   "animation.keys": {
     "handler": "inspectKeys",
     "read": []
+  },
+  "animation.move_keys": {
+    "handler": "moveKeys",
+    "read": [
+      "frame",
+      "moved_frames"
+    ]
   },
   "animation.retime_curve": {
     "handler": "retimeAnimationCurve",
@@ -22,6 +48,12 @@
   "animation.sample": {
     "handler": "sampleAnimation",
     "read": []
+  },
+  "animation.set_cycle": {
+    "handler": "setCycle",
+    "read": [
+      "frame"
+    ]
   },
   "animation.set_keys": {
     "handler": "setKeys",

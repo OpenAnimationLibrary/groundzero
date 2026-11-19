@@ -74,25 +74,6 @@ KNOWN_VIOLATIONS: dict[str, Violation] = {
         answers=frozenset({"invalid_argument"}),
         row="SCN-07 F1",
     ),
-    "KV-2": Violation(
-        name=(
-            "animation.copy_curve refuses a channel given with a unit the channel does not "
-            "have using `invalid_unit`, a code the tool does not declare"
-        ),
-        tool="animation.copy_curve",
-        call=(
-            "destination {channel: z, unit: inch} (or any channel with a unit that is not its "
-            "own) with a matching source"
-        ),
-        expected=(
-            "an error code animation.copy_curve declares (`invalid_params`), as for every "
-            "other incompatible pair; animation.set_keys declares `invalid_unit`, copy_curve "
-            "does not"
-        ),
-        observed='error code "invalid_unit"',
-        answers=frozenset({"invalid_unit"}),
-        row="SCN-13 F4",
-    ),
     "KV-3": Violation(
         name=(
             "The snapshot a render job copied from a discarded draft stays on disk after the "

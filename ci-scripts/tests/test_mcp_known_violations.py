@@ -70,9 +70,9 @@ class TableTest(unittest.TestCase):
             self.assertEqual(len(known.problems()), 1)
 
     def test_a_settled_name_without_an_entry_is_reported(self) -> None:
-        trimmed = {k: v for k, v in known.KNOWN_VIOLATIONS.items() if k != "KV-2"}
+        trimmed = {k: v for k, v in known.KNOWN_VIOLATIONS.items() if k != "KV-3"}
         with mock.patch.object(known, "KNOWN_VIOLATIONS", trimmed):
-            self.assertTrue(any("KV-2" in problem for problem in known.problems()))
+            self.assertTrue(any("KV-3" in problem for problem in known.problems()))
 
 
 if __name__ == "__main__":

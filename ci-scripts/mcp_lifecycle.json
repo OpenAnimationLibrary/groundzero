@@ -514,24 +514,28 @@
     },
     "create": {
      "tools": [
-      "animation.set_keys"
+      "animation.set_keys",
+      "animation.insert_breakdown"
      ]
     },
     "modify": {
      "tools": [
       "animation.set_keys",
       "animation.retime_curve",
-      "live.stage.set_key_value"
+      "live.stage.set_key_value",
+      "animation.move_keys",
+      "animation.set_cycle"
      ]
     },
     "duplicate": {
      "tools": [
-      "animation.copy_curve"
+      "animation.copy_curve",
+      "animation.duplicate_keys"
      ]
     },
     "reorder": {
      "disposition": "unsupported",
-     "reason": "keys are ordered by their frame; animation.retime_curve moves a whole curve and a single-key move is not a tool"
+     "reason": "keys are ordered by their frame; animation.move_keys shifts keys but refuses a move that would change their order, and animation.retime_curve moves a whole curve"
     },
     "remove": {
      "tools": [
