@@ -108,6 +108,11 @@ struct Document final {
   // The project a draft was created in (scene.create project_id): its
   // identity only; the draft's native project stays the worker's private one.
   QJsonObject project;
+  // An imported document's provenance and the private copy of its source
+  // scene (inside one of privateCopies); every package saved from the
+  // document carries both. Empty for a document that was not imported.
+  QJsonObject provenance;
+  QString sourceScene;
   // Selection handles issued for this document's drawings.
   std::shared_ptr<SelectionRegistry> selections;
 

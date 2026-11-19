@@ -977,6 +977,32 @@ it reaches the host: `details.reason` is `mutation` for writes, including
 `scene.save_copy`, and `not_qualified` for reads not yet available, with
 `details.slice`.
 
+`scene.import_plan` plans importing a read-only document as an editable package,
+in its host, decoding and writing nothing. It re-checks the pinned sources first
+(`source_changed`) and refuses an editable document with `unsupported_target`
+(`details.reason: "editable_document"`). Every item the editable profile cannot hold
+falls into one loss kind with its `effect`, a `count` and up to `sample_limit` (1-16,
+default 8) samples naming its level, column or effect handle: `unrecognized_scene_tag`
+(dropped; the parser kept only its name), `sub_xsheet` (its cells are cleared and
+its sheet is not imported; what lies inside goes with it), `fx_not_admitted` (an
+effect outside `builtin-2d-v2`, external code or a file resource, removed with its
+links bridged from its first input), `fx_value_out_of_range` (values clamped into the
+authoring ranges), `level_not_admitted` (removed and its cells cleared; `detail`
+starts with the reason: `format`, `drawing_limit`, `raster_size` or
+`palette_limit`), `level_load_failed`, `empty_level`, `raster_depth_reduced` (16-bit
+and float rasters become 8-bit RGBA), `style_not_admitted` (non-solid or linked
+styles become solid styles of their main colour), `column_not_admitted` (palette,
+mesh and sound-text columns), `exposure_not_admitted` (cells naming a drawing the
+level lacks) and `library_origin` (Linked Library and studio palette links).
+`blockers` refuse the import whatever the consent: `profile_limit` when the kept
+content would pass 256 levels, 4096 drawings, 4096 columns, 1,000,000 cells or
+256 MiB (never truncated), and `unclassified` for anything no rule names, including
+a refusal of the motion path, rig, hook, storyboard or sound checks. `conversions`
+counts the lossless changes, `estimate` sizes the result, `source_copy` is always
+`attach` (the original scene file goes into the package), and `plan_digest` covers
+the source fingerprint and every item's handles, so a changed source or plan reads
+as a different digest.
+
 `scene.inventory` pages through a document's `sheets`, `columns` or `stage_objects`,
 128 rows a page and at most 65,536 rows a section (`reasons: ["row_limit"]` past
 that). Every row carries `sheet_path`, the instance path of `{column_id, level_id}`
@@ -1063,6 +1089,37 @@ normal application use after the worker exits. Render jobs use separate copies
 of the scene and artwork. This process isolation is not an operating system
 sandbox for native image readers, and the workspace must not be modified
 concurrently by another process.
+
+`scene.import_editable` turns a read-only document into an editable copy. It takes
+the `plan_digest` of `scene.import_plan` and `accept_losses`, the loss kinds the
+caller consents to, and refuses before any job exists: `plan_changed` (with the
+current `details.plan_digest`) when the source or the plan moved, `import_blocked`
+(with `details.blockers`) when the plan has a blocker, and `losses_not_accepted`
+(with `details.missing`) unless every loss kind of the plan is accepted. It then
+starts a `scene_import` job in the document's host on the render lane (one active
+render or import job per worker, hosts included; `render_busy`, `render_limit`).
+The job loads a fresh snapshot from the private scene copy, classifies it again
+(a different result fails it with `import_verification_failed`), applies the
+losses, checks the editable profile (a refusal is also
+`import_verification_failed`), writes and verifies the package in the host's
+private storage with the source scene attached at `provenance/source-scene.tnz`,
+re-checks every pinned source (`source_changed` fails it) and only then places the
+package under the host's directory. A failed or canceled job leaves nothing behind;
+cancel takes effect at the next drawing or step. Its record carries `import
+{plan_digest, package_id, package_bytes, levels, drawings, losses_applied,
+source_copy, adopted_documents}`; progress counts drawings written, then verified.
+A retry with the same `operation_id` returns the same job.
+`scene.open {import_job_id}` (instead of `path`) adopts a completed import of this
+worker as a new editable document: the package is copied in against the
+`package_id` the job reported (`import_not_ready` with `details.status` before it
+completed, `unknown_job` for another id), `admission` is `import_job`, `location`
+is null and `provenance` names the source by root and relative path, its revision
+and fingerprint, the importer, the plan digest and the losses applied. One job can
+be adopted more than once. The package registers when the document is saved:
+every `scene.save_copy` of an imported document, and of a package reopened from
+it, writes the same `provenance` into the manifest and the original scene file
+byte for byte, and reports `provenance` in its result (null otherwise). The
+user's scene and its files are never written.
 
 The `audio` toolset imports sound and places it on the timeline. `audio.import`
 copies a WAV or AIFF file into the workspace as a sound source after checking its
@@ -1498,7 +1555,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (126):
+- `core` toolset (128):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1522,13 +1579,13 @@ the adapter and the live editor bridge add the rest.
   `raster.import_png`, `raster.patch`, `raster.read_pixels`, `render.capabilities`,
   `render.preflight`, `render.preview`, `render.submit`, `runtime.inspect`,
   `scene.check.submit`, `scene.create`, `scene.dependencies`, `scene.discard`,
-  `scene.inventory`, `scene.open`, `scene.open_read_only`, `scene.package_info`,
-  `scene.save_copy`, `scene.save_preflight`, `scene.settings`, `scene.source_status`,
-  `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`, `vector.edit`,
-  `vector.export_svg`, `vector.fill`, `vector.group.create`, `vector.group.remove`,
-  `vector.inspect`, `vector.opacity.inspect`, `vector.opacity.profile.set`,
-  `vector.opacity.set`, `vector.order.move`, `vector.select`, `vector.structure`,
-  `vector.text.create`, `vector.transform`
+  `scene.import_editable`, `scene.import_plan`, `scene.inventory`, `scene.open`,
+  `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.save_preflight`,
+  `scene.settings`, `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`,
+  `tool.describe`, `vector.edit`, `vector.export_svg`, `vector.fill`, `vector.group.create`,
+  `vector.group.remove`, `vector.inspect`, `vector.opacity.inspect`,
+  `vector.opacity.profile.set`, `vector.opacity.set`, `vector.order.move`, `vector.select`,
+  `vector.structure`, `vector.text.create`, `vector.transform`
 - `audio` toolset (8):
   `audio.clip.place`, `audio.clip.remove`, `audio.clip.update`, `audio.column.create`,
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`

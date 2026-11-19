@@ -30,14 +30,16 @@
       "scene.summary",
       "automation.list_documents",
       "scene.validate",
-      "scene.dependencies"
+      "scene.dependencies",
+      "scene.import_plan"
      ]
     },
     "create": {
      "tools": [
       "scene.create",
       "scene.open",
-      "scene.open_read_only"
+      "scene.open_read_only",
+      "scene.import_editable"
      ]
     },
     "modify": {

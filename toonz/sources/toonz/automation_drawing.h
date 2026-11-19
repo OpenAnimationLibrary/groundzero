@@ -1,8 +1,10 @@
 #pragma once
 
 #include "timage.h"
+#include <QString>
 #include <QtGlobal>
 
+class TPalette;
 class TXshSimpleLevel;
 class ToonzScene;
 
@@ -24,4 +26,10 @@ qint64 automationLevelBytes(TXshSimpleLevel& level);
 // Rejects drawings and palette dependencies outside the admitted persistence
 // profile.
 void validateDrawingProfile(TXshSimpleLevel* level);
+// The limits of validateDrawingProfile that need no decoded drawing, with the
+// palette checked as `palette` (the level's own or an admitted copy). Returns
+// drawing_limit, raster_size, palette_limit or format with `detail` set, or
+// empty when none applies.
+QString drawingProfileLimit(TXshSimpleLevel* level, TPalette* palette,
+                            QString& detail);
 }  // namespace GroundzeroAutomation

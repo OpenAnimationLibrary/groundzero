@@ -276,7 +276,16 @@
   },
   "drawing.analysis.submit": {
     "handler": "submitDrawingAnalysis",
-    "read": []
+    "read": [
+      "adopted_documents",
+      "count",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
   },
   "drawing.clone": {
     "handler": "cloneDrawing",
@@ -491,22 +500,61 @@
   },
   "job.cancel": {
     "handler": null,
-    "read": []
+    "read": [
+      "adopted_documents",
+      "count",
+      "drawings",
+      "kind",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
   },
   "job.list": {
     "handler": "listJobs",
-    "read": []
+    "read": [
+      "adopted_documents",
+      "count",
+      "drawings",
+      "kind",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
   },
   "job.result": {
     "handler": "result",
     "read": [
+      "adopted_documents",
       "artifacts",
-      "job"
+      "count",
+      "job",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
     ]
   },
   "job.status": {
     "handler": "record",
-    "read": []
+    "read": [
+      "adopted_documents",
+      "count",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
   },
   "journal.status": {
     "handler": "journalStatus",
@@ -865,8 +913,18 @@
   "scene.check.submit": {
     "handler": null,
     "read": [
+      "adopted_documents",
+      "count",
+      "drawings",
+      "kind",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
       "requested",
-      "requested_ms"
+      "requested_ms",
+      "source_copy"
     ]
   },
   "scene.create": {
@@ -884,6 +942,48 @@
   "scene.guides.set": {
     "handler": "setGuides",
     "read": []
+  },
+  "scene.import_editable": {
+    "handler": null,
+    "read": [
+      "adopted_documents",
+      "count",
+      "drawings",
+      "import",
+      "kind",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "requested",
+      "requested_ms",
+      "source_copy"
+    ]
+  },
+  "scene.import_plan": {
+    "handler": "importPlan",
+    "read": [
+      "cells",
+      "column_id",
+      "columns",
+      "count",
+      "decoded_pixels",
+      "detail",
+      "drawings",
+      "effect",
+      "fx_id",
+      "kind",
+      "level_id",
+      "levels",
+      "limit",
+      "maximum",
+      "name",
+      "package_bytes",
+      "samples",
+      "sheet_path",
+      "value"
+    ]
   },
   "scene.inventory": {
     "handler": null,
@@ -925,10 +1025,27 @@
   "scene.save_copy": {
     "handler": "saveCopy",
     "read": [
+      "classifier_version",
+      "count",
+      "executable_sha256",
+      "importer",
       "input_index",
+      "kind",
+      "losses_applied",
       "path",
+      "plan_digest",
+      "profile",
+      "project_id",
+      "relative_path",
       "root",
-      "root_sha256"
+      "root_path_sha256",
+      "root_sha256",
+      "scene_file_revision",
+      "scene_version",
+      "source",
+      "source_copy",
+      "source_fingerprint",
+      "unrecognized_scene_tags"
     ]
   },
   "scene.save_preflight": {

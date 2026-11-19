@@ -1226,11 +1226,11 @@
     {
      "tool": "scene.save_copy",
      "args": {
-      "directory": "${workspace}/package-for-removal"
+      "directory": "${workspace}/package-for-remove"
      },
      "save": {
-      "removable": "package_directory",
-      "removable_id": "package_id"
+      "package": "package_directory",
+      "package_id": "package_id"
      }
     }
    ]
@@ -8036,32 +8036,49 @@
    "kind": "file",
    "fixture": "removable_pkg",
    "domain": "Document lifecycle, files and jobs",
-   "class": "published file",
-   "changes": "removes a package directory this workspace registered",
-   "bumps": "none; a package is a file, not document content",
-   "reads": [
-    {
-     "tool": "scene.summary"
-    }
-   ],
+   "class": "save state",
+   "changes": "removes a registered package that matches its registered manifest exactly",
+   "bumps": "none; removing a package changes no document",
+   "reads": [],
    "success": {
     "args": {
-     "directory": "$removable",
-     "expected_package_id": "$removable_id"
+     "directory": "$package",
+     "expected_package_id": "$package_id"
     }
    },
    "reject": [
     {
      "args": {
-      "directory": "/nonexistent-root/package",
-      "expected_package_id": "$removable_id"
+      "directory": "${workspace}/not-a-package",
+      "expected_package_id": "package:0000000000000000000000000000000000000000000000000000000000000000"
      },
-     "code": "path_denied"
+     "code": "not_found"
     }
    ],
    "effect": {
-    "file": "${workspace}/package-for-removal/scene.tnz"
+    "file": "${workspace}/package-for-remove/scene.tnz"
    }
+  },
+  "scene.import_editable": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "scene",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "starts a scene_import job that converts a read-only document into a package in its scene host",
+   "bumps": "none; an import reads the read-only document and never edits it",
+   "reads": [],
+   "success": null,
+   "unexercised": "it imports read-only documents only, which the table's editable fixtures are not; mcp_import_job_cases.py starts, retries and adopts import jobs",
+   "reject": [
+    {
+     "args": {
+      "plan_digest": "plan:0000000000000000000000000000000000000000000000000000000000000000",
+      "accept_losses": []
+     },
+     "code": "unsupported_target"
+    }
+   ]
   }
  },
  "known_violations": []

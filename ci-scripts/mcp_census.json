@@ -15,12 +15,16 @@
   ]
  },
  "non_tool_tokens": [
+  "details.blockers",
   "details.cause",
   "details.check",
+  "details.missing",
   "details.native_binding",
+  "details.plan_digest",
   "details.reason",
   "details.scope",
   "details.slice",
+  "details.status",
   "details.toolset",
   "formats.admitted"
  ],
@@ -1071,6 +1075,16 @@
    "origin": "worker",
    "toolset": "sheet",
    "writes": true
+  },
+  "scene.import_editable": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.import_plan": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
   },
   "scene.inventory": {
    "origin": "worker",
@@ -3348,6 +3362,19 @@
    "classification": "exposed",
    "tools": [
     "vector.export_svg"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.editable_import",
+   "domain": "Projects and scenes",
+   "outcome": "Import a user scene as an editable copy: plan every loss by kind before consent, convert it in its scene host and open the verified package, the source left unchanged and attached.",
+   "classification": "exposed",
+   "tools": [
+    "scene.import_editable",
+    "scene.import_plan"
    ],
    "disposition": {
     "kind": "implemented"
