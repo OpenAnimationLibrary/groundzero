@@ -669,19 +669,6 @@
     ]
   },
   {
-    "id": "model-degenerate-frame-axis",
-    "file": "ci-scripts/mcp_property_curves.py",
-    "find": " or 3 * outgoing - 3 * incoming == 2 * span",
-    "replace": "",
-    "why": "A speed segment whose frame axis has no cubic term is a known violation, not compared.",
-    "tests": [
-      {
-        "kind": "unit",
-        "pattern": "test_mcp_property_curves.py"
-      }
-    ]
-  },
-  {
     "id": "model-generator-cubic-frame-axis",
     "file": "ci-scripts/mcp_property_curves.py",
     "find": "        if 3 * (far - near) == span:\n            far += 1 if far < span else -1\n",

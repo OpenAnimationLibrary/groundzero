@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
-from mcp_known_violations import settle
 from mcp_property_curves import Key, key_record, sample
 from mcp_property_effects import EFFECT_OPERATIONS, FX_CHANNEL, FX_TYPE, FX_UNIT, generate_effects
 from mcp_property_model import (
@@ -1024,8 +1023,8 @@ def trailing_empty_columns_are_not_saved_and_inner_ones_are(case: NativeAcceptan
 def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptance) -> None:
     """Sample speed segments with handles of every length against the Bezier, by hand.
 
-    A segment whose frame axis is a quadratic in the Bezier parameter, that is where three times
-    the outgoing length minus the incoming length is twice the span, is the known violation.
+    The last two rows have a frame axis that is a quadratic in the Bezier parameter (three
+    times the outgoing length minus the incoming length is twice the span).
     """
     document = case.create()
     peg = case.mutate("object.create", document, name="Peg", kind="pegbar")["object_id"]
@@ -1033,13 +1032,13 @@ def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptan
     # Handles as long as the span make the frame axis stationary at frame 9: every parameter
     # near 0.5 reaches it, so the editor's closed form and the model's bisection pick values of
     # the parameter 4e-6 apart and the curve differs by about 3e-4 there.
-    for outgoing, incoming, expected_match, tolerance in (
-        (4, -1, True, 1e-5),
-        (0, -3, True, 1e-5),
-        (6, -6, True, 1e-3),
-        (4, -0.001, True, 1e-5),
-        (4, 0, False, 1e-5),
-        (0, -4, False, 1e-5),
+    for outgoing, incoming, tolerance in (
+        (4, -1, 1e-5),
+        (0, -3, 1e-5),
+        (6, -6, 1e-3),
+        (4, -0.001, 1e-5),
+        (4, 0, 1e-5),
+        (0, -4, 1e-5),
     ):
         target = {"object_id": peg, "channel": "x", "unit": "inch"}
         keys = [
@@ -1054,13 +1053,5 @@ def a_speed_segment_follows_its_bezier_whatever_its_handles(case: NativeAcceptan
         close = all(
             abs(a["value"] - b) < tolerance for a, b in zip(got["values"], exact, strict=True)
         )
-        if expected_match:
-            case.assertTrue(close, (outgoing, incoming))
-        else:
-            settle(
-                case,
-                "KV-9",
-                "matches the Bezier" if close else "does not match the Bezier",
-                "matches the Bezier",
-            )
+        case.assertTrue(close, (outgoing, incoming))
         case.mutate("animation.delete_keys", document, **target, frames=[6, 12])

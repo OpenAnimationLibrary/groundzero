@@ -161,18 +161,14 @@ const unsigned int c_maxuint = (unsigned int)(~0U);
 #define DV_ALIGNED(val) __attribute__((aligned(val)))
 #endif
 
-inline short swapShort(short val) { return ((val >> 8) & 0x00ff) | (val << 8); }
+inline short swapShort(short val) {
+  const USHORT bits = static_cast<USHORT>(val);
+  return static_cast<short>(static_cast<USHORT>((bits >> 8) | (bits << 8)));
+}
 inline TINT32 swapTINT32(TINT32 val) {
-  TINT32 appo, aux, aux1;
-  appo = 0xff0000ff;
-  aux  = (val & appo);
-  aux1 = (aux >> 24) & 0x000000ff;
-  aux  = (aux << 24) | aux1;
-  appo = 0x00ffff00;
-  aux1 = (val & appo);
-  aux1 = ((aux1 >> 8) | (aux1 << 8)) & appo;
-  aux  = (aux | aux1);
-  return aux;
+  const TUINT32 bits = static_cast<TUINT32>(val);
+  return static_cast<TINT32>((bits >> 24) | ((bits >> 8) & 0x0000ff00u) |
+                             ((bits << 8) & 0x00ff0000u) | (bits << 24));
 }
 inline USHORT swapUshort(USHORT val) { return val >> 8 | val << 8; }
 
