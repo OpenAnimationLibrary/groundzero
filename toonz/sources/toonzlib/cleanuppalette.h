@@ -3,9 +3,9 @@
 #ifndef CLEANUPPALETTE_INCLUDED
 #define CLEANUPPALETTE_INCLUDED
 
-class TPalette;
+#include "tpalette.h"
 
-TPalette *createStandardCleanupPalette();
+TPaletteP createStandardCleanupPalette();
 TPalette *createToonzPalette(TPalette *cleanupPalette);
 TPalette *createToonzPalette(TPalette *cleanupPalette, int colorParamIndex);
 

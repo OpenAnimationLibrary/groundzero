@@ -1954,13 +1954,6 @@ static void newSceneImpl(IoCmd::SceneTransitionGuard &transition) {
   }
   // Must set current scene after initializeScene!!
   app->getCurrentScene()->setScene(scene);
-  // initializeScene() load project cleanup palette: set it to cleanup palette
-  // handle.
-  TPalette *palette = scene->getProperties()
-                          ->getCleanupParameters()
-                          ->m_cleanupPalette.getPointer();
-  PaletteController *paletteController = app->getPaletteController();
-  paletteController->assignCleanupPalette(palette);
 
   TFilePath scenePath = scene->getScenePath();
   DvDirModel::instance()->refreshFolder(scenePath.getParentDir());

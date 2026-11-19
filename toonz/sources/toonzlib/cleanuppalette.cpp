@@ -9,8 +9,8 @@
 
 //===================================================================
 
-TPalette *createStandardCleanupPalette() {
-  TPalette *palette    = new TPalette();
+TPaletteP createStandardCleanupPalette() {
+  TPaletteP palette    = new TPalette();
   TPalette::Page *page = palette->getPage(0);
   page->removeStyle(1);  // tolgo il black che c'e' gia' nella palette di
                          // default
@@ -20,7 +20,6 @@ TPalette *createStandardCleanupPalette() {
   // page->addStyle(palette->addStyle(new TColorCleanupStyle(TPixel32::Red)));
   // page->addStyle(palette->addStyle(new TColorCleanupStyle(TPixel32::Blue)));
   black->setName(L"color_1");
-  palette->addRef();
   palette->setIsCleanupPalette(true);
   return palette;
 }

@@ -1138,6 +1138,14 @@ if(BUILD_RELIABILITY_TESTS)
         toonzlib image tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME level_load_report COMMAND level_load_report_test)
     set_tests_properties(level_load_report PROPERTIES TIMEOUT 30)
+
+    # A scene's cleanup palette and output format properties are held once
+    # and freed with their owner
+    add_executable(settingsownership_test toonzlib/tests/settingsownership_test.cpp)
+    target_link_libraries(settingsownership_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_test(NAME settingsownership COMMAND settingsownership_test)
+    set_tests_properties(settingsownership PROPERTIES TIMEOUT 60)
 endif()
 add_subdirectory(toonzfarm/tfarm)
 add_subdirectory(glb)

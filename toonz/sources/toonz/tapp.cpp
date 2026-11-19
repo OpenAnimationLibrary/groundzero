@@ -453,8 +453,16 @@ void TApp::updateCurrentFrame() {
 //-----------------------------------------------------------------------------
 
 void TApp::onSceneSwitched() {
+  ToonzScene* scene = m_currentScene->getScene();
+  // The previous scene and the cleanup palette it owns are deleted shortly
+  // after a switch: never leave the cleanup palette handle on them.
+  m_paletteController->assignCleanupPalette(
+      scene->getProperties()
+          ->getCleanupParameters()
+          ->m_cleanupPalette.getPointer());
+
   // update XSheet
-  m_currentXsheet->setXsheet(m_currentScene->getScene()->getXsheet());
+  m_currentXsheet->setXsheet(scene->getXsheet());
 
   // reset current frame
   m_currentFrame->setFrame(0);
