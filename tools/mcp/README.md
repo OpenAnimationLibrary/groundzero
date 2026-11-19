@@ -1119,6 +1119,9 @@ the adapter and the live editor bridge add the rest.
 - `shared-library` toolset (7):
   `library.inspect`, `library.list`, `library.thumbnail`, `shared.roots`, `studio_palette.find`,
   `studio_palette.inspect`, `studio_palette.list`
+- `sheet` toolset (7):
+  `cells.clear`, `cells.copy`, `cells.insert`, `cells.remove`, `cells.replace`, `cells.retime`,
+  `cells.set`
 - `storyboard` toolset (4):
   `storyboard.panel.create`, `storyboard.panel.delete`, `storyboard.panel.update`,
   `storyboard.panels`

@@ -337,37 +337,37 @@
   },
   "cells.clear": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "cells.copy": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "cells.insert": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "cells.remove": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "cells.replace": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "cells.retime": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "cells.set": {
    "origin": "worker",
-   "toolset": "core",
+   "toolset": "sheet",
    "writes": true
   },
   "column.cells": {
