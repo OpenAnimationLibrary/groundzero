@@ -1,0 +1,1767 @@
+{
+ "schema_version": 1,
+ "formats": [
+  {
+   "id": "png_sequence",
+   "job_format": "png",
+   "profile": "rgba8-png",
+   "census_format": "png",
+   "compared": "decoded RGBA of frame 6 with the reference stored for the type on the platform",
+   "cap": "color 0, alpha 0, differing pixels 0 (lossless: any difference on one platform is a defect)"
+  },
+  {
+   "id": "mp4",
+   "job_format": "mp4",
+   "profile": "opaque8-mp4",
+   "census_format": "mp4",
+   "compared": "frame 6 decoded by an independent ffmpeg: with the stored decode of the type, and with the PNG render composited on black",
+   "cap": "mean error 40 and max error 220 against the PNG render (8-bit code values: a gross-error guard only), 0 bytes against the stored decode"
+  }
+ ],
+ "platforms": {
+  "macOS": {
+   "latest_run": "macOS-20261119-124106"
+  },
+  "Linux": {
+   "latest_run": null
+  },
+  "Windows": {
+   "latest_run": null
+  }
+ },
+ "runs": {
+  "macOS-20261119-124106": {
+   "platform": "macOS",
+   "recorded": "2026-11-19 12:41:06",
+   "reason": "First full recorded run of the render matrix on macOS, to establish references",
+   "covered": "31 of 31 types",
+   "identity": {
+    "build": "groundzero 1.8 digest 360befa2ca1316d98e3e49500253cb3907d3158611caa9023fb6437104a4e653",
+    "operating_system": "macos 27.2",
+    "cpu": "arm64 (built for arm64)",
+    "qt": "built 5.15.19, running 5.15.19",
+    "graphics_backend": "cocoa, probe {'elapsed_ms': 617, 'renderer': 'Apple M2 Max', 'renderer_class': 'hardware', 'result': 'context_ready', 'vendor': 'Apple', 'version': '2.1 Metal - 91.7'}",
+    "plugins": "policy builtin_only",
+    "fonts": "usable True",
+    "media_tools": "ffmpeg not configured, sha256 2ce81b92499c1b6b96eb060c69723114bd0da13f1bfbd9da26dee24d099e644a",
+    "codec": "mp4 encoder libx264, available True",
+    "render_profiles": "rgba8-png, opaque8-mp4"
+   }
+  }
+ },
+ "cells": {
+  "colorCardFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "3b84d1aa1c6088001f0cf294cc992696867296d58904cb240f143e057ad08146",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "3b84d1aa1c6088001f0cf294cc992696867296d58904cb240f143e057ad08146",
+     "decoded_reference": "3bca589cb1316d60ef95699210eb18c23b161ae31c6a0d144b7e4ac5cf6ed9b5",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 1.303,
+      "max_error": 3,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "overFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 2.994,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_iwa_LinearGradientFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "47bd97489f1f32cfb6ba061e24e08b034ff9562a16bbee690c3010e0efa0f808",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "47bd97489f1f32cfb6ba061e24e08b034ff9562a16bbee690c3010e0efa0f808",
+     "decoded_reference": "ae6d507d9367a550bfc34881c9b17d4041a269b4cb2438b50c4609ece84ea0b7",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 7.233,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_radialGradientFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "3d6b56d91e1ba8335e4f9bfe0a868c198fdb496d105f20ce4a49198a6328fee1",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "3d6b56d91e1ba8335e4f9bfe0a868c198fdb496d105f20ce4a49198a6328fee1",
+     "decoded_reference": "97ed114c5111c2663c1fdef6b327d518559185f3c0d1892c7a5184910370a271",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 11.122,
+      "max_error": 63,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_blurFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "96d00b231c9de57afcb4c8b7e91a53759ef63dbc72f2cc55c6b154d5b4a90b38",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "96d00b231c9de57afcb4c8b7e91a53759ef63dbc72f2cc55c6b154d5b4a90b38",
+     "decoded_reference": "7c74ce0dda35a3d38785f8656b12695eb4b1a140b6e216792f1b9c4031bf085c",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 10.025,
+      "max_error": 130,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_glowFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "a2f1ffc6bff7a7f0369a8423b3ef94c969a13a9705c6c0c13fc61af055b4ba01",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "a2f1ffc6bff7a7f0369a8423b3ef94c969a13a9705c6c0c13fc61af055b4ba01",
+     "decoded_reference": "655d020e400f6375b08d58bbd25e18c1aadd5df2dff84d0229eab922a4ecb9b4",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 4.357,
+      "max_error": 38,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_brightContFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "e58e1e0b316457e865384677e5aee2df0bd0fdcd30632eb01dbbd98b8fd0f86a",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "e58e1e0b316457e865384677e5aee2df0bd0fdcd30632eb01dbbd98b8fd0f86a",
+     "decoded_reference": "7ad98eb93451da76d1f583894225bcd8861c18b84302d99b9df4a0b0a5ca02d5",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 4.369,
+      "max_error": 63,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_hsvScaleFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "9c2a3b512acbdd6790e7bfda74b6a8432f86e4c0693cc074a0bd4f959e81ca89",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "9c2a3b512acbdd6790e7bfda74b6a8432f86e4c0693cc074a0bd4f959e81ca89",
+     "decoded_reference": "123f49e7483d26ceb09d74833451fa39ac5783b926dbf59c249b7e8a96463e78",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 4.52,
+      "max_error": 41,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "multFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "e0bb66bc573b7a142d05caf0e1884bb7d437b91d2e4b6efd675b7e6bc04330fa",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "e0bb66bc573b7a142d05caf0e1884bb7d437b91d2e4b6efd675b7e6bc04330fa",
+     "decoded_reference": "26109f0f6fc5d0d83cbe803be4db8f930cb969d959da21e590f661d47d4e3c29",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 4.783,
+      "max_error": 63,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "screenFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 2.994,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "inFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 2.994,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "outFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7",
+     "decoded_reference": "e80232b4d18d0bb7e794be263ba937626f383f9917d4b8a737ba893a8f752293",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 0.0,
+      "max_error": 0,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "invertFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "8794c7236b573631a2e1602746ed6748806be1fee354597134ff6832ac8b6c68",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "8794c7236b573631a2e1602746ed6748806be1fee354597134ff6832ac8b6c68",
+     "decoded_reference": "afa30143d152ed900685324dcff2b8ab588e608ff042318eb2d26926fedf294f",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 3.294,
+      "max_error": 43,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "blendFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 2.994,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_iwa_BloomFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "a1e2c02bd09b87cf3698344414183ad343446cf5f1744e29dbbd5010ec57d303",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "a1e2c02bd09b87cf3698344414183ad343446cf5f1744e29dbbd5010ec57d303",
+     "decoded_reference": "c14e7bfbac0c105eeaf470ac4a64e15488ce93f30ac0c4286cc28b4ac775d133",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 16.686,
+      "max_error": 118,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_lightWrapFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "5576ef0c0686e9268b926f493fc1efbcdbc4d9b9931064eff5f4f6c817fa46b4",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "5576ef0c0686e9268b926f493fc1efbcdbc4d9b9931064eff5f4f6c817fa46b4",
+     "decoded_reference": "6af6dcaa32d1ae289028de65e5b2477764711f4d4c68dc9e1b9ceda1e86bce53",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 11.553,
+      "max_error": 89,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_backlitFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 2.994,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_bodyHighLightFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "6c6282f972280ce187b6904240eb79e4f9e5fd53a97b6e0419cb314d934f2723",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "6c6282f972280ce187b6904240eb79e4f9e5fd53a97b6e0419cb314d934f2723",
+     "decoded_reference": "46c60998fe4e8d6bf0d5e9e110c0a17f7573065ac7e4088fdb6f729e08a4ecd3",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 6.898,
+      "max_error": 92,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_lightSpotFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "13ddd3cfa78fe782932a4667d9181cb05251578b949413746657a5732762650b",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "13ddd3cfa78fe782932a4667d9181cb05251578b949413746657a5732762650b",
+     "decoded_reference": "b6575e9e1bd9787fa91afcdb216488c1d2a98477e2c6ea69790fd1a9f93c5498",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 20.316,
+      "max_error": 122,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_targetSpotFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "8b217804022b45d1d83f45e2dd91261402eba3dfb7ba486460d9518a7c34d29d",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "8b217804022b45d1d83f45e2dd91261402eba3dfb7ba486460d9518a7c34d29d",
+     "decoded_reference": "b240d0e417e5cd8247dd42539f549238d6523197f9ac998cb43ba9028b06bcff",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 1.64,
+      "max_error": 3,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_directionalBlurFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "244b2bef504ada4c309c1d28fe5f3cc957059ee7df702bb687d040b5abc11146",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "244b2bef504ada4c309c1d28fe5f3cc957059ee7df702bb687d040b5abc11146",
+     "decoded_reference": "3db3a718793061f5a5bbfffbb3b997e14bb2afbd8f8d5ab99003935cd98e9384",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 12.435,
+      "max_error": 166,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_localBlurFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "81b538c0a9502172b2f2e9680ddf5cf977f7f0c2eac9ba26a68fa82a9d870fec",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "81b538c0a9502172b2f2e9680ddf5cf977f7f0c2eac9ba26a68fa82a9d870fec",
+     "decoded_reference": "54b5eb86e9d470722e021f0f8681d013fd1b9b4d95fb9500543783d3f19b09a8",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 16.193,
+      "max_error": 118,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_posterizeFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "df894663e850afa3619ed3d3825d9d1c6520f15fcd76aac25c4407c405fa8cfe",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "df894663e850afa3619ed3d3825d9d1c6520f15fcd76aac25c4407c405fa8cfe",
+     "decoded_reference": "e80232b4d18d0bb7e794be263ba937626f383f9917d4b8a737ba893a8f752293",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 0.0,
+      "max_error": 0,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_solarizeFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "df894663e850afa3619ed3d3825d9d1c6520f15fcd76aac25c4407c405fa8cfe",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "df894663e850afa3619ed3d3825d9d1c6520f15fcd76aac25c4407c405fa8cfe",
+     "decoded_reference": "e80232b4d18d0bb7e794be263ba937626f383f9917d4b8a737ba893a8f752293",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 0.0,
+      "max_error": 0,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_sharpenFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 2.994,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_embossFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "15f0c8339dba1d797b06d439d6c76b11886293b6fa99765d6f7f4941d560d65e",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "15f0c8339dba1d797b06d439d6c76b11886293b6fa99765d6f7f4941d560d65e",
+     "decoded_reference": "21a1378755442c037d9abc8d4eb0948ce25806c7960459ecf423c4601f86ab04",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 25.865,
+      "max_error": 136,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_erodeDilateFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "2460b30e3f11d306f2cbaef06224c4bd8744b30d85b1c1781d3f6182ffbcd106",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "2460b30e3f11d306f2cbaef06224c4bd8744b30d85b1c1781d3f6182ffbcd106",
+     "decoded_reference": "93aafdffe2733d680b80d4534aca1bcb0e03e80a4f09a5609fee8d0c4c485a63",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 14.409,
+      "max_error": 174,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_matteChokeFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "07ad0fc9d75bce1d016ff36e834454554ff6b2d6aeeaae6f104c8ffd8f5527d6",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "07ad0fc9d75bce1d016ff36e834454554ff6b2d6aeeaae6f104c8ffd8f5527d6",
+     "decoded_reference": "67611e95293d92c4a4625e6eb27dbbf7b0d1d2ce973e21fce400402edfa92fd7",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 14.656,
+      "max_error": 127,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_channelMixerFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "756ea751f6a9bc8218bc463bc6e9107ec7c096138aab79efeef7e500acf2edd9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "756ea751f6a9bc8218bc463bc6e9107ec7c096138aab79efeef7e500acf2edd9",
+     "decoded_reference": "8d7b800f05c50f468d8c0ff6c7aa6e65dabbb491d3276b84411ad71a5d65b4c0",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 3.802,
+      "max_error": 24,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_gammaFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 2.994,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  },
+  "STD_iwa_AdjustExposureFx": {
+   "png_sequence": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "status": "passed",
+     "tolerance": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0,
+      "why": ""
+     },
+     "observed": {
+      "max_color": 0,
+      "max_alpha": 0,
+      "differing_pixels": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   },
+   "mp4": {
+    "macOS": {
+     "reference": "f244dc2a7a61960cbad1f603961e4f324ec4f444367ca589744b3e60531f22e9",
+     "decoded_reference": "16fa72f7604ba52255cbb8ac3200a947a62a7ed7fc9b91d5d4f336302fde3e83",
+     "status": "passed",
+     "tolerance": {
+      "mean_error": 40.0,
+      "max_error": 220,
+      "decoded_differing_bytes": 0,
+      "why": "against the PNG only a gross error (a wrong or flipped frame) is caught: the writer's fixed low bitrate decodes a 32 pixel frame with a mean error up to about 26 (black decodes as 20); against the stored decode there is no tolerance, the same ffmpeg and encoder must give the same bytes"
+     },
+     "observed": {
+      "mean_error": 2.994,
+      "max_error": 37,
+      "decoded_differing_bytes": 0
+     },
+     "run": "macOS-20261119-124106"
+    },
+    "Linux": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    },
+    "Windows": {
+     "status": "not_tested",
+     "reason": "added to the grid; no run has covered it yet"
+    }
+   }
+  }
+ },
+ "negative_test_gaps": {
+  "live.status": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested in tools/mcp/src/live.test.ts (not read by this check)",
+  "live.inspect": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested in tools/mcp/src/live.test.ts (not read by this check)",
+  "live.stage.set_key_value": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested in tools/mcp/src/live.test.ts (not read by this check)",
+  "live.fx.set_scalar_value": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested by the ctest mcp_live_protocol suite (automation_live_protocol_test.cpp)",
+  "live.receipt": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; its refusals are tested by the ctest mcp_live_protocol and mcp_live_race suites",
+  "live.capabilities": "The live bridge tools are served by the editor, not the worker, so no acceptance case reaches them; it takes no input and no suite asserts a refusal for it"
+ }
+}
