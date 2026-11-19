@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from mcp_file_matrix import attach_volume
 from mcp_file_tools import invoke
 from mcp_png import write_fixture
-from mcp_worker import Worker
+from mcp_worker import FULL_AUTHORITY, Worker
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -24,7 +24,7 @@ USAGE_OPTION = re.compile(r"(--[a-z-]+) (?:ROLE=)?DIR")
 def _launch(case: NativeAcceptance, arguments: list[str]) -> tuple[int, str]:
     """Start the worker or its adapter with exactly these grants, then close its input."""
     result = subprocess.run(
-        [str(case.executable), "--automation-worker", *arguments],
+        [str(case.executable), "--automation-worker", *arguments, *FULL_AUTHORITY],
         stdin=subprocess.DEVNULL,
         capture_output=True,
         timeout=60,

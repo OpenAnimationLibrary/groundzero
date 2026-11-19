@@ -25,6 +25,7 @@ EVERY_TOOL_ERRORS = {
     "worker_busy",
     "native_error",
     "response_too_large",
+    "grant_denied",
 }
 ERROR_ENVELOPE = {
     "type": "object",

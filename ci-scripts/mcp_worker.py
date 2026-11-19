@@ -14,6 +14,8 @@ from typing import Any, BinaryIO, ClassVar
 
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 DESCRIBE_BATCH = 16
+FULL_GRANTS = "inspect,draft,file,job"
+FULL_AUTHORITY = ("--grants", FULL_GRANTS, "--domains", "all")
 KEEPS_REVISION = {"none", "reads", "opens_read_only"}
 TYPES: dict[str, tuple[type, ...]] = {
     "object": (dict,),
@@ -173,6 +175,8 @@ class Worker:
         shared_roots: dict[str, Path] | None = None,
         shared_write: tuple[str, ...] = (),
         test_arguments: tuple[str, ...] = (),
+        grants: str = FULL_GRANTS,
+        domains: str = "all",
     ) -> None:
         self.sequence = 0
         self.executable = executable
@@ -186,6 +190,10 @@ class Worker:
             str(workspace),
             "--input-root",
             str(inputs),
+            "--grants",
+            grants,
+            "--domains",
+            domains,
         ]
         if media_tools is not None:
             arguments.extend(["--media-tools", str(media_tools)])

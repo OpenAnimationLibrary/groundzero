@@ -40,6 +40,7 @@ import mcp_file_shared_cases
 import mcp_finishing_cases
 import mcp_fx_authoring_cases
 import mcp_fx_cases
+import mcp_grants_cases
 import mcp_group_cases
 import mcp_jobs_cases
 import mcp_library_cases
@@ -73,7 +74,7 @@ import mcp_vector_opacity_cases
 import mcp_vector_transform_cases
 import mcp_worker_cases
 from mcp_png import decode_png, fixture_pixel, write_fixture
-from mcp_worker import Worker
+from mcp_worker import FULL_AUTHORITY, Worker
 from run_harness_tests import Tee, annotation
 
 REQUIRED_TOOLS = {
@@ -869,6 +870,30 @@ class NativeAcceptance(unittest.TestCase):
     def test_shared_roots_hold_the_file_boundary(self) -> None:
         mcp_file_shared_cases.shared_roots_hold_the_file_boundary(self)
 
+    def test_grants_inspect_only_session(self) -> None:
+        mcp_grants_cases.inspect_only_session(self)
+
+    def test_grants_draft_grant_gates_documents(self) -> None:
+        mcp_grants_cases.draft_grant_gates_documents(self)
+
+    def test_grants_file_grant_gates_caller_paths(self) -> None:
+        mcp_grants_cases.file_grant_gates_caller_paths(self)
+
+    def test_grants_job_grant_gates_jobs(self) -> None:
+        mcp_grants_cases.job_grant_gates_jobs(self)
+
+    def test_grants_full_grants_admit_every_tool(self) -> None:
+        mcp_grants_cases.full_grants_admit_every_tool(self)
+
+    def test_grants_domain_grant_gates_toolsets(self) -> None:
+        mcp_grants_cases.domain_grant_gates_toolsets(self)
+
+    def test_grants_authority_reports_the_launch(self) -> None:
+        mcp_grants_cases.authority_reports_the_launch(self)
+
+    def test_grants_launch_options_are_explicit_and_valid(self) -> None:
+        mcp_grants_cases.grant_options_are_explicit_and_valid(self)
+
     def test_launch_options_naming_a_root_are_all_qualified(self) -> None:
         mcp_file_launch_cases.launch_options_naming_a_root_are_all_qualified(self)
 
@@ -1004,7 +1029,7 @@ class NativeAcceptance(unittest.TestCase):
         """
         workspace = ["--workspace", str(self.workspace)]
         result = subprocess.run(
-            [str(self.executable), "--automation-worker", *workspace, *grants],
+            [str(self.executable), "--automation-worker", *workspace, *grants, *FULL_AUTHORITY],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             timeout=60,
@@ -1195,6 +1220,7 @@ class NativeAcceptance(unittest.TestCase):
                     str(domain_workspace),
                     "--input-root",
                     str(self.inputs),
+                    *FULL_AUTHORITY,
                     "--test-domains",
                 ],
                 stdin=subprocess.DEVNULL,
