@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -156,7 +157,7 @@ class CensusFailureCases(unittest.TestCase):
         self.assert_reports(self.static(), "README names tool ghost.thing")
 
     def test_readme_omitting_a_catalog_tool_fails(self) -> None:
-        self.readme = self.readme.replace("`palette.page.move`, ", "")
+        self.readme = re.sub(r"`palette\.page\.move`,\s+", "", self.readme)
         self.assertNotIn("`palette.page.move`", self.readme)
         self.assert_reports(self.static(), "README omits tool palette.page.move")
         self.assert_reports(self.live(), "README omits tool palette.page.move")
