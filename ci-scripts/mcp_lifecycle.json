@@ -172,13 +172,15 @@
     "inspect": {
      "tools": [
       "level.inspect",
-      "scene.summary"
+      "scene.summary",
+      "intake.provenance"
      ]
     },
     "create": {
      "tools": [
       "level.create",
-      "level.import"
+      "level.import",
+      "intake.import"
      ]
     },
     "modify": {
@@ -288,7 +290,8 @@
      "tools": [
       "level.create",
       "level.import",
-      "audio.import"
+      "audio.import",
+      "intake.import"
      ]
     },
     "modify": {
@@ -1315,7 +1318,7 @@
   },
   {
    "id": "published_file",
-   "name": "Published file (PNG, WAV, preset)",
+   "name": "Published file (PNG, SVG, WAV, preset)",
    "cells": {
     "inspect": {
      "tools": [
@@ -1326,7 +1329,8 @@
      "tools": [
       "raster.export_png",
       "audio.mixdown",
-      "fx.preset.save"
+      "fx.preset.save",
+      "vector.export_svg"
      ]
     },
     "modify": {
@@ -1349,12 +1353,14 @@
      "tools": [
       "raster.export_png",
       "audio.mixdown",
-      "fx.preset.save"
+      "fx.preset.save",
+      "vector.export_svg"
      ],
      "evidence": [
       "mcp_acceptance.py",
       "mcp_audio_cases.py",
-      "mcp_fx_authoring_cases.py"
+      "mcp_fx_authoring_cases.py",
+      "mcp_intake_cases.py"
      ]
     },
     "recover": {

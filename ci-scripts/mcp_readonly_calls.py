@@ -209,6 +209,19 @@ def _level(f: Fixture) -> list[Call]:
 LEVELS = ("arm_level", "rgba_level", "toonz_level")
 
 
+def _intake_preflight(f: Fixture) -> list[Call]:
+    inputs = str(f.case.inputs)
+    source = {"source_directory": inputs, "file_names": ["quadrants.png"]}
+    absent = {"source_directory": inputs, "sequence_prefix": "absent", "sequence_extension": "png"}
+    outside = {"source_directory": "/etc", "file_names": ["hosts"]}
+    return [
+        Call("one file", _doc(f, **source, name="Arm")),
+        Call("no sequence member", _doc(f, **absent), "not_found"),
+        Call("outside every root", _doc(f, **outside), "path_denied"),
+        Call("stale", _doc(f, **source, expected_revision="stale"), "stale_revision"),
+    ]
+
+
 def _cells(f: Fixture) -> list[Call]:
     window = {"start_frame": 0, "length": 8}
     return [
@@ -768,6 +781,8 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "scene.summary": _per_document,
     "camera.inspect": _per_document,
     "level.inspect": _level,
+    "intake.preflight": _intake_preflight,
+    "intake.provenance": _level,
     "column.cells": _cells,
     "animation.channels": _channels,
     "animation.keys": _keys,

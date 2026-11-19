@@ -235,6 +235,7 @@ set(HEADERS
     automation_scene_shared.h
     automation_cells.h
     automation_cell_retime.h
+    automation_intake.h
     automation_level_lifecycle.h
     automation_sheet_record.h
     automation_runtime.h
@@ -344,6 +345,8 @@ set(SOURCES
     automation_cells.cpp
     automation_cell_tools.cpp
     automation_cell_retime.cpp
+    automation_intake.cpp
+    automation_intake_formats.cpp
     automation_output.cpp
     automation_fx.cpp
     automation_fx_preflight.cpp
@@ -1365,6 +1368,7 @@ if(BUILD_UI_PORT_TESTS)
     target_sources(OpenToonz PRIVATE tests/automation_sheet_record_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_cells_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_level_lifecycle_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_intake_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_motion_path_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_audio_test.cpp)
     target_sources(OpenToonz PRIVATE tests/automation_rig_test.cpp)

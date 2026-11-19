@@ -13,6 +13,7 @@
 #include "automation_scene_check.h"
 #include "automation_sheet_record.h"
 #include "automation_cells.h"
+#include "automation_intake.h"
 #include "automation_level_lifecycle.h"
 #include "automation_scene_host.h"
 #include "automation_runtime.h"
@@ -700,6 +701,7 @@ int domainTestResult(Context& context) {
     runAutomationSheetRecordTests(context);
     runAutomationCellsTests(context);
     runAutomationLevelLifecycleTests(context);
+    runAutomationIntakeTests(context);
     // Last: its retention case fills the analysis lane of this shared worker.
     runAutomationDrawingAnalysisTests(context);
     return 0;

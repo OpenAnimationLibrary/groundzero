@@ -1,3 +1,4 @@
+#include "automation_intake.h"
 #include "automation_shared_parse.h"
 #include "automation_media_decode.h"
 #include "automation_runtime.h"
@@ -211,6 +212,8 @@ QJsonObject projectSummary(const TFilePath& input) {
 }
 
 QJsonObject summarize(Context& context, const QString& kind) {
+  if (kind.startsWith("image_decode:"))
+    return intakeDecodeSummary(context, kind.mid(13));
   static const QRegularExpression shape(QRegularExpression::anchoredPattern(
       "(studio_palette|template|project|pose_set|pose_thumbnail:([0-9]{1,4})"
       ")"));

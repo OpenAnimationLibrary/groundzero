@@ -192,6 +192,73 @@
    "role": "level files in a read-only user scene",
    "state": "refused",
    "reason": "scene.open_read_only reports a level in this format as not_applicable and does not load it"
+  },
+  {
+   "id": "svg_export",
+   "tokens": [],
+   "role": "vector drawing export within the verified subset",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "vector.export_svg"
+   }
+  },
+  {
+   "id": "jpeg",
+   "tokens": [
+    "JPEG"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
+  },
+  {
+   "id": "tiff",
+   "tokens": [
+    "TIFF"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
+  },
+  {
+   "id": "gif",
+   "tokens": [
+    "GIF"
+   ],
+   "role": "image intake",
+   "state": "refused",
+   "reason": "intake.preflight names the format from its signature; intake.import returns unsupported_format"
+  },
+  {
+   "id": "bmp",
+   "tokens": [
+    "BMP"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
+  },
+  {
+   "id": "tga",
+   "tokens": [
+    "TGA"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
   }
  ],
  "tools": {
@@ -574,6 +641,21 @@
    "origin": "worker",
    "toolset": "rigging",
    "writes": true
+  },
+  "intake.import": {
+   "origin": "worker",
+   "toolset": "intake",
+   "writes": true
+  },
+  "intake.preflight": {
+   "origin": "worker",
+   "toolset": "intake",
+   "writes": false
+  },
+  "intake.provenance": {
+   "origin": "worker",
+   "toolset": "intake",
+   "writes": false
   },
   "job.cancel": {
    "origin": "worker",
@@ -1106,6 +1188,11 @@
    "writes": false
   },
   "vector.edit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.export_svg": {
    "origin": "worker",
    "toolset": "core",
    "writes": true
@@ -3201,6 +3288,32 @@
    "classification": "exposed",
    "tools": [
     "column.kinds"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.intake_png_sequences",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Preflight PNG files or a numbered sequence (formats, sizes, gaps, alpha, DPI, collisions), import them as one level with an explicit copy or link choice, and read the import's provenance.",
+   "classification": "exposed",
+   "tools": [
+    "intake.preflight",
+    "intake.import",
+    "intake.provenance"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.export_svg",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Export one vector drawing to an SVG file within a stated verified subset, refusing content the subset does not cover.",
+   "classification": "exposed",
+   "tools": [
+    "vector.export_svg"
    ],
    "disposition": {
     "kind": "implemented"

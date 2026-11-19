@@ -324,6 +324,7 @@ QString domainToolset(const QString& name) {
       "scene.output.set", "scene.guides.set", "level.settings.set",
       "level.rename",     "level.duplicate",  "level.remove"};
   if (name.startsWith("cells.") || sheet.contains(name)) return "sheet";
+  if (name.startsWith("intake.")) return "intake";
   return "core";
 }
 
