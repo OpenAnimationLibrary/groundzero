@@ -83,6 +83,11 @@ std::vector<TFxP> selection(Document& document, const QJsonArray& ids) {
         "Macro members must be currently owned top-level internal effects.");
     require(selected.insert(fx).second,
             "Macro member selection contains a repeated handle.");
+    if (fx->getAttributes()->isGrouped())
+      throw Error("INVALID_MACRO",
+                  "Ungroup schematic groups before making a macro of their "
+                  "members.",
+                  {{"reason", "grouped_member"}, {"fx_id", id.toString()}});
     members.emplace_back(fx);
   }
   return members;
@@ -261,6 +266,8 @@ void publish(Candidate& candidate, Document& document) {
   graph->assignUniqueId(macro);
   macro->setNewIdentifier();
   graph->getInternalFxs()->addFx(macro);
+  macro->getAttributes()->setDagNodePos(
+      candidate.originalRoot->getAttributes()->getDagNodePos());
   checkpoint(1);
   for (const auto& boundary : candidate.boundaries)
     boundary.port->setFx(boundary.source);

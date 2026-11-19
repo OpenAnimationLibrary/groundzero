@@ -3,12 +3,14 @@
 #include "automation_files.h"
 #include "automation_scene_host.h"
 #include "automation_fx_profile.h"
+#include "automation_fx_journal.h"
 #include "automation_macro.h"
 #include "tmacrofx.h"
 
 #include "tdoublekeyframe.h"
 #include "tdoubleparam.h"
 #include "tfx.h"
+#include "tconst.h"
 #include "tfxattributes.h"
 #include "tnotanimatableparam.h"
 #include "tparamcontainer.h"
@@ -369,6 +371,43 @@ QJsonObject reducedFx(Document& document, TFx* fx, FxDag* graph) {
   return result;
 }
 
+QJsonValue nodePosition(TFx* fx) {
+  const TPointD point = fx->getAttributes()->getDagNodePos();
+  if (point == TConst::nowhere) return QJsonValue();
+  return QJsonObject{{"x", point.x}, {"y", point.y}};
+}
+
+// Schematic placement, groups (innermost first) and the linked group, read
+// from the journal's view of the top sheet.
+void addLayout(QJsonObject& entry, const QJsonObject& view) {
+  const QJsonObject state = view.value("nodes")
+                                .toObject()
+                                .value(entry.value("fx_id").toString())
+                                .toObject();
+  entry.insert("position", state.value("position"));
+  entry.insert("group_ids", state.value("group_ids").toArray());
+  entry.insert("linked_group_id", state.value("linked_group_id"));
+}
+
+QJsonArray linkedGroups(const QJsonObject& view) {
+  QJsonArray groups;
+  const QJsonObject linked = view.value("linked_groups").toObject();
+  for (auto it = linked.begin(); it != linked.end(); ++it)
+    groups.append(QJsonObject{{"group_id", it.key()}, {"fx_ids", it.value()}});
+  return groups;
+}
+
+std::vector<TFx*> creationOrder(Document& document, TXsheet* sheet) {
+  const std::set<TFx*> members = sheetMembers(sheet);
+  std::vector<std::pair<quint64, TFx*>> ordered;
+  for (TFx* fx : members)
+    if (fx) ordered.push_back({automationFxSequence(document, fx), fx});
+  std::sort(ordered.begin(), ordered.end());
+  std::vector<TFx*> result;
+  for (const auto& entry : ordered) result.push_back(entry.second);
+  return result;
+}
+
 QJsonObject graphEntry(Document& document, TFx* fx, FxDag* graph) {
   QJsonObject entry;
   if (!document.readOnly) {
@@ -392,16 +431,28 @@ QJsonValue inspectGraph(Document& document, const QJsonObject& params) {
           ? resolveSheetPath(document, params.value("sheet_path").toArray())
           : document.scene->getXsheet();
   if (!document.readOnly) validateAutomationFxGraph(*document.scene);
-  FxDag* graph = sheet->getFxDag();
+  FxDag* graph   = sheet->getFxDag();
+  const bool top = sheet == document.scene->getXsheet();
+  const QJsonObject view =
+      top ? automationFxGraphView(document) : QJsonObject();
   QJsonArray effects;
-  for (TFx* fx : sheetMembers(sheet))
-    if (fx) effects.append(graphEntry(document, fx, graph));
+  for (TFx* fx : creationOrder(document, sheet)) {
+    QJsonObject entry = graphEntry(document, fx, graph);
+    if (top) addLayout(entry, view);
+    effects.append(entry);
+  }
   TFx* output = graph->getCurrentOutputFx();
-  return QJsonObject{
+  QJsonObject result{
       {"effects", effects},
       {"xsheet_fx_id", document.idForFx(graph->getXsheetFx())},
       {"current_output_fx_id",
-       output ? QJsonValue(document.idForFx(output)) : QJsonValue()}};
+       output ? QJsonValue(document.idForFx(output)) : QJsonValue()},
+      {"delta_window", automationFxDeltaWindow(document)}};
+  if (top) {
+    result.insert("groups", automationFxGroups(document));
+    result.insert("linked_groups", linkedGroups(view));
+  }
+  return result;
 }
 
 void assignGrammar(TParam* param, TXsheet* sheet) {
@@ -481,7 +532,7 @@ QString authoringName(const QJsonObject& params) {
 QJsonValue renameEffect(Context& context, Document& document,
                         const QJsonObject& params) {
   TFx* fx = ownedFx(document, requiredString(params, "fx_id"));
-  requireEditable(fx);
+  if (!dynamic_cast<TMacroFx*>(fx)) requireEditable(fx);
   requireColumnEditable(document, fx);
   const auto name    = authoringName(params).toStdWString();
   TFx* native        = parameterFx(fx);
@@ -1371,6 +1422,27 @@ QJsonArray fxRecipeOperations() {
       {})};
 }
 
+namespace {
+QJsonObject revisionSchema() {
+  return {{"type", "string"},
+          {"minLength", 1},
+          {"maxLength", 80},
+          {"pattern", "[0-9]{1,20}"}};
+}
+
+QJsonObject deltaSchema() {
+  return {
+      {"document_id", stringSchema()},
+      {"from_revision", revisionSchema()},
+      {"expected_revision", revisionSchema()},
+      {"sheet_path", sheetPathSchema()},
+      {"offset",
+       QJsonObject{{"type", "integer"}, {"minimum", 0}, {"maximum", 65536}}},
+      {"limit",
+       QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 512}}}};
+}
+}  // namespace
+
 QJsonArray fxOperations() {
   const QJsonObject effect{{"document_id", stringSchema()},
                            {"fx_id", stringSchema()}};
@@ -1405,6 +1477,15 @@ QJsonArray fxOperations() {
           "named by scene.inventory.",
           {{"document_id", stringSchema()}, {"sheet_path", sheetPathSchema()}},
           {"document_id"}),
+      operation(
+          "fx.graph.delta",
+          "Report what changed in the top sheet's FX graph between "
+          "from_revision and the current revision: created, removed and "
+          "changed effects, edges, terminal links, the current output, "
+          "linked groups and schematic groups, net of intermediate steps. "
+          "Pages are bound to the current revision; next_offset is null on "
+          "the last page.",
+          deltaSchema(), {"document_id", "from_revision"}),
       operation(
           "fx.create",
           "Create a disconnected builtin effect, generator column, or output.",
@@ -1448,6 +1529,10 @@ QJsonValue executeFx(Context& context, const QString& method,
   Document& document = context.document(requiredString(params, "document_id"));
   if (method.startsWith("fx.macro."))
     return executeMacro(context, document, method, params);
+  if (method.startsWith("fx.group.") || method == "fx.layout.set")
+    return executeFxGraph(context, document, method, params);
+  if (method == "fx.graph.delta")
+    return automationFxGraphDelta(document, params);
   using Handler = QJsonValue (*)(Context&, Document&, const QJsonObject&);
   static const std::map<QString, Handler> handlers = {
       {"fx.create", createEffect},
@@ -1483,6 +1568,10 @@ QJsonValue executeFx(Context& context, const QString& method,
   if (handler == handlers.end())
     throw Error("METHOD_NOT_FOUND", "Unknown FX operation.");
   return handler->second(context, document, params);
+}
+
+void automationRequireColumnEditable(Document& document, TFx* fx) {
+  requireColumnEditable(document, fx);
 }
 
 TFx* automationOwnedFx(Document& document, const QString& id) {

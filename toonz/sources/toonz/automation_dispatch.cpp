@@ -9,6 +9,7 @@
 #include "automation_audio.h"
 #include "automation_hook.h"
 #include "automation_files.h"
+#include "automation_fx_journal.h"
 #include "automation_jobs.h"
 #include "automation_journal.h"
 #include "automation_rig.h"
@@ -299,7 +300,9 @@ const QMap<QString, QString>& toolsetDescriptions() {
        "application to drawing columns."},
       {"sheet",
        "Cell ranges of level columns: set, clear, remove, insert, copy, "
-       "retime and replace exposures."}};
+       "retime and replace exposures."},
+      {"fx-graph",
+       "FX schematic structure: groups, group names and node placement."}};
   return descriptions;
 }
 
@@ -430,6 +433,7 @@ Dispatcher::Dispatcher(Context& context) : m_context(context) {
   add(sceneInventoryOperations(), executeSceneInventory, "core");
   add(fxOperations(), executeFx, "core");
   add(fxRecipeOperations(), executeFx, "fx-finishing");
+  add(fxGraphOperations(), executeFx, "fx-graph");
   add(drawingOperations(), executeDrawing, "core");
   add(renderOperations(), executeRender, "core");
   add(runtimeOperations(), executeRuntime, "core");
@@ -905,17 +909,22 @@ QJsonObject Dispatcher::applyWrite(const Entry& entry, const QString& method,
                                    quint64 revision) {
   const QString documentId   = params.value("document_id").toString();
   const bool mutatesDocument = advancesRevision(entry.descriptor);
+  if (mutatesDocument && !documentId.isEmpty())
+    prepareFxGraphJournal(m_context, documentId);
   try {
     QJsonObject result     = asObject(invoke(entry, method, params));
     const QString resultId = documentId.isEmpty()
                                  ? result.value("document_id").toString()
                                  : documentId;
-    if (mutatesDocument && m_context.mutationStarted()) {
+    const bool advanced    = mutatesDocument && m_context.mutationStarted();
+    if (advanced) {
       finishRevision(result, resultId, revision);
     } else if (!documentId.isEmpty()) {
       result.insert("document_id", documentId);
       result.insert("revision", QString::number(revision));
     }
+    if (mutatesDocument)
+      recordFxGraphStep(m_context, resultId, method, params, advanced, &result);
     result.insert("operation_id", params.value("operation_id"));
     return result;
   } catch (const Error& error) {
@@ -924,6 +933,8 @@ QJsonObject Dispatcher::applyWrite(const Entry& entry, const QString& method,
     details.insert("cause_code", error.code);
     details.insert("operation_id", params.value("operation_id"));
     if (mutatesDocument) finishRevision(details, documentId, revision);
+    if (mutatesDocument)
+      recordFxGraphStep(m_context, documentId, method, params, true, nullptr);
     throw Error("partially_applied",
                 "The operation failed after mutation began: " + error.message,
                 details);

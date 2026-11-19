@@ -62,7 +62,7 @@ class Call:
 
 def _string(schema: dict[str, Any]) -> str:
     pattern = schema.get("pattern", ".*")
-    for candidate in ("x", "0", ""):
+    for candidate in ("x", "0", "", f"fxgroup_{ZERO}"):
         if len(candidate) >= schema.get("minLength", 0) and re.fullmatch(pattern, candidate):
             return candidate
     raise ValueError(f"No sample string for {schema}")
@@ -247,6 +247,20 @@ def _parameter(f: Fixture) -> list[Call]:
     return [
         Call("keyed", _doc(f, fx_id=f.ids["fx"], frame=2)),
         Call("unknown", _doc(f, fx_id=_missing("fx")), "invalid_handle"),
+    ]
+
+
+def _delta(f: Fixture) -> list[Call]:
+    current = f.revision(f.document)
+    future = str(int(current) + 1)
+    return [
+        Call("from current", _doc(f, from_revision=current)),
+        Call("future", _doc(f, from_revision=future), "invalid_params", "future_revision"),
+        Call(
+            "unknown",
+            {"document_id": _missing("document"), "from_revision": "0"},
+            "document_not_found",
+        ),
     ]
 
 
@@ -521,6 +535,10 @@ def _ro_document(_f: Fixture, document: str) -> list[Call]:
     return [Call("document", {"document_id": document})]
 
 
+def _ro_delta(f: Fixture, document: str) -> list[Call]:
+    return [Call("current", {"document_id": document, "from_revision": f.revision(document)})]
+
+
 def _ro_jobs(_f: Fixture, document: str) -> list[Call]:
     return [Call("document's jobs", {"document_id": document})]
 
@@ -711,6 +729,7 @@ READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
     "scene.dependencies": _ro_pinned,
     "scene.validate": _ro_pinned,
     "fx.graph": _ro_document,
+    "fx.graph.delta": _ro_delta,
     "scene.inventory": _inventory,
     "scene.source_status": _ro_source_status,
     "column.cells": _ro_cells,
@@ -751,6 +770,7 @@ READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
     "fx.catalog": _no_arguments,
     "column.kinds": _no_arguments,
     "fx.graph": _per_document,
+    "fx.graph.delta": _delta,
     "fx.parameter.get": _parameter,
     "fx.recipe.list": _recipes,
     "drawing.inspect": _drawings,

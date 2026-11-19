@@ -231,8 +231,9 @@ def macro_preflight_and_boundary_edits_preserve_scene(case: NativeAcceptance) ->
     boundary = next(
         item for item in node["macro"]["input_mapping"] if item["source_fx_id"] == artwork
     )
+    renamed = case.mutate("fx.rename", document, fx_id=macro_id, name="Renamed macro")
+    case.assertEqual((renamed["name"], renamed["changed"]), ("Renamed macro", True))
     for method, options in (
-        ("fx.rename", {"name": "Unsupported"}),
         ("fx.enabled.set", {"enabled": False}),
         ("fx.duplicate", {}),
         ("fx.delete", {}),

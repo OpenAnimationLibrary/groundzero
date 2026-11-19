@@ -972,34 +972,22 @@ QJsonValue listScenes(Context& context, const QJsonObject& params) {
 // ------------------------------------------------------------------ routing
 
 const QSet<QString>& forwardedTools() {
-  static const QSet<QString> tools = {"scene.summary",
-                                      "camera.inspect",
-                                      "camera.list",
-                                      "scene.properties.inspect",
-                                      "level.inspect",
-                                      "cast.list",
-                                      "cast.usage",
-                                      "scene.dependencies",
-                                      "scene.validate",
-                                      "fx.graph",
-                                      "render.preview",
-                                      "render.submit",
-                                      "render.preflight",
-                                      "scene.inventory",
-                                      "scene.check.submit",
-                                      "scene.source_status",
-                                      "column.cells",
-                                      "drawing.inspect",
-                                      "palette.inspect",
-                                      "palette.pages",
-                                      "fx.parameter.get",
-                                      "animation.channels",
-                                      "animation.keys",
-                                      "animation.sample",
-                                      "vector.inspect",
-                                      "vector.structure",
-                                      "vector.opacity.inspect",
-                                      "raster.read_pixels"};
+  static const QSet<QString> tools = {
+      "scene.summary",       "camera.inspect",
+      "camera.list",         "scene.properties.inspect",
+      "level.inspect",       "cast.list",
+      "cast.usage",          "scene.dependencies",
+      "scene.validate",      "fx.graph",
+      "fx.graph.delta",      "render.preview",
+      "render.submit",       "render.preflight",
+      "scene.inventory",     "scene.check.submit",
+      "scene.source_status", "column.cells",
+      "drawing.inspect",     "palette.inspect",
+      "palette.pages",       "fx.parameter.get",
+      "animation.channels",  "animation.keys",
+      "animation.sample",    "vector.inspect",
+      "vector.structure",    "vector.opacity.inspect",
+      "raster.read_pixels"};
   return tools;
 }
 

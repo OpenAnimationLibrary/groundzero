@@ -2,6 +2,7 @@
 #include "automation_dispatch.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
+#include "automation_fx_journal.h"
 #include "automation_live_protocol.h"
 
 #include "tdoubleparam.h"
@@ -27,7 +28,11 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshzeraryfxcolumn.h"
 
+#include <QElapsedTimer>
+
+#include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -775,6 +780,132 @@ void testAssetBudget(Context& context) {
   context.removeDocument(document.id);
 }
 
+// One write as the dispatcher runs it: journal prepared, revision advanced
+// when the handler began a change, step recorded.
+QJsonObject journaledCall(Context& context, Document& document,
+                          const QString& method, QJsonObject params = {}) {
+  prepareFxGraphJournal(context, document.id);
+  context.resetMutationStarted();
+  params["document_id"] = document.id;
+  QJsonObject result    = executeFx(context, method, params).toObject();
+  const bool advanced   = context.mutationStarted();
+  if (advanced) ++document.revision;
+  recordFxGraphStep(context, document.id, method, params, advanced, &result);
+  return result;
+}
+
+QJsonObject deltaFrom(Document& document, quint64 revision) {
+  return automationFxGraphDelta(document,
+                                {{"document_id", document.id},
+                                 {"from_revision", QString::number(revision)}})
+      .toObject();
+}
+
+void requireDeltaError(Document& document, quint64 revision,
+                       const QString& reason) {
+  try {
+    deltaFrom(document, revision);
+  } catch (const Error& error) {
+    require(error.details.value("reason") == reason,
+            "fx.graph.delta must name why a delta is unavailable");
+    return;
+  }
+  throw std::runtime_error("fx.graph.delta accepted an unavailable range");
+}
+
+void testGraphJournalSteps(Context& context) {
+  Document& document  = context.addDocument(std::make_unique<ToonzScene>());
+  const quint64 start = document.revision;
+  const QJsonObject created =
+      journaledCall(context, document, "fx.create", {{"type", "STD_blurFx"}});
+  const QString blur       = created.value("fx_id").toString();
+  const QJsonObject step   = created.value("graph_delta").toObject();
+  const QJsonArray entries = step.value("entries").toArray();
+  require(entries.size() == 1 &&
+              entries[0].toObject().value("change") == "created" &&
+              entries[0].toObject().value("cause") == "requested",
+          "fx.create must report its node as a requested creation");
+  const QJsonObject same = journaledCall(
+      context, document, "fx.rename",
+      {{"fx_id", blur},
+       {"name", QString::fromStdWString(document.fx(blur)->getName())}});
+  require(same.value("graph_delta").isNull(),
+          "A no-op write must report a null graph delta");
+  journaledCall(context, document, "fx.parameter.set",
+                {{"fx_id", blur}, {"parameter", "value"}, {"value", 3}});
+  journaledCall(context, document, "fx.parameter.set",
+                {{"fx_id", blur}, {"parameter", "value"}, {"value", 0}});
+  const QJsonArray net = deltaFrom(document, start).value("changes").toArray();
+  require(net.size() == 1 && net[0].toObject().value("change") == "created" &&
+              net[0].toObject().value("parameters_changed").toArray().isEmpty(),
+          "A net delta must fold intermediate parameter changes away");
+  journaledCall(context, document, "fx.delete", {{"fx_id", blur}});
+  const QJsonArray gone = deltaFrom(document, start).value("changes").toArray();
+  require(gone.size() == 1 && gone[0].toObject().value("change") == "transient",
+          "An effect created and deleted inside a window is transient");
+  requireDeltaError(document, document.revision + 1, "future_revision");
+  context.removeDocument(document.id);
+}
+
+void testGraphJournalWindow(Context& context) {
+  Document& document  = context.addDocument(std::make_unique<ToonzScene>());
+  const quint64 start = document.revision;
+  const QString blur =
+      journaledCall(context, document, "fx.create", {{"type", "STD_blurFx"}})
+          .value("fx_id")
+          .toString();
+  for (int index = 0; index < 1030; ++index)
+    journaledCall(context, document, "fx.parameter.set",
+                  {{"fx_id", blur},
+                   {"parameter", "value"},
+                   {"value", index % 2 ? 1 : 2}});
+  requireDeltaError(document, start, "window_exceeded");
+  const QJsonObject window = automationFxDeltaWindow(document);
+  require(window.value("retained_steps").toInt() == 1024 &&
+              window.value("oldest_from_revision").toString() ==
+                  QString::number(document.revision - 1024),
+          "The journal must keep exactly its last 1024 steps");
+  require(deltaFrom(document, document.revision - 1024)
+                  .value("total_changes")
+                  .toInt() == 0,
+          "A delta at the oldest retained revision must stay available");
+  require(deltaFrom(document, document.revision - 1)
+                  .value("total_changes")
+                  .toInt() == 1,
+          "A one-step delta must report the parameter change");
+  context.removeDocument(document.id);
+}
+
+// P-2: the cost of one recorded step on a graph of many effects.
+void testGraphJournalCost(Context& context) {
+  Document& document = context.addDocument(std::make_unique<ToonzScene>());
+  QString blur;
+  for (int index = 0; index < 1024; ++index)
+    blur = call(context, document, "fx.create", {{"type", "STD_blurFx"}})
+               .value("fx_id")
+               .toString();
+  std::vector<qint64> times;
+  for (int index = 0; index < 21; ++index) {
+    QElapsedTimer timer;
+    timer.start();
+    journaledCall(context, document, "fx.parameter.set",
+                  {{"fx_id", blur},
+                   {"parameter", "value"},
+                   {"value", index % 2 ? 1 : 2}});
+    times.push_back(timer.nsecsElapsed() / 1000);
+  }
+  std::sort(times.begin(), times.end());
+  std::fprintf(stderr,
+               "fx journal step at 1024 effects: median %lld us, worst %lld "
+               "us\n",
+               static_cast<long long>(times[times.size() / 2]),
+               static_cast<long long>(times.back()));
+  require(times[times.size() / 2] < 250000,
+          "A journal step at 1024 effects must stay well under a quarter "
+          "second");
+  context.removeDocument(document.id);
+}
+
 }  // namespace
 
 void runAutomationFxTests(Context& context) {
@@ -799,6 +930,9 @@ void runAutomationFxTests(Context& context) {
   testAdmission(context, document);
   context.removeDocument(document.id);
   testAssetBudget(context);
+  testGraphJournalSteps(context);
+  testGraphJournalWindow(context);
+  testGraphJournalCost(context);
   runAutomationDispatcherTests(context);
   Live::runAutomationLiveProtocolTests();
   Live::runAutomationLiveRaceTests();

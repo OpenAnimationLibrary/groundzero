@@ -24,6 +24,9 @@ QString automationFxName(const QJsonObject& params);
 
 // The effect a handle names, checked to still belong to the document's graph.
 TFx* automationOwnedFx(Document& document, const QString& id);
+// Throws locked when fx is a column effect whose column or stage object is
+// locked.
+void automationRequireColumnEditable(Document& document, TFx* fx);
 // The effect that owns the parameters: a generator column wraps its zerary
 // effect.
 TFx* automationParameterFx(TFx* fx);

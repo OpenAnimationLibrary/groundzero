@@ -505,6 +505,31 @@
    "toolset": "core",
    "writes": false
   },
+  "fx.graph.delta": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "fx.group.create": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.group.remove": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.group.rename": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.layout.set": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
   "fx.macro.create": {
    "origin": "worker",
    "toolset": "core",
@@ -2526,6 +2551,33 @@
    "tools": [
     "fx.macro.create",
     "fx.macro.expand"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.graph_deltas",
+   "domain": "Effects",
+   "outcome": "See what each write changed in the effect graph, and the net change since any recent revision.",
+   "classification": "exposed",
+   "tools": [
+    "fx.graph.delta"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.schematic_groups_and_layout",
+   "domain": "Effects",
+   "outcome": "Group, ungroup and name effects in the schematic and set node positions.",
+   "classification": "exposed",
+   "tools": [
+    "fx.group.create",
+    "fx.group.remove",
+    "fx.group.rename",
+    "fx.layout.set"
    ],
    "disposition": {
     "kind": "implemented"

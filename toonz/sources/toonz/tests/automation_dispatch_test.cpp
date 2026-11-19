@@ -315,6 +315,8 @@ QString domainToolset(const QString& name) {
       name.startsWith("library."))
     return "shared-library";
   if (name == "fx.recipe.list") return "fx-finishing";
+  if (name.startsWith("fx.group.") || name == "fx.layout.set")
+    return "fx-graph";
   static const QSet<QString> sheet{
       "column.move",      "column.duplicate", "column.kinds",
       "camera.list",      "camera.create",    "camera.duplicate",

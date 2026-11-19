@@ -399,6 +399,37 @@ at most 128 inputs, and its container and members count toward the 4096-node gra
 limit. Scene packages and render snapshots verify member parameter state and
 boundary connections through native save/reopen before publication.
 
+Every FX write (`fx.create`, `fx.delete`, `fx.connect`, `fx.disconnect`, `fx.terminal.set`,
+`fx.output.select`, `fx.parameter.set`, `fx.parameter.set_key`, `fx.rename`, `fx.enabled.set`,
+`fx.duplicate`, `fx.preset.apply`, `fx.macro.*`, and the `fx-graph` tools) returns
+`graph_delta`: `null` when the call changed nothing and kept the revision, otherwise what its
+step changed in the top sheet's graph, from the worker's own before-and-after snapshots
+rather than from the tool's description of itself. Entries are `current_output`, `node`
+(`created`, `removed` or `changed` with `aspects` and `parameters_changed`), `edge`,
+`terminal`, `linked_group` and `group`, each with `cause` `requested` (named by the call) or
+`implicit` (for example the terminal link `fx.delete` clears or `fx.macro.create` moves); at
+most 512, with `truncated` and `total_entries`. An exact retry returns the recorded delta.
+`fx.graph.delta {document_id, from_revision}` returns the net change from that revision to
+the current one, paged with `offset`, `limit` (≤512) and `expected_revision`; an effect
+created and removed inside the range is listed as `transient`. The worker keeps the last
+1024 steps and 2 MiB per document (`fx.graph`'s `delta_window` says how far back); older
+revisions, sub-sheets and one step over 256 KiB answer `delta_unavailable` with the reason,
+and `fx.graph` stays the fallback. Every result names `evidence_kind: "structural"`: a delta
+says what changed in the graph, not what a render looks like.
+
+`fx.graph` lists effects in creation order with `position` (`null` when the editor places
+the node itself), `group_ids` (innermost first) and `linked_group_id`, and adds `groups`
+(id, name, members, member count, enclosing group) and `linked_groups`. The `fx-graph`
+toolset edits the schematic: `fx.group.create` makes a new outermost group of 2–512 effects
+(a macro brings its members) with the editor's default name `Group <n>`, refusing
+duplicates, the Xsheet node and outputs, a selection that would split an existing group
+(`invalid_group` with `reason`), stacks deeper than 16 and more than 1024 groups;
+`fx.group.remove` ungroups and `fx.group.rename` renames one group everywhere it is
+carried; `fx.layout.set` sets up to 256 positions within ±1,000,000, or `null` to unplace.
+None of them changes a connection or a render, and all survive save and reopen. A grouped
+effect cannot join a macro (`INVALID_MACRO`, `reason: grouped_member`); `fx.rename` also
+renames a macro, and a new macro takes its root's position.
+
 PNG inputs support up to 8 bits per channel, 8192 pixels per axis, and 16,777,216
 pixels per image. Vector drawings are limited to 4096 strokes and 32768 control
 points, with coordinates within ±32768 and radii up to 255 native units. Palettes
@@ -1215,7 +1246,7 @@ exits, and a new instance requires fresh inspection. Use the editor's visible
 Every tool a session can advertise. Worker tools belong to the toolset named here;
 the adapter and the live editor bridge add the rest.
 
-- `core` toolset (121):
+- `core` toolset (122):
   `animation.channels`, `animation.copy_curve`, `animation.delete_keys`,
   `animation.duplicate_keys`, `animation.insert_breakdown`, `animation.keys`,
   `animation.move_keys`, `animation.retime_curve`, `animation.sample`, `animation.set_cycle`,
@@ -1225,19 +1256,19 @@ the adapter and the live editor bridge add the rest.
   `column.update`, `drawing.analysis.submit`, `drawing.clone`, `drawing.create`,
   `drawing.inspect`, `drawing.remove`, `drawing.renumber`, `fx.catalog`, `fx.connect`,
   `fx.create`, `fx.delete`, `fx.disconnect`, `fx.duplicate`, `fx.enabled.set`, `fx.graph`,
-  `fx.macro.create`, `fx.macro.expand`, `fx.output.select`, `fx.parameter.get`,
-  `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`, `fx.preset.save`, `fx.rename`,
-  `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`, `job.status`, `journal.status`,
-  `level.create`, `level.import`, `level.inspect`, `motion_path.create`, `motion_path.delete`,
-  `motion_path.duplicate`, `motion_path.inspect`, `motion_path.list`, `motion_path.rename`,
-  `motion_path.update`, `object.create`, `object.parent`, `object.path.attach`,
-  `object.path.detach`, `operation.list`, `operation.status`, `palette.clone_style`,
-  `palette.create_style`, `palette.inspect`, `palette.page.create`, `palette.page.move`,
-  `palette.page.remove`, `palette.page.rename`, `palette.pages`, `palette.rename_style`,
-  `palette.style.move`, `palette.update_style`, `project.inspect`, `project.list`,
-  `project.scenes`, `raster.export_png`, `raster.import_png`, `raster.patch`,
-  `raster.read_pixels`, `render.capabilities`, `render.preflight`, `render.preview`,
-  `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
+  `fx.graph.delta`, `fx.macro.create`, `fx.macro.expand`, `fx.output.select`,
+  `fx.parameter.get`, `fx.parameter.set`, `fx.parameter.set_key`, `fx.preset.apply`,
+  `fx.preset.save`, `fx.rename`, `fx.terminal.set`, `job.cancel`, `job.list`, `job.result`,
+  `job.status`, `journal.status`, `level.create`, `level.import`, `level.inspect`,
+  `motion_path.create`, `motion_path.delete`, `motion_path.duplicate`, `motion_path.inspect`,
+  `motion_path.list`, `motion_path.rename`, `motion_path.update`, `object.create`,
+  `object.parent`, `object.path.attach`, `object.path.detach`, `operation.list`,
+  `operation.status`, `palette.clone_style`, `palette.create_style`, `palette.inspect`,
+  `palette.page.create`, `palette.page.move`, `palette.page.remove`, `palette.page.rename`,
+  `palette.pages`, `palette.rename_style`, `palette.style.move`, `palette.update_style`,
+  `project.inspect`, `project.list`, `project.scenes`, `raster.export_png`, `raster.import_png`,
+  `raster.patch`, `raster.read_pixels`, `render.capabilities`, `render.preflight`,
+  `render.preview`, `render.submit`, `runtime.inspect`, `scene.check.submit`, `scene.create`,
   `scene.dependencies`, `scene.discard`, `scene.inventory`, `scene.open`,
   `scene.open_read_only`, `scene.package_info`, `scene.save_copy`, `scene.settings`,
   `scene.source_status`, `scene.summary`, `scene.validate`, `text.fonts`, `tool.describe`,
@@ -1250,6 +1281,8 @@ the adapter and the live editor bridge add the rest.
   `audio.column.set_volume`, `audio.import`, `audio.inspect`, `audio.mixdown`
 - `fx-finishing` toolset (1):
   `fx.recipe.list`
+- `fx-graph` toolset (4):
+  `fx.group.create`, `fx.group.remove`, `fx.group.rename`, `fx.layout.set`
 - `lipsync` toolset (3):
   `lipsync.apply`, `lipsync.import`, `lipsync.inspect`
 - `rigging` toolset (10):
