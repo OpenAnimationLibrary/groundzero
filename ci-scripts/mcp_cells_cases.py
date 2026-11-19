@@ -144,9 +144,8 @@ def mixed_cell_batches_change_nothing(case: NativeAcceptance) -> None:
     ]
     error = _refused(case, "cells.set", document, "locked", columns=batch, overwrite=False)
     case.assertEqual(error["details"]["column_ids"], [locked])
-    sound = case.mutate("audio.column.create", document, name="Voice", volume_permille=1000)[
-        "column_id"
-    ]
+    created = case.mutate("audio.column.create", document, name="Voice", volume_permille=1000)
+    sound = created["column"]["column_id"]
     error = _refused(
         case,
         "cells.clear",
