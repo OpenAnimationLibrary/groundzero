@@ -507,3 +507,42 @@ def fx_remap_and_offset_layer_targets_are_described(case: NativeAcceptance) -> N
     case.assertEqual(weight["target"]["layer_id"], layer_id)
     case.assertEqual(_descriptor(layered, "rotation")["kind"], "offset_layer_channel")
     case.assertEqual(_descriptor(layered, "rotation")["edit_via"], "animation.set_keys")
+
+
+@acceptance_case
+def whole_curve_edits_on_incompatible_units_are_refused_as_invalid_unit(
+    case: NativeAcceptance,
+) -> None:
+    """A unit that does not belong to the channel is invalid_unit, which both tools declare."""
+    document, target = _setup(case)
+    other = _target(
+        case.mutate("object.create", document, kind="pegbar", name="Other")["object_id"]
+    )
+    rotation = {**other, "channel": "rotation"}
+    before = _state(case, document, target)
+    copy = case.write_params(
+        document,
+        {"source": target, "destination": rotation, "destination_policy": "replace_all"},
+    )
+    case.assertEqual(case.failure("animation.copy_curve", copy)["code"], "invalid_unit")
+    retime = case.write_params(
+        document,
+        {
+            **rotation,
+            "origin_frame": 0,
+            "shift_frames": 1,
+            "scale": {"numerator": 1, "denominator": 1},
+            "step_policy": "scale_exact",
+        },
+    )
+    case.assertEqual(case.failure("animation.retime_curve", retime)["code"], "invalid_unit")
+    differing = case.write_params(
+        document,
+        {
+            "source": target,
+            "destination": {**rotation, "unit": "degree"},
+            "destination_policy": "replace_all",
+        },
+    )
+    case.assertEqual(case.failure("animation.copy_curve", differing)["code"], "invalid_params")
+    case.assertEqual(_state(case, document, target), before)
