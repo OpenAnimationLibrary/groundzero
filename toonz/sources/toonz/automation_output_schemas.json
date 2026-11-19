@@ -386,6 +386,11 @@
             "incoming": {
               "additionalProperties": false,
               "properties": {
+                "frame_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
                 "frames": {
                   "maximum": 1.7976931348623157e+308,
                   "minimum": -1.7976931348623157e+308,
@@ -395,6 +400,11 @@
                   "maxLength": 65536,
                   "minLength": 0,
                   "type": "string"
+                },
+                "value_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
                 }
               },
               "required": [],
@@ -411,7 +421,17 @@
             "outgoing": {
               "additionalProperties": false,
               "properties": {
+                "frame_delta": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
                 "frames": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "value_delta": {
                   "maximum": 1.7976931348623157e+308,
                   "minimum": -1.7976931348623157e+308,
                   "type": "number"
