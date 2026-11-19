@@ -333,11 +333,11 @@
     },
     "duplicate": {
      "disposition": "planned",
-     "outcome": "timeline.cell_and_time_edits"
+     "outcome": "timeline.column_copy_move_remove"
     },
     "reorder": {
      "disposition": "planned",
-     "outcome": "timeline.cell_and_time_edits"
+     "outcome": "timeline.column_copy_move_remove"
     },
     "remove": {
      "tools": [
@@ -370,26 +370,34 @@
     "create": {
      "tools": [
       "column.expose",
-      "lipsync.apply"
+      "lipsync.apply",
+      "cells.set"
      ]
     },
     "modify": {
      "tools": [
       "column.expose",
-      "drawing.renumber"
+      "drawing.renumber",
+      "cells.set",
+      "cells.replace"
      ]
     },
     "duplicate": {
-     "disposition": "planned",
-     "outcome": "timeline.cell_and_time_edits"
+     "tools": [
+      "cells.copy"
+     ]
     },
     "reorder": {
-     "disposition": "planned",
-     "outcome": "timeline.retime"
+     "tools": [
+      "cells.insert",
+      "cells.retime"
+     ]
     },
     "remove": {
-     "disposition": "planned",
-     "outcome": "timeline.cell_and_time_edits"
+     "tools": [
+      "cells.clear",
+      "cells.remove"
+     ]
     },
     "persist": {
      "tools": [
@@ -783,11 +791,11 @@
     },
     "reorder": {
      "disposition": "planned",
-     "outcome": "timeline.cell_and_time_edits"
+     "outcome": "timeline.column_copy_move_remove"
     },
     "remove": {
      "disposition": "planned",
-     "outcome": "timeline.cell_and_time_edits"
+     "outcome": "timeline.column_copy_move_remove"
     },
     "persist": {
      "tools": [

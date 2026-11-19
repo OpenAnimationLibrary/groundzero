@@ -4458,6 +4458,1368 @@
     ],
     "type": "object"
   },
+  "cells.clear": {
+    "additionalProperties": false,
+    "properties": {
+      "cells_changed": {
+        "maximum": 2000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "columns": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "cell_range_after": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cell_range_before": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cells_changed": {
+              "maximum": 2000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "column_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "rows_delta": {
+              "maximum": 1000000,
+              "minimum": -1000000,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "column_id",
+            "changed",
+            "cells_changed",
+            "rows_delta",
+            "cell_range_before",
+            "cell_range_after"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
+      "curves_moved": {
+        "const": false
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "properties": {
+          "definition_level_id": {
+            "oneOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_columns": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "sheet_path": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "column_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "level_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "column_id",
+                "level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_path",
+          "definition_level_id",
+          "instance_columns",
+          "shared"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "document_id",
+      "revision",
+      "operation_id",
+      "columns",
+      "cells_changed",
+      "scope",
+      "curves_moved"
+    ],
+    "type": "object"
+  },
+  "cells.copy": {
+    "additionalProperties": false,
+    "properties": {
+      "cells_changed": {
+        "maximum": 2000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "columns": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "cell_range_after": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cell_range_before": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cells_changed": {
+              "maximum": 2000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "column_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "rows_delta": {
+              "maximum": 1000000,
+              "minimum": -1000000,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "column_id",
+            "changed",
+            "cells_changed",
+            "rows_delta",
+            "cell_range_before",
+            "cell_range_after"
+          ],
+          "type": "object"
+        },
+        "maxItems": 128,
+        "minItems": 1,
+        "type": "array"
+      },
+      "curves_moved": {
+        "const": false
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "placement": {
+        "enum": [
+          "insert",
+          "replace"
+        ],
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "properties": {
+          "definition_level_id": {
+            "oneOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_columns": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "sheet_path": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "column_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "level_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "column_id",
+                "level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_path",
+          "definition_level_id",
+          "instance_columns",
+          "shared"
+        ],
+        "type": "object"
+      },
+      "source_cells_cleared": {
+        "maximum": 640000,
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "document_id",
+      "revision",
+      "operation_id",
+      "columns",
+      "cells_changed",
+      "scope",
+      "curves_moved",
+      "source_cells_cleared",
+      "placement"
+    ],
+    "type": "object"
+  },
+  "cells.insert": {
+    "additionalProperties": false,
+    "properties": {
+      "cells_changed": {
+        "maximum": 2000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "columns": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "cell_range_after": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cell_range_before": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cells_changed": {
+              "maximum": 2000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "column_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "rows_delta": {
+              "maximum": 1000000,
+              "minimum": -1000000,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "column_id",
+            "changed",
+            "cells_changed",
+            "rows_delta",
+            "cell_range_before",
+            "cell_range_after"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
+      "curves_moved": {
+        "const": false
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "properties": {
+          "definition_level_id": {
+            "oneOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_columns": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "sheet_path": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "column_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "level_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "column_id",
+                "level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_path",
+          "definition_level_id",
+          "instance_columns",
+          "shared"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "document_id",
+      "revision",
+      "operation_id",
+      "columns",
+      "cells_changed",
+      "scope",
+      "curves_moved"
+    ],
+    "type": "object"
+  },
+  "cells.remove": {
+    "additionalProperties": false,
+    "properties": {
+      "cells_changed": {
+        "maximum": 2000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "columns": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "cell_range_after": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cell_range_before": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cells_changed": {
+              "maximum": 2000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "column_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "rows_delta": {
+              "maximum": 1000000,
+              "minimum": -1000000,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "column_id",
+            "changed",
+            "cells_changed",
+            "rows_delta",
+            "cell_range_before",
+            "cell_range_after"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
+      "curves_moved": {
+        "const": false
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "properties": {
+          "definition_level_id": {
+            "oneOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_columns": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "sheet_path": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "column_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "level_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "column_id",
+                "level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_path",
+          "definition_level_id",
+          "instance_columns",
+          "shared"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "document_id",
+      "revision",
+      "operation_id",
+      "columns",
+      "cells_changed",
+      "scope",
+      "curves_moved"
+    ],
+    "type": "object"
+  },
+  "cells.replace": {
+    "additionalProperties": false,
+    "properties": {
+      "cells_changed": {
+        "maximum": 2000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "columns": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "cell_range_after": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cell_range_before": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cells_changed": {
+              "maximum": 2000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "column_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "rows_delta": {
+              "maximum": 1000000,
+              "minimum": -1000000,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "column_id",
+            "changed",
+            "cells_changed",
+            "rows_delta",
+            "cell_range_before",
+            "cell_range_after"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
+      "curves_moved": {
+        "const": false
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "properties": {
+          "definition_level_id": {
+            "oneOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_columns": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "sheet_path": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "column_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "level_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "column_id",
+                "level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_path",
+          "definition_level_id",
+          "instance_columns",
+          "shared"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "document_id",
+      "revision",
+      "operation_id",
+      "columns",
+      "cells_changed",
+      "scope",
+      "curves_moved"
+    ],
+    "type": "object"
+  },
+  "cells.retime": {
+    "additionalProperties": false,
+    "properties": {
+      "cells_changed": {
+        "maximum": 2000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "columns": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "cell_range_after": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cell_range_before": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cells_changed": {
+              "maximum": 2000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "column_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "rows_delta": {
+              "maximum": 1000000,
+              "minimum": -1000000,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "column_id",
+            "changed",
+            "cells_changed",
+            "rows_delta",
+            "cell_range_before",
+            "cell_range_after"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
+      "curves_moved": {
+        "const": false
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation": {
+        "enum": [
+          "reverse",
+          "swing",
+          "step",
+          "each",
+          "reframe",
+          "increase_step",
+          "decrease_step",
+          "reset_step",
+          "repeat",
+          "roll_up",
+          "roll_down",
+          "time_stretch"
+        ],
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "properties": {
+          "definition_level_id": {
+            "oneOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_columns": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "sheet_path": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "column_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "level_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "column_id",
+                "level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_path",
+          "definition_level_id",
+          "instance_columns",
+          "shared"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "document_id",
+      "revision",
+      "operation_id",
+      "columns",
+      "cells_changed",
+      "scope",
+      "curves_moved",
+      "operation"
+    ],
+    "type": "object"
+  },
+  "cells.set": {
+    "additionalProperties": false,
+    "properties": {
+      "cells_changed": {
+        "maximum": 2000000,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "columns": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "cell_range_after": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cell_range_before": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "first_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "last_frame": {
+                      "maximum": 999999,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "first_frame",
+                    "last_frame"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cells_changed": {
+              "maximum": 2000000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "changed": {
+              "type": "boolean"
+            },
+            "column_id": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "rows_delta": {
+              "maximum": 1000000,
+              "minimum": -1000000,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "column_id",
+            "changed",
+            "cells_changed",
+            "rows_delta",
+            "cell_range_before",
+            "cell_range_after"
+          ],
+          "type": "object"
+        },
+        "maxItems": 64,
+        "minItems": 1,
+        "type": "array"
+      },
+      "curves_moved": {
+        "const": false
+      },
+      "document_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "operation_id": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "revision": {
+        "maxLength": 65536,
+        "minLength": 0,
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "properties": {
+          "definition_level_id": {
+            "oneOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "instance_columns": {
+            "maximum": 4096,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared": {
+            "type": "boolean"
+          },
+          "sheet_path": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "column_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                },
+                "level_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]+$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "column_id",
+                "level_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 16,
+            "minItems": 0,
+            "type": "array"
+          }
+        },
+        "required": [
+          "sheet_path",
+          "definition_level_id",
+          "instance_columns",
+          "shared"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "document_id",
+      "revision",
+      "operation_id",
+      "columns",
+      "cells_changed",
+      "scope",
+      "curves_moved"
+    ],
+    "type": "object"
+  },
   "column.cells": {
     "additionalProperties": false,
     "properties": {
@@ -7904,6 +9266,11 @@
             "available": {
               "type": "boolean"
             },
+            "brief": {
+              "maxLength": 65536,
+              "minLength": 0,
+              "type": "string"
+            },
             "category": {
               "maxLength": 65536,
               "minLength": 0,
@@ -7927,6 +9294,11 @@
                     "maxLength": 65536,
                     "minLength": 0,
                     "type": "string"
+                  },
+                  "step": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
                   }
                 },
                 "required": [],
@@ -7940,6 +9312,11 @@
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "input": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
                   "name": {
                     "maxLength": 65536,
                     "minLength": 0,
@@ -7951,6 +9328,41 @@
                     "type": "string"
                   },
                   "step": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              },
+              "maxItems": 1048576,
+              "minItems": 0,
+              "type": "array"
+            },
+            "deliverables": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "id": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "label": {
+                    "enum": [
+                      "editable",
+                      "approximated",
+                      "baked"
+                    ],
+                    "type": "string"
+                  },
+                  "note": {
                     "maxLength": 65536,
                     "minLength": 0,
                     "type": "string"
@@ -7988,7 +9400,22 @@
               "minItems": 0,
               "type": "array"
             },
+            "limits": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 1048576,
+              "minItems": 0,
+              "type": "array"
+            },
             "missing_types": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
               "maxItems": 1048576,
               "minItems": 0,
               "type": "array"
@@ -7998,7 +9425,89 @@
               "minLength": 0,
               "type": "string"
             },
+            "ownership": {
+              "additionalProperties": false,
+              "properties": {
+                "creates": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "edits": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "leaves_alone": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "preconditions": {
+              "items": {
+                "maxLength": 65536,
+                "minLength": 0,
+                "type": "string"
+              },
+              "maxItems": 1048576,
+              "minItems": 0,
+              "type": "array"
+            },
+            "required_capabilities": {
+              "additionalProperties": false,
+              "properties": {
+                "grants": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "tools": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "toolsets": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
             "required_sources": {
+              "items": {
+                "type": "object"
+              },
               "maxItems": 1048576,
               "minItems": 0,
               "type": "array"
@@ -8013,7 +9522,50 @@
               "minItems": 0,
               "type": "array"
             },
+            "review": {
+              "additionalProperties": false,
+              "properties": {
+                "frames": {
+                  "items": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "kind": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "preview_step": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "read_steps": {
+                  "items": {
+                    "maxLength": 65536,
+                    "minLength": 0,
+                    "type": "string"
+                  },
+                  "maxItems": 1048576,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "required_before_success": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
             "seeds": {
+              "items": {
+                "type": "object"
+              },
               "maxItems": 1048576,
               "minItems": 0,
               "type": "array"
@@ -8023,87 +9575,49 @@
                 "additionalProperties": false,
                 "properties": {
                   "arguments": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "document_id": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "frame": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "frame_count": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "fx_id": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "name": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "parameter": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "port": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "source_fx_id": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "type": {
-                        "maxLength": 65536,
-                        "minLength": 0,
-                        "type": "string"
-                      },
-                      "value": {
-                        "oneOf": [
-                          {
-                            "items": {
-                              "maximum": 1.7976931348623157e+308,
-                              "minimum": -1.7976931348623157e+308,
-                              "type": "number"
-                            },
-                            "maxItems": 1048576,
-                            "minItems": 0,
-                            "type": "array"
-                          },
-                          {
-                            "maximum": 1.7976931348623157e+308,
-                            "minimum": -1.7976931348623157e+308,
-                            "type": "number"
-                          },
-                          {
-                            "maxLength": 65536,
-                            "minLength": 0,
-                            "type": "string"
-                          }
-                        ]
-                      }
-                    },
-                    "required": [
-                      "document_id"
-                    ],
                     "type": "object"
                   },
                   "id": {
                     "maxLength": 65536,
                     "minLength": 0,
                     "type": "string"
+                  },
+                  "poll": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "field": {
+                        "maxLength": 65536,
+                        "minLength": 0,
+                        "type": "string"
+                      },
+                      "max_attempts": {
+                        "maximum": 1.7976931348623157e+308,
+                        "minimum": -1.7976931348623157e+308,
+                        "type": "number"
+                      },
+                      "success": {
+                        "items": {
+                          "maxLength": 65536,
+                          "minLength": 0,
+                          "type": "string"
+                        },
+                        "maxItems": 1048576,
+                        "minItems": 0,
+                        "type": "array"
+                      },
+                      "terminal": {
+                        "items": {
+                          "maxLength": 65536,
+                          "minLength": 0,
+                          "type": "string"
+                        },
+                        "maxItems": 1048576,
+                        "minItems": 0,
+                        "type": "array"
+                      }
+                    },
+                    "required": [],
+                    "type": "object"
                   },
                   "tool": {
                     "maxLength": 65536,
@@ -8122,6 +9636,33 @@
               "maxLength": 65536,
               "minLength": 0,
               "type": "string"
+            },
+            "units": {
+              "additionalProperties": false,
+              "properties": {
+                "frame_origin": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "frame_rate": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "frames": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "lengths": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
             },
             "version": {
               "maximum": 1.7976931348623157e+308,
@@ -23878,6 +25419,115 @@
   "scene.package_info": {
     "additionalProperties": false,
     "properties": {
+      "cameras": {
+        "additionalProperties": false,
+        "properties": {
+          "cameras": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "curves_sha256": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "height_in": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "height_px": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "index": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "interest_rect": {
+                  "items": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "maxItems": 4,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "parent": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "index": {
+                      "maximum": 2147483647,
+                      "minimum": -2147483648,
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "enum": [
+                        "none",
+                        "table",
+                        "pegbar",
+                        "column",
+                        "camera"
+                      ]
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "roles": {
+                  "items": {
+                    "enum": [
+                      "output",
+                      "preview"
+                    ]
+                  },
+                  "maxItems": 2,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "width_in": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "width_px": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "x_prevalence": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 4096,
+            "minItems": 0,
+            "type": "array"
+          },
+          "output_camera": {
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "integer"
+          },
+          "preview_camera": {
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "files": {
         "items": {
           "additionalProperties": false,
@@ -24115,6 +25765,50 @@
               "required": [],
               "type": "object"
             },
+            "settings": {
+              "additionalProperties": false,
+              "properties": {
+                "antialias_softness": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "color_space_gamma": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "dpi": {
+                  "items": {
+                    "maximum": 1.7976931348623157e+308,
+                    "minimum": -1.7976931348623157e+308,
+                    "type": "number"
+                  },
+                  "maxItems": 2,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "dpi_policy": {
+                  "enum": [
+                    "custom",
+                    "image"
+                  ]
+                },
+                "premultiply": {
+                  "type": "boolean"
+                },
+                "subsampling": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "white_transparent": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
             "stroke_opacity_sha256": {
               "oneOf": [
                 {
@@ -24149,6 +25843,317 @@
         "maxLength": 65536,
         "minLength": 0,
         "type": "string"
+      },
+      "scene_properties": {
+        "additionalProperties": false,
+        "properties": {
+          "background_color": {
+            "items": {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 0,
+            "type": "array"
+          },
+          "color_filters": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "color": {
+                  "items": {
+                    "maximum": 2147483647,
+                    "minimum": -2147483648,
+                    "type": "integer"
+                  },
+                  "maxItems": 4,
+                  "minItems": 0,
+                  "type": "array"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 1024,
+            "minItems": 0,
+            "type": "array"
+          },
+          "column_filters_on_render": {
+            "type": "boolean"
+          },
+          "field_guide": {
+            "additionalProperties": false,
+            "properties": {
+              "aspect_ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "size": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "markers": {
+            "items": {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            "maxItems": 3,
+            "minItems": 0,
+            "type": "array"
+          },
+          "output": {
+            "additionalProperties": false,
+            "properties": {
+              "aspect_color": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "maxItems": 4,
+                "minItems": 0,
+                "type": "array"
+              },
+              "aspect_mode": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "aspect_ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "bpp": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "frame_rate": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "linear_color_space": {
+                "type": "boolean"
+              },
+              "range": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 0,
+                "type": "array"
+              },
+              "shrink": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "step": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "sync_color_settings": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "preview": {
+            "additionalProperties": false,
+            "properties": {
+              "aspect_color": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "maxItems": 4,
+                "minItems": 0,
+                "type": "array"
+              },
+              "aspect_mode": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "aspect_ratio": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "bpp": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "frame_rate": {
+                "maximum": 1.7976931348623157e+308,
+                "minimum": -1.7976931348623157e+308,
+                "type": "number"
+              },
+              "linear_color_space": {
+                "type": "boolean"
+              },
+              "range": {
+                "items": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "maxItems": 2,
+                "minItems": 0,
+                "type": "array"
+              },
+              "shrink": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "step": {
+                "maximum": 2147483647,
+                "minimum": -2147483648,
+                "type": "integer"
+              },
+              "sync_color_settings": {
+                "type": "boolean"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "ruler_guides": {
+            "additionalProperties": false,
+            "properties": {
+              "horizontal": {
+                "items": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "maxItems": 1048576,
+                "minItems": 0,
+                "type": "array"
+              },
+              "vertical": {
+                "items": {
+                  "maximum": 1.7976931348623157e+308,
+                  "minimum": -1.7976931348623157e+308,
+                  "type": "number"
+                },
+                "maxItems": 1048576,
+                "minItems": 0,
+                "type": "array"
+              }
+            },
+            "required": [],
+            "type": "object"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "sheet": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "camstand_visible": {
+                  "type": "boolean"
+                },
+                "cell_runs": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "cells_sha256": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "color_filter_id": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "kind": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "maxLength": 65536,
+                  "minLength": 0,
+                  "type": "string"
+                },
+                "opacity": {
+                  "maximum": 2147483647,
+                  "minimum": -2147483648,
+                  "type": "integer"
+                },
+                "parent": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "index": {
+                      "maximum": 2147483647,
+                      "minimum": -2147483648,
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "enum": [
+                        "none",
+                        "table",
+                        "pegbar",
+                        "column",
+                        "camera"
+                      ]
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "preview_visible": {
+                  "type": "boolean"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "maxItems": 4096,
+            "minItems": 0,
+            "type": "array"
+          },
+          "columns_sha256": {
+            "maxLength": 65536,
+            "minLength": 0,
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
       },
       "sound_columns": {
         "items": {
@@ -24351,6 +26356,16 @@
         "minLength": 0,
         "type": "string"
       },
+      "trailing_empty_columns_dropped": {
+        "items": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 4096,
+        "minItems": 0,
+        "type": "array"
+      },
       "verified_drawings": {
         "maximum": 1.7976931348623157e+308,
         "minimum": -1.7976931348623157e+308,
@@ -24364,6 +26379,7 @@
       "package_directory",
       "revision",
       "scene_path",
+      "trailing_empty_columns_dropped",
       "verified_drawings"
     ],
     "type": "object"

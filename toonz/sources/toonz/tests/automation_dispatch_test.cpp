@@ -314,6 +314,7 @@ QString domainToolset(const QString& name) {
       name.startsWith("library."))
     return "shared-library";
   if (name == "fx.recipe.list") return "fx-finishing";
+  if (name.startsWith("cells.")) return "sheet";
   return "core";
 }
 

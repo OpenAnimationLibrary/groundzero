@@ -203,6 +203,10 @@ int integerParam(const QJsonObject& params, const QString& name, int minimum,
                  int maximum, int fallback);
 
 QJsonArray sceneOperations();
+/// Return the typed catalog for the cell range tools of the sheet toolset.
+QJsonArray sheetOperations();
+QJsonValue executeSheet(Context& context, const QString& method,
+                        const QJsonObject& params);
 QJsonArray fxOperations();
 // The fx-finishing toolset: read-only FX recipes.
 QJsonArray fxRecipeOperations();

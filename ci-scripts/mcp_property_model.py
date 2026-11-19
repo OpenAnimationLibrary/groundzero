@@ -737,7 +737,15 @@ OPERATIONS: dict[str, Operation] = {
 # Writing tools of the modelled families that no operation above carries out yet, each with
 # the reason. Generated sequences never call them, so nothing here is checked by the model:
 # their own cases are their only evidence until an operation replaces the entry.
-NOT_MODELLED: dict[str, str] = {}
+NOT_MODELLED: dict[str, str] = {
+    "cells.set": "not written yet",
+    "cells.clear": "not written yet",
+    "cells.remove": "not written yet",
+    "cells.insert": "not written yet",
+    "cells.copy": "not written yet",
+    "cells.retime": "not written yet",
+    "cells.replace": "not written yet",
+}
 
 
 def generate(seed: int, length: int) -> list[Step]:

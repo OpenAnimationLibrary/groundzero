@@ -32,12 +32,12 @@ class SettleTest(unittest.TestCase):
         self.case: Any = FakeCase(Path(self.directory.name))
 
     def settle(self, observed: object, expected: object) -> None:
-        known.settle(self.case, "KV-1", observed, expected)
+        known.settle(self.case, "KV-5", observed, expected)
 
     def test_the_recorded_answer_passes_and_is_logged(self) -> None:
         self.settle("invalid_argument", {"invalid_params"})
         log = (self.case.directory / known.LOG_NAME).read_text()
-        self.assertIn('"violation": "KV-1"', log)
+        self.assertIn('"violation": "KV-5"', log)
 
     def test_the_expected_answer_means_the_entry_is_stale(self) -> None:
         with self.assertRaisesRegex(AssertionError, "delete its entry"):
@@ -58,14 +58,14 @@ class TableTest(unittest.TestCase):
 
     def test_an_entry_without_a_case_is_reported(self) -> None:
         extra = dict(known.KNOWN_VIOLATIONS)
-        extra["KV-99"] = extra["KV-1"]
+        extra["KV-99"] = extra["KV-5"]
         with mock.patch.object(known, "KNOWN_VIOLATIONS", extra):
             self.assertEqual(len(known.problems()), 1)
             self.assertIn("KV-99", known.problems()[0])
 
     def test_an_empty_field_is_reported(self) -> None:
         broken = dict(known.KNOWN_VIOLATIONS)
-        broken["KV-1"] = dataclasses.replace(known.KNOWN_VIOLATIONS["KV-1"], call=" ")
+        broken["KV-5"] = dataclasses.replace(known.KNOWN_VIOLATIONS["KV-5"], call=" ")
         with mock.patch.object(known, "KNOWN_VIOLATIONS", broken):
             self.assertEqual(len(known.problems()), 1)
 

@@ -335,6 +335,41 @@
    "toolset": "core",
    "writes": false
   },
+  "cells.clear": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.copy": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.insert": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.remove": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.replace": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.retime": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.set": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
   "column.cells": {
    "origin": "worker",
    "toolset": "core",
@@ -1633,7 +1668,25 @@
   {
    "id": "timeline.cell_and_time_edits",
    "domain": "Timeline and columns",
-   "outcome": "Insert or remove time, clear cells, duplicate, group, fold or merge columns.",
+   "outcome": "Write explicit drawing runs, clear cells, insert or remove time, copy or move blocks, retime intervals and replace exposed drawings over several columns at once.",
+   "classification": "exposed",
+   "tools": [
+    "cells.set",
+    "cells.clear",
+    "cells.insert",
+    "cells.remove",
+    "cells.copy",
+    "cells.retime",
+    "cells.replace"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "timeline.column_copy_move_remove",
+   "domain": "Timeline and columns",
+   "outcome": "Duplicate and reorder columns of any kind, and move or remove sound columns, with their cells, state and stage placement.",
    "classification": "not_exposed",
    "tools": [],
    "disposition": {
@@ -2427,6 +2480,43 @@
     "ci-scripts/mcp_acceptance.py::test_recipe_exposure_grade_runs_literally",
     "ci-scripts/mcp_acceptance.py::test_recipe_cross_dissolve_runs_literally",
     "ci-scripts/mcp_acceptance.py::test_recipe_iris_wipe_runs_literally"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "recipes.shot_rig_delivery",
+   "domain": "Stage, camera and animation",
+   "outcome": "Assemble a dolly shot, rig a pendulum swing and deliver a frame sequence from listed recipes of ordinary tool calls, each with a preview the client reads before it reports success.",
+   "classification": "compositional",
+   "tools": [
+    "fx.recipe.list",
+    "scene.create",
+    "level.import",
+    "column.create",
+    "column.expose",
+    "object.create",
+    "object.parent",
+    "object.pivot.set",
+    "offset_layer.create",
+    "animation.set_keys",
+    "animation.insert_breakdown",
+    "animation.set_cycle",
+    "animation.sample",
+    "scene.validate",
+    "scene.save_copy",
+    "render.preflight",
+    "render.preview",
+    "render.submit",
+    "job.status",
+    "job.result",
+    "artifact.read"
+   ],
+   "journey": [
+    "ci-scripts/mcp_acceptance.py::test_recipe_dolly_shot_assembly_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_pendulum_rig_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_frame_sequence_delivery_runs_literally"
    ],
    "disposition": {
     "kind": "implemented"

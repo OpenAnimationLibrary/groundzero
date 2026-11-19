@@ -48,7 +48,7 @@ LOG_NAME = "property-sequences.ndjson"
 VECTOR_LARGEST = 65535  # Native PLI files number drawings from 1 to 65535.
 RASTER_LARGEST = 999999
 NAME_LIMIT = 128
-MAX_SAVED_ROW = 1000000  # KV-8: a column that starts at row 0 cannot be saved with this row.
+MAX_SAVED_ROW = 999999
 WRITE_BUDGET = 1200  # A worker keeps 2048 receipts; shrinking stops well before that.
 
 
@@ -464,7 +464,7 @@ def frames_round_trip_through_keys_exposures_and_reopen(case: NativeAcceptance) 
                 "animation.sample", {"document_id": document, **target, "frames": frames}
             )
             case.assertEqual([v["value"] for v in sampled["values"]], [key[1] for key in want])
-            exposed = _expose_at(case, document, [f for f in frames if f < MAX_SAVED_ROW])
+            exposed = _expose_at(case, document, [f for f in frames if f <= MAX_SAVED_ROW])
             reopened = _reopened(case, document, f"frames-{seed}")
             moved = {**target, "object_id": _peg_by_name(case, reopened, "Peg")}
             case.assertEqual(_read_keys(case, reopened, moved), want)
@@ -683,7 +683,7 @@ def camera_size_in_inches_keeps_its_value_through_save_and_reopen(case: NativeAc
     read = case.success("camera.inspect", {"document_id": reopened})
     drift = abs(read["width_in"] - exact)
     observed = "exact" if drift < TOLERANCE else f"{read['width_in']:.6g}"
-    settle(case, "KV-6", observed, "exact")
+    case.assertEqual(observed, "exact")
     case.assertEqual((read["width_px"], read["height_px"]), (32, 32))
 
 
@@ -726,12 +726,12 @@ def the_frame_count_follows_a_deleted_column(case: NativeAcceptance) -> None:
     case.mutate("column.delete", document, column_id=column)
     summary = case.success("scene.summary", {"document_id": document})
     case.assertEqual(summary["columns"], [])
-    settle(case, "KV-7", summary["frame_count"], 0)
+    case.assertEqual(summary["frame_count"], 0)
 
 
 @acceptance_case
 def an_exposure_at_the_last_row_can_be_saved_with_one_at_the_first(case: NativeAcceptance) -> None:
-    """Expose rows 0 and 1000000, the first and the last the tools admit, then save the scene."""
+    """Expose rows 0 and 999999, the first and the last the tools admit, then save the scene."""
     document = case.create()
     level = case.mutate("level.create", document, name="Ink", format="vector")["level_id"]
     drawing = {"number": 1, "suffix": ""}
@@ -750,7 +750,7 @@ def an_exposure_at_the_last_row_can_be_saved_with_one_at_the_first(case: NativeA
     request = case.write_params(document, {"directory": str(case.workspace / "last-row")})
     response = _raw(case, "scene.save_copy", request)
     observed = response.get("error", {}).get("code", "saved")
-    settle(case, "KV-8", observed, "saved")
+    case.assertEqual(observed, "saved")
 
 
 @acceptance_case

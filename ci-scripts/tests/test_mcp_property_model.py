@@ -106,11 +106,11 @@ class NotModelledTest(unittest.TestCase):
             self.assertNotIn(tool, requested, f"{tool} has an operation: delete its entry")
             self.assertGreater(len(reason), 20, tool)
 
-    def test_every_writing_animation_tool_is_modelled_or_listed(self) -> None:
+    def test_every_writing_curve_and_cell_tool_is_modelled_or_listed(self) -> None:
         writing = {
             name
             for name, entry in CENSUS["tools"].items()
-            if name.startswith("animation.") and entry["writes"]
+            if name.startswith(("animation.", "cells.")) and entry["writes"]
         }
         whole_curve = {"animation.copy_curve", "animation.retime_curve"}
         missing = writing - self.requested() - set(model.NOT_MODELLED) - whole_curve

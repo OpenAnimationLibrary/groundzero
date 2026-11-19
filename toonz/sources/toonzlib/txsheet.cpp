@@ -1011,7 +1011,11 @@ void TXsheet::timeStretch(int r0, int c0, int r1, int c1, int nr) {
       insertCells(r0 + 1, c, dn);
       int i;
       for (i = nr - 1; i >= 0; i--) {
-        int j = static_cast<int>(std::round(i * double(oldNr) / double(nr)));
+        // From twice the length on, the last rows round to oldNr, one past
+        // the copied cells; they repeat the last cell.
+        int j = std::min(
+            oldNr - 1,
+            static_cast<int>(std::round(i * double(oldNr) / double(nr))));
         if (j < i) setCell(i + r0, c, cells[j]);
       }
     }
