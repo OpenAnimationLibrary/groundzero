@@ -159,10 +159,14 @@ def editor_reads(case: NativeAcceptance, package: Path) -> dict[str, Any]:
 
 
 def _without_dropped(reads: dict[str, Any], dropped: int) -> dict[str, Any]:
-    kept = reads["columns"][: len(reads["columns"]) - dropped]
+    count = len(reads["columns"]) - dropped
+    kept, gone = reads["columns"][:count], reads["columns"][count:]
     names = {row[1] for row in kept}
     cells = {name: rows for name, rows in reads["cells"].items() if name in names}
-    return {**reads, "columns": kept, "cells": cells}
+    objects = list(reads["objects"])
+    for row in gone:
+        objects.remove(("column", row[1]))
+    return {**reads, "columns": kept, "cells": cells, "objects": objects}
 
 
 def save_and_reopen(case: NativeAcceptance, document: str, name: str) -> tuple[dict[str, Any], str]:
