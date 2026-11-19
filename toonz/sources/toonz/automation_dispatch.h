@@ -24,6 +24,9 @@ public:
   // its last record. Runs on the application thread: before each request, on
   // a one-second timer, and at teardown.
   void recordJobOutcomes();
+  // Between requests, once a second: job outcomes, then one bounded step of
+  // journal retention.
+  void idle();
 
 private:
 #ifdef BUILD_UI_PORT_TESTS
@@ -66,6 +69,8 @@ private:
                      const QJsonObject& response);
   void recordJobStart(Journal* journal, const QString& operationId,
                       const QJsonObject& result);
+  void recordJobEnd(Journal& journal, const QString& id,
+                    const QJsonObject& record);
   QJsonObject replayJournal(Journal& journal, const JournalOperation& operation,
                             const Receipt& key);
   QJsonObject recordedResponse(Journal& journal,

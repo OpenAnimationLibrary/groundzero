@@ -424,9 +424,14 @@ def swapped_after_publication(layout: Layout) -> str:
 
 
 def unregistered_copy(layout: Layout) -> str:
+    """A copy that is no publication: packages are admitted by registered content
+    wherever they lie, so a package copy also gets an edited manifest."""
     original = layout.target()
     copy = original.with_name(original.name + "-copy")
     shutil.copytree(original, copy)
+    manifest = copy / "manifest.json"
+    if manifest.is_file():
+        manifest.write_bytes(manifest.read_bytes() + b"\n")
     return str(copy)
 
 

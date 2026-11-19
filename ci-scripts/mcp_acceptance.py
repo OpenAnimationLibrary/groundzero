@@ -1050,8 +1050,12 @@ class NativeAcceptance(unittest.TestCase):
         saved = self.mutate("scene.save_copy", document, directory=str(self.workspace / "original"))
         copy = self.workspace / "unregistered"
         shutil.copytree(saved["package_directory"], copy)
+        (copy / "manifest.json").write_bytes((copy / "manifest.json").read_bytes() + b"\n")
         before = self.success("automation.list_documents", {})
-        self.failure("scene.open", self.write_params(None, {"path": str(copy)}))
+        error = self.failure("scene.open", self.write_params(None, {"path": str(copy)}))
+        self.assertEqual(
+            (error["code"], error["details"]["reason"]), ("unregistered_package", "not_registered")
+        )
         manifest = Path(saved["manifest_path"])
         manifest.write_bytes(manifest.read_bytes() + b"\n")
         self.failure("scene.open", self.write_params(None, {"path": saved["package_directory"]}))

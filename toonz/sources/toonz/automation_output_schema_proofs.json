@@ -683,7 +683,10 @@
   },
   "scene.package_info": {
     "handler": null,
-    "read": []
+    "read": [
+      "current",
+      "worker_instance_id"
+    ]
   },
   "scene.properties.inspect": {
     "handler": "inspectProperties",

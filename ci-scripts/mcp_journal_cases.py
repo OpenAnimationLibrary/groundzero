@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from mcp_case import acceptance_case
 from mcp_failure_cases import _fault_worker
 from mcp_file_publish_cases import staging_left
+from mcp_scene_access_cases import corpus, open_scene, wait
 from mcp_worker import FULL_GRANTS, Worker
 
 if TYPE_CHECKING:
@@ -108,6 +109,9 @@ def receipts_survive_restart(case: NativeAcceptance) -> None:
     journal = case.success("journal.status", {})
     case.assertEqual((journal["state"], journal["writers_total"]), ("ok", 2))
     case.assertEqual([row["alive"] for row in journal["writers"]], [True, False])
+    build = case.success("automation.capabilities", {})["worker"]["build"]["build_digest"]
+    starts = [row for row in records(case) if row["type"] == "worker_start"]
+    case.assertEqual([row["build_digest"] for row in starts], [build, build])
     admits = [row for row in records(case) if row.get("operation_id") == params["operation_id"]]
     case.assertEqual([row["type"] for row in admits], ["admit", "outcome"])
 
@@ -515,3 +519,123 @@ def concurrent_workers_append_whole_records(case: NativeAcceptance) -> None:
     case.assertEqual(len(admitted), 160)
     case.assertEqual(outcomes, dict.fromkeys(admitted, 1))
     case.assertEqual(len({row["w"] for row in written if row["type"] == "admit"}), 2)
+
+
+def _terminal_job_records(case: NativeAcceptance, job: str) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in records(case)
+        if row["type"] == "job" and row["job_id"] == job and row["record"].get("terminal")
+    ]
+
+
+@acceptance_case
+def scene_host_job_end_is_recorded(case: NativeAcceptance) -> None:
+    """A job run in a read-only document's scene host gets its terminal record once the
+    worker observes its end, so a later worker reports how it ended, not unknown."""
+    scene = corpus(case)["B"]
+    document = open_scene(case, case.worker, scene, "standalone")["document_id"]
+    params = {"document_id": document, "expected_revision": "0", "frame": 0, "width": 16}
+    params.update(height=16, operation_id=f"host-preview-{case.operations}")
+    job = case.success("render.preview", params)["job_id"]
+    case.assertEqual(wait(case, case.worker, job)["status"], "completed")
+    deadline = time.monotonic() + 10
+    while not _terminal_job_records(case, job):
+        case.assertLess(time.monotonic(), deadline, "the host job's end was never recorded")
+        time.sleep(0.1)
+    restart(case, "after-host-job")
+    ended = case.success("job.status", {"job_id": job})
+    case.assertEqual((ended["status"], ended["observed_by"]), ("completed", "journal"))
+
+
+@acceptance_case(worker_only="needs --test-journal-limits, which the adapter never passes")
+def retention_runs_between_requests(case: NativeAcceptance) -> None:
+    """A long-running worker keeps its journal within its limits between requests, one
+    sealed segment at a time, without a restart."""
+    restart(case, "small-running", "--test-journal-limits", "small")
+    first, created = created_scene(case)
+    document = created["document_id"]
+    # About 1 KiB a write: a sealed segment; 16 full receipts kept, 55 stubs.
+    for index in range(70):
+        params = case.write_params(document, {"width_px": 32 + index % 2})
+        case.revisions[document] = case.success("scene.settings", params)["revision"]
+    deadline = time.monotonic() + 15
+    while status(case, first["operation_id"])["state"] != "expired":
+        case.assertLess(time.monotonic(), deadline, "no retention step ran")
+        time.sleep(0.2)
+    journal = case.success("journal.status", {})
+    case.assertGreater(journal["retained"]["receipt_stubs"], 0)
+    case.assertLess(journal["retained"]["full_receipts"], 71)
+    case.assertEqual(case.success("scene.create", first)["document_id"], document)
+
+
+@acceptance_case(worker_only="needs --test-write-fault and --test-journal-limits")
+def crash_during_compaction_loses_nothing(case: NativeAcceptance) -> None:
+    """A worker killed while compacting leaves the old segment or the new one, never
+    neither: every operation still answers as before."""
+    small = ("--test-journal-limits", "small")
+    # Normal limits while filling, so no retention step runs before the crash.
+    restart(case, "fill")
+    first, created = created_scene(case)
+    document = created["document_id"]
+    last = first
+    for index in range(70):
+        last = case.write_params(document, {"width_px": 32 + index % 2})
+        case.revisions[document] = case.success("scene.settings", last)["revision"]
+    case.worker.close()
+    before = sorted(path.name for path in journal_directory(case).glob("seg-*.jsonl"))
+    crashed = Worker(
+        case.executable,
+        case.workspace,
+        case.inputs,
+        case.directory / "compaction-crash.stderr.log",
+        test_arguments=(*small, "--test-write-fault", "journal:compaction:crash"),
+    )
+    case.addCleanup(crashed.close)
+    case.assertEqual(crashed.process.wait(timeout=60), CRASH_EXIT_CODE)
+    # The crash came at the step that renames the compacted copy over the
+    # segment: every earlier segment is still there.
+    after = sorted(path.name for path in journal_directory(case).glob("seg-*.jsonl"))
+    case.assertLessEqual(set(before), set(after))
+    restart(case, "after-compaction-crash", *small)
+    case.assertEqual(status(case, last["operation_id"])["state"], "completed")
+    case.assertIn(status(case, first["operation_id"])["state"], {"completed", "expired"})
+    case.assertEqual(case.success("journal.status", {})["state"], "ok")
+
+
+@acceptance_case(worker_only=FAULT_FLAG)
+def recipe_resume_lists_and_settles_unresolved(case: NativeAcceptance) -> None:
+    """A recipe whose worker died mid-way is resumed by listing its unresolved writes and
+    settling each: the interrupted save is found published, nothing runs twice and there is
+    one package per save. Steps are inline; move onto mcp_recipe_run.py at integration."""
+    saved = "recipe-save-b"
+    restart(
+        case,
+        "recipe",
+        "--test-write-fault",
+        "publish:renamed:crash",
+        "--test-fault-operation",
+        saved,
+    )
+    document, _level, _column = case.populated_scene()
+    first = case.mutate("scene.save_copy", document, directory=str(case.workspace / "save-a"))
+    case.mutate("scene.settings", document, frame_rate=12)
+    second = case.write_params(document, {"directory": str(case.workspace / "save-b")})
+    second["operation_id"] = saved
+    with case.assertRaises(RuntimeError):
+        case.worker.call("scene.save_copy", second)
+    case.assertEqual(case.worker.process.wait(timeout=30), CRASH_EXIT_CODE)
+    restart(case, "resumed")
+    unresolved = case.success("operation.list", {})["operations"]
+    case.assertEqual([row["operation_id"] for row in unresolved], [saved])
+    settled = status(case, saved)
+    case.assertEqual(settled["verdict"]["kind"], "published")
+    case.assertEqual(settled["verdict"]["evidence"]["target"], "save-b")
+    case.assertEqual(case.failure("scene.save_copy", second)["code"], "operation_interrupted")
+    packages = sorted(path.name for path in case.workspace.glob("save-*"))
+    case.assertEqual(packages, ["save-a", "save-b"])
+    case.assertEqual(first["package_directory"], str(case.workspace / "save-a"))
+    case.assertEqual(case.success("operation.list", {})["operations"], unresolved)
+    # The reconciler registered the published package, so the recipe goes on from it.
+    resumed = case.mutate("scene.open", None, path=str(case.workspace / "save-b"))
+    case.assertEqual(resumed["admission"], "workspace_registry")

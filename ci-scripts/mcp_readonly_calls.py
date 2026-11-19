@@ -389,7 +389,8 @@ def _artifact(f: Fixture) -> list[Call]:
 def _package(f: Fixture) -> list[Call]:
     return [
         Call("saved package", {"path": str(f.package)}),
-        Call("copy under an input root", {"path": str(f.input_package)}, "unregistered_package"),
+        # Admitted by registered content wherever it lies in a read root.
+        Call("copy under an input root", {"path": str(f.input_package)}),
         Call("outside every root", {"path": "/etc"}, "path_denied"),
     ]
 

@@ -712,10 +712,11 @@ bool writeFaultFires(const Context& context, const char* point) {
 }
 
 void publishStaged(Context& context, const QString& staged, const QString& path,
-                   const QString& failureCode, const QString& failureMessage) {
+                   const QString& failureCode, const QString& failureMessage,
+                   const QJsonObject& intent) {
   context.markMutationStarted();
   const bool durable = context.writeClass == "publication";
-  if (durable) recordPublicationIntent(context, staged, path);
+  if (durable) recordPublicationIntent(context, staged, path, intent);
   if (durable &&
       (writeFaultFires(context, "publish:flush") || !flushTree(staged)))
     throw stagedWriteError(failureCode,

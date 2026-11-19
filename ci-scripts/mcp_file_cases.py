@@ -177,8 +177,9 @@ def _no_logs_name(case: NativeAcceptance, marker: str, started: float) -> None:
 
 
 def _journal_names_only_admitted_paths(case: NativeAcceptance, marker: str) -> None:
-    """The journal keeps the results of admitted calls and the targets of admitted
-    publications, paths included, and nothing of a refused call."""
+    """The journal keeps the results of admitted calls, the targets of admitted
+    publications and the places packages were registered, paths included, and nothing
+    of a refused call."""
     for segment in case.directory.glob("**/.groundzero/journal/seg-*.jsonl"):
         for line in segment.read_bytes().splitlines():
             if marker.encode() not in line:
@@ -187,7 +188,7 @@ def _journal_names_only_admitted_paths(case: NativeAcceptance, marker: str) -> N
             kind = (record["type"], record.get("state"))
             case.assertIn(
                 kind,
-                {("outcome", "completed"), ("intent", None)},
+                {("outcome", "completed"), ("intent", None), ("package", None)},
                 f"the journal records a refused path: {kind}",
             )
 

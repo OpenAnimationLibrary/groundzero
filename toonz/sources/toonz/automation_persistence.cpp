@@ -4,6 +4,8 @@
 #include "automation_vector_opacity.h"
 #include "automation.h"
 #include "automation_files.h"
+#include "automation_jobs.h"
+#include "automation_journal.h"
 #include "automation_audio.h"
 #include "automation_drawing.h"
 #include "automation_fx.h"
@@ -57,7 +59,13 @@ struct Package final {
   QJsonObject manifest;
   QByteArray manifestHash;
   QByteArray macroFingerprint;
+  // The exact manifest.json bytes, and for a publication the registration
+  // its intent carries (empty without a journal).
+  QByteArray manifestBytes;
+  QJsonObject registration;
 };
+
+constexpr qint64 MaxManifestBytes = 2 * 1024 * 1024;
 
 std::map<QString, Package> publishedPackages;
 
@@ -91,6 +99,15 @@ QByteArray readRegularFile(const QString& directory, const QString& relative) {
     throw Error("package_read_failed", "Cannot read a complete package file.",
                 {{"file", relative}});
   return bytes;
+}
+
+// Writes one file of a private copy, creating its folders.
+void writePrivateFile(const QString& path, const QByteArray& bytes) {
+  QFile file(path);
+  if (!QDir().mkpath(QFileInfo(path).absolutePath()) ||
+      !file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
+      file.write(bytes) != bytes.size())
+    throw Error("package_read_failed", "Cannot copy a package file privately.");
 }
 
 QJsonArray fileManifest(const QString& directory) {
@@ -414,7 +431,8 @@ Package writePackage(const Context& context, Document& document,
   if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() ||
       !file.commit())
     throw Error("package_write_failed", "Cannot publish the package manifest.");
-  package.manifestHash = digest(bytes);
+  package.manifestHash  = digest(bytes);
+  package.manifestBytes = bytes;
   packageFault(context, "package:manifest", step);
   return package;
 }
@@ -574,6 +592,23 @@ std::unique_ptr<ToonzScene> reopenPackage(Context& context,
   return scene;
 }
 
+// What the journal registers for a published package: its id (the SHA-256 of
+// the exact manifest bytes), the manifest as a blob and the macro fingerprint
+// the manifest lacks. Empty outside a journalled publication.
+QJsonObject registrationFields(Context& context, const Package& package) {
+  Journal* journal = workspaceJournal(context);
+  if (!journal || !journal->available() || context.writeClass != "publication")
+    return {};
+  const QString blob = journal->storeBlob(package.manifestBytes);
+  if (blob.isEmpty()) return {};
+  return {
+      {"package_id", "package:" + QString::fromLatin1(package.manifestHash)},
+      {"manifest_blob", blob},
+      {"manifest_bytes", double(package.manifestBytes.size())},
+      {"macro_fingerprint",
+       QString::fromLatin1(package.macroFingerprint.toHex())}};
+}
+
 Package publishPackage(Context& context, Document& document,
                        const QString& destination) {
   const QString path = context.resolvePath(destination, true);
@@ -609,23 +644,173 @@ Package publishPackage(Context& context, Document& document,
   } catch (const std::exception& error) {
     throw stepError("native_error", QString::fromUtf8(error.what()), {}, step);
   }
+  package.registration = registrationFields(context, package);
   publishStaged(context, staging.path(), path, "package_write_failed",
-                "Cannot publish the verified package directory.");
+                "Cannot publish the verified package directory.",
+                package.registration.isEmpty()
+                    ? QJsonObject()
+                    : QJsonObject{{"package", package.registration}});
   staging.setAutoRemove(false);
   return package;
 }
 
-QString admittedDirectory(Context& context, const QJsonObject& params) {
+// A package admitted for scene.open or scene.package_info.
+struct Admission final {
+  QString directory;
+  Package package;
+  QString kind;
+  QString packageId;
+  bool relocated = false;
+  QJsonValue publishedBy;
+};
+
+[[noreturn]] void refuseUnregistered(const QString& reason) {
+  throw Error("unregistered_package",
+              "Open only a scene package a worker of this workspace published "
+              "and registered; open other native scenes with "
+              "scene.open_read_only and import them with "
+              "scene.import_editable.",
+              {{"reason", reason},
+               {"next", "scene.import_editable"},
+               {"hint", "scene.open_read_only"}});
+}
+
+QString workspaceRelative(Context& context, const QString& path) {
+  const QString workspace = context.workspace();
+  return path.startsWith(workspace + '/') ? path.mid(workspace.size() + 1)
+                                          : path;
+}
+
+// Why a manifest this registry does not hold is refused: registered once and
+// expired, another manifest registered at this place, or never registered.
+QString unregisteredReason(const Journal& journal, const QString& id,
+                           const QString& relative) {
+  if (const QJsonObject* record = journal.package(id))
+    if (record->value("expired").toBool()) return "registry_expired";
+  for (const QString& other : journal.packageIds()) {
+    const QJsonObject* record = journal.package(other);
+    if (!record->value("expired").toBool() &&
+        record->value("path").toString() == relative)
+      return "manifest_changed";
+  }
+  return "not_registered";
+}
+
+Admission registryAdmission(Context& context, const QString& directory) {
+  Journal* journal = workspaceJournal(context);
+  if (!journal || !journal->readable()) refuseUnregistered("not_registered");
+  journal->refresh();
+  const QFileInfo manifest(directory + "/manifest.json");
+  if (!manifest.isFile() || manifest.size() > MaxManifestBytes)
+    refuseUnregistered("not_registered");
+  const QByteArray bytes    = readRegularFile(directory, "manifest.json");
+  const QString id          = "package:" + QString::fromLatin1(digest(bytes));
+  const QString relative    = workspaceRelative(context, directory);
+  const QJsonObject* record = journal->package(id);
+  if (!record || record->value("expired").toBool())
+    refuseUnregistered(unregisteredReason(*journal, id, relative));
+  if (journal->readBlob(record->value("manifest_blob").toString(),
+                        bytes.size()) != bytes)
+    throw Error("invalid_package",
+                "The registered manifest of this package is missing from the "
+                "workspace journal.",
+                {{"package_id", id}});
+  Admission admission;
+  admission.directory                = directory;
+  admission.kind                     = "workspace_registry";
+  admission.packageId                = id;
+  admission.package.manifest         = QJsonDocument::fromJson(bytes).object();
+  admission.package.manifestHash     = digest(bytes);
+  admission.package.manifestBytes    = bytes;
+  admission.package.macroFingerprint = QByteArray::fromHex(
+      record->value("macro_fingerprint").toString().toLatin1());
+  admission.relocated = record->value("path").toString() != relative;
+  const QString writer =
+      record->value("published_by").toString(record->value("w").toString());
+  admission.publishedBy =
+      QJsonObject{{"worker_instance_id", writer},
+                  {"current", writer == journal->instance()}};
+  return admission;
+}
+
+// Admitted by this worker's own publication, or by the workspace registry
+// wherever the package now lies inside a read root.
+Admission admitPackage(Context& context, const QJsonObject& params) {
   QString path = context.resolvePath(requiredString(params, "path"), false);
   if (QFileInfo(path).fileName() == "manifest.json")
     path = QFileInfo(path).absolutePath();
   const QString directory = QFileInfo(path).canonicalFilePath();
-  if (!publishedPackages.count(directory))
-    throw Error("unregistered_package",
-                "Open only a scene package published by this worker; open "
-                "other native scenes with scene.open_read_only.",
-                {{"hint", "scene.open_read_only"}});
-  return directory;
+  if (directory.isEmpty() || !QFileInfo(directory).isDir())
+    refuseUnregistered("not_registered");
+  const auto own = publishedPackages.find(directory);
+  if (own == publishedPackages.end())
+    return registryAdmission(context, directory);
+  Admission admission;
+  admission.directory = directory;
+  admission.package   = own->second;
+  admission.kind      = "this_worker";
+  admission.packageId =
+      "package:" + QString::fromLatin1(own->second.manifestHash);
+  admission.publishedBy =
+      QJsonObject{{"worker_instance_id", jobRegistry(context).instance()},
+                  {"current", true}};
+  return admission;
+}
+
+// Copies every file the registered manifest lists into private storage,
+// checking each size and SHA-256 while copying, and refuses a package with
+// a changed, missing or unlisted file. The native load reads only the copy.
+QString copyIn(Context& context, const Admission& admission) {
+  PrivateDirectory copy(context.runtimeDirectory + "/opened-XXXXXX");
+  if (!copy.isValid())
+    throw Error("package_read_failed", "Cannot create a private package copy.");
+  QSet<QString> listed{"manifest.json"};
+  for (const QJsonValue& value :
+       admission.package.manifest.value("files").toArray()) {
+    const QJsonObject entry = value.toObject();
+    const QString relative  = entry.value("path").toString();
+    const QByteArray bytes  = readRegularFile(admission.directory, relative);
+    if (bytes.size() != entry.value("size_bytes").toDouble() ||
+        QString::fromLatin1(digest(bytes)) != entry.value("sha256").toString())
+      throw Error("invalid_package",
+                  "A package file changed after publication.",
+                  {{"file", relative}});
+    writePrivateFile(copy.filePath(relative), bytes);
+    listed.insert(relative);
+    writeFaultFires(context, "reopen:copy");
+  }
+  writePrivateFile(copy.filePath("manifest.json"),
+                   admission.package.manifestBytes);
+  QDirIterator files(admission.directory,
+                     QDir::Files | QDir::Hidden | QDir::System,
+                     QDirIterator::Subdirectories);
+  while (files.hasNext())
+    if (!listed.contains(
+            QDir(admission.directory).relativeFilePath(files.next())))
+      throw Error("invalid_package",
+                  "The package contains an unrecorded file.");
+  copy.setAutoRemove(false);
+  return copy.path();
+}
+
+// Removes a private copy that no document took.
+struct CopyGuard final {
+  QString path;
+  bool keep = false;
+  ~CopyGuard() {
+    if (!keep && !path.isEmpty()) removeApprovedTree(path);
+  }
+};
+
+QJsonObject admissionReport(const Admission& admission) {
+  return {
+      {"admission", admission.kind},
+      {"package_id", admission.packageId},
+      {"relocated", admission.relocated},
+      {"published_by", admission.publishedBy},
+      {"provenance", admission.package.manifest.value("provenance").isObject()
+                         ? admission.package.manifest.value("provenance")
+                         : QJsonValue()}};
 }
 
 // Handles of the empty columns after the last used one: the native saver
@@ -649,31 +834,53 @@ QJsonObject saveCopy(Context& context, const QJsonObject& params) {
       context.resolvePath(requiredString(params, "directory"), true);
   const Package package = publishPackage(context, document, directory);
   publishedPackages.emplace(directory, package);
+  Journal* journal      = workspaceJournal(context);
+  const bool registered = journal && !package.registration.isEmpty();
+  if (registered) {
+    QJsonObject fields = package.registration;
+    fields.insert("operation_id", context.writeOperation);
+    fields.insert("path", workspaceRelative(context, directory));
+    fields.insert("published_by", journal->instance());
+    journal->registerPackage(fields);
+  }
   int drawings = 0;
   for (const QJsonValue& entry : package.manifest.value("levels").toArray())
     drawings += entry.toObject().value("drawings").toArray().size();
-  return {{"package_directory", directory},
-          {"trailing_empty_columns_dropped", droppedColumns(document)},
-          {"scene_path", directory + "/scene.tnz"},
-          {"manifest_path", directory + "/manifest.json"},
-          {"verified_drawings", drawings},
-          {"document_id", document.id},
-          {"revision", document.revisionText()}};
+  return {
+      {"package_directory", directory},
+      {"trailing_empty_columns_dropped", droppedColumns(document)},
+      {"scene_path", directory + "/scene.tnz"},
+      {"manifest_path", directory + "/manifest.json"},
+      {"verified_drawings", drawings},
+      {"package_id", "package:" + QString::fromLatin1(package.manifestHash)},
+      {"registered", registered},
+      {"document_id", document.id},
+      {"revision", document.revisionText()}};
 }
 
 QJsonObject openPackage(Context& context, const QJsonObject& params) {
   context.requireDocumentCapacity();
-  const QString directory = admittedDirectory(context, params);
-  auto scene =
-      reopenPackage(context, directory, publishedPackages.at(directory));
+  const Admission admission = admitPackage(context, params);
+  const QString directory   = admission.directory;
+  // A registry package loads from a private copy checked while copied; this
+  // worker's own publication loads where it published it.
+  const QString copy =
+      admission.kind == "this_worker" ? QString() : copyIn(context, admission);
+  CopyGuard guard{copy};
+  auto scene        = reopenPackage(context, copy.isEmpty() ? directory : copy,
+                                    admission.package);
   const auto sounds = adoptAutomationSounds(context, *scene);
   context.markMutationStarted();
   Document& document    = context.addDocument(std::move(scene));
   document.soundSources = sounds;
+  if (!copy.isEmpty()) document.privateCopies.append(copy);
+  guard.keep = true;
   initializeAutomationRig(document);
-  return {{"document_id", document.id},
-          {"revision", document.revisionText()},
-          {"package_directory", directory}};
+  QJsonObject result = admissionReport(admission);
+  result.insert("document_id", document.id);
+  result.insert("revision", document.revisionText());
+  result.insert("package_directory", directory);
+  return result;
 }
 
 using DrawingIndex = std::map<TXshSimpleLevel*, std::set<TFrameId>>;
@@ -793,10 +1000,13 @@ QJsonValue executePersistence(Context& context, const QString& method,
   if (method == "scene.save_copy") return saveCopy(context, params);
   if (method == "scene.open") return openPackage(context, params);
   if (method == "scene.package_info") {
-    const QString directory = admittedDirectory(context, params);
-    const Package& package  = publishedPackages.at(directory);
-    verifyFiles(directory, package);
-    return package.manifest;
+    const Admission admission = admitPackage(context, params);
+    verifyFiles(admission.directory, admission.package);
+    QJsonObject result       = admission.package.manifest;
+    const QJsonObject report = admissionReport(admission);
+    for (auto it = report.begin(); it != report.end(); ++it)
+      result.insert(it.key(), it.value());
+    return result;
   }
   throw Error("method_not_found",
               "The persistence operation is not available.");
