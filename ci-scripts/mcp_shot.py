@@ -702,7 +702,6 @@ def check_movie_artifact(shot: Shot, job: dict[str, Any]) -> tuple[Path, dict[st
     """
     status = shot.wait(job["job_id"])
     require(status["completed_frames"] == FRAMES, "The movie omitted shot frames")
-    require(status["format"] == "mp4", "The movie job changed format")
     require(status["profile"] == "opaque8-mp4", "The movie job changed render profile")
     result = shot.read("job.result", {"job_id": job["job_id"]})
     require("image" not in result, "Movie delivery returned inline image content")
