@@ -4,9 +4,11 @@ row, each saved and reopened through both loaders."""
 
 from __future__ import annotations
 
+import base64
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
+from mcp_png import decode_png
 from mcp_sheet_record_cases import save_and_reopen
 
 if TYPE_CHECKING:
@@ -146,3 +148,48 @@ def guides_change_no_pixel_and_reopen(case: NativeAcceptance) -> None:
         properties(case, reopened)["ruler_guides"]["vertical_lines_x_in"],
         [1 / 3, 1 / 3, 0.75],
     )
+
+
+def _rendered_size(case: NativeAcceptance, document: str, aspect: dict[str, Any]) -> tuple:
+    job = case.mutate(
+        "render.preview", document, frame=0, width=64, height=32, aspect_export=aspect
+    )
+    status = case.wait_job(job["job_id"])
+    case.assertEqual(status["status"], "completed", status)
+    artifact = case.success("job.result", {"job_id": job["job_id"]})["artifacts"][0]
+    image = case.success("artifact.read", {"artifact_id": artifact["artifact_id"]})["image"]
+    width, height, _pixels = decode_png(base64.b64decode(image["data"]))
+    return width, height
+
+
+@acceptance_case
+def render_aspect_export_is_explicit_per_job(case: NativeAcceptance) -> None:
+    """A crop request writes the size the preflight reports for the ratio; letterbox keeps
+    the render size; a stored scene setting is never read by a render (SCN-09 #3, AM-5)."""
+    document, _level, _column = case.populated_scene()
+    case.mutate(
+        "scene.output.set",
+        document,
+        apply_to=["output"],
+        settings={"aspect_export": {"mode": "crop", "ratio": 4}},
+    )
+    case.assertEqual(_rendered_size(case, document, {"mode": "none"}), (64, 32))
+    crop = {"mode": "crop", "ratio": 1}
+    checked = case.success(
+        "render.preflight",
+        {
+            "document_id": document,
+            "expected_revision": case.revisions[document],
+            "kind": "preview",
+            "frame": 0,
+            "width": 64,
+            "height": 32,
+            "aspect_export": crop,
+        },
+    )
+    effective = checked["effective"]["aspect_export"]
+    expected = (effective["output_width"], effective["output_height"])
+    case.assertLess(expected[0], 64)
+    case.assertEqual(_rendered_size(case, document, crop), expected)
+    letterbox = {"mode": "letterbox", "ratio": 1, "color": {"r": 0, "g": 0, "b": 0, "a": 255}}
+    case.assertEqual(_rendered_size(case, document, letterbox), (64, 32))

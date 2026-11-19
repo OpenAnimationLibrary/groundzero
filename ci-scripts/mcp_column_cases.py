@@ -287,3 +287,35 @@ def column_kinds_name_their_tools(case: NativeAcceptance) -> None:
     case.assertEqual(kinds["level"]["create_tool"], "column.create")
     case.assertTrue(kinds["level"]["available"])
     case.assertEqual(kinds["mesh"]["reason"], "not_in_editable_profile")
+
+
+@acceptance_case
+def column_lifecycle_refuses_macros_and_other_sheets(case: NativeAcceptance) -> None:
+    """A macro fed only by the column is refused rather than split, and a duplicate never
+    names another sheet, so no cross-sheet copy can keep external links (SCN-06 F4)."""
+    document, level, (column,) = _scene(case, ["Source"])
+    first = _blur(case, document, column)
+    second = case.mutate("fx.create", document, type="STD_blurFx", name="Second")["fx_id"]
+    case.mutate("fx.connect", document, fx_id=second, port="Source", source_fx_id=first)
+    case.mutate("fx.macro.create", document, fx_ids=[first, second], name="Pair")
+    for method, extra in (
+        ("column.delete", {"fx_policy": "delete_exclusive"}),
+        (
+            "column.duplicate",
+            {"name": "Copy", "parent_policy": "table", "fx_policy": "exclusive_branch"},
+        ),
+    ):
+        error = _refused(case, method, document, "unsupported_target", column_id=column, **extra)
+        case.assertEqual(error["details"]["reason"], "macro_in_branch")
+    error = _refused(
+        case,
+        "column.duplicate",
+        document,
+        "unsupported_target",
+        column_id=column,
+        name="Elsewhere",
+        parent_policy="table",
+        fx_policy="column_only",
+        sheet_path=[{"column_id": column, "level_id": level}],
+    )
+    case.assertEqual(error["details"]["reason"], "nested_sheet_editing")

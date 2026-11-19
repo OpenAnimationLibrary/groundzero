@@ -5,6 +5,7 @@
 #include "automation_scene_host.h"
 
 #include "tfx.h"
+#include "tmacrofx.h"
 #include "toonz/fxdag.h"
 #include "toonz/sceneproperties.h"
 #include "toonz/tcolumnfx.h"
@@ -245,6 +246,18 @@ void forgetHandles(Handles& handles, const Value& value) {
   }
 }
 
+// A macro's members are not graph nodes of their own, so a branch holding a
+// macro cannot be removed or copied node by node as the editor does.
+void refuseMacros(Document& document, const std::vector<TFx*>& branch) {
+  for (TFx* fx : branch)
+    if (dynamic_cast<TMacroFx*>(fx))
+      throw Error(
+          "unsupported_target",
+          "The effects fed only by the column include a macro; "
+          "expand it with fx.macro.expand first.",
+          {{"reason", "macro_in_branch"}, {"fx_id", document.idForFx(fx)}});
+}
+
 void forgetEffect(Document& document, TFx* fx) {
   forgetHandles(document.effects, fx);
 }
@@ -365,6 +378,7 @@ QJsonValue deleteColumn(Context& context, const QJsonObject& params) {
   const std::vector<TFx*> branch = fx && fxPolicy == "delete_exclusive"
                                        ? exclusiveBranch(document, fx)
                                        : std::vector<TFx*>();
+  refuseMacros(document, branch);
   std::vector<TFx*> disconnected;
   if (fx)
     for (TFx* consumer : consumers(fx))
@@ -540,6 +554,7 @@ QJsonValue duplicateColumn(Context& context, const QJsonObject& params) {
       params.value("fx_policy").toString() == "exclusive_branch"
           ? exclusiveBranch(document, source->getFx())
           : std::vector<TFx*>();
+  refuseMacros(document, branch);
   requireGraphRoom(document, branch.size() + 1);
   const QJsonArray levels = sharedLevels(document, source);
   const int children      = int(childrenOf(document, object).size());

@@ -90,8 +90,19 @@ struct Request final {
   int start     = 0;
   int end       = 0;
   int step      = 1;
+  // Explicit aspect export; the scene's stored value is never read.
+  int aspectMode       = TOutputProperties::NoAspectExport;
+  double aspectRatio   = 1.0;
+  TPixel32 aspectColor = TPixel32::Black;
 
   int count() const { return (end - start) / step + 1; }
+  // The written frame size: crop reduces the rendered size to the ratio.
+  TDimension outputSize() const {
+    TOutputProperties output;
+    output.setAspectMode(aspectMode);
+    output.setAspectRatio(aspectRatio);
+    return output.getOutputSize(TDimension(width, height));
+  }
   qint64 reserveBytes() const {
     return (qint64(width) * height * 4 + 65536) * count();
   }
@@ -130,6 +141,29 @@ static void readCamera(Plan& plan, ToonzScene& scene) {
                 "The scene camera must have positive dimensions.");
 }
 
+static void readAspectExport(const QJsonObject& params, Request& request) {
+  const QJsonObject aspect = params.value("aspect_export").toObject();
+  const QString mode       = aspect.value("mode").toString("none");
+  if (mode == "none") return;
+  request.aspectMode      = mode == "crop" ? TOutputProperties::AspectCrop
+                                           : TOutputProperties::AspectLetterbox;
+  request.aspectRatio     = aspect.value("ratio").toDouble();
+  const QJsonObject color = aspect.value("color").toObject();
+  if (!color.isEmpty())
+    request.aspectColor =
+        TPixel32(color.value("r").toInt(), color.value("g").toInt(),
+                 color.value("b").toInt(), color.value("a").toInt());
+}
+
+static QJsonObject aspectRecord(const Request& request) {
+  static const char* modes[] = {"none", "letterbox", "crop"};
+  const TDimension size      = request.outputSize();
+  return {{"mode", modes[request.aspectMode]},
+          {"ratio", request.aspectRatio},
+          {"output_width", size.lx},
+          {"output_height", size.ly}};
+}
+
 static Plan readPlan(const QJsonObject& params, ToonzScene& scene, Kind kind) {
   Plan plan;
   plan.kind = kind;
@@ -147,6 +181,7 @@ static Plan readPlan(const QJsonObject& params, ToonzScene& scene, Kind kind) {
   request.height =
       integerParam(params, "height", 1, kMaxDimension,
                    std::max(1, int(plan.camera.ly * plan.fitScale)));
+  readAspectExport(params, request);
   if (kind == Kind::Preview) {
     request.start = integerParam(params, "frame", 0, 1000000, 0);
     request.end   = request.start;
@@ -162,7 +197,7 @@ static Plan readPlan(const QJsonObject& params, ToonzScene& scene, Kind kind) {
 static QJsonObject effectiveOutput(const Plan& plan) {
   const Request& request = plan.request;
   const bool movie       = request.format == Format::Mp4;
-  return {
+  QJsonObject result{
       {"width", request.width},
       {"height", request.height},
       {"fit_scale", plan.fitScale},
@@ -189,6 +224,11 @@ static QJsonObject effectiveOutput(const Plan& plan) {
                                                  {"y0", 0},
                                                  {"x1", plan.camera.lx},
                                                  {"y1", plan.camera.ly}}}}}};
+  // Reported only when asked for, which keeps job receipts within their
+  // reserved size.
+  if (request.aspectMode != TOutputProperties::NoAspectExport)
+    result.insert("aspect_export", aspectRecord(request));
+  return result;
 }
 
 struct Artifact final {
@@ -256,7 +296,8 @@ static Artifact verifyOutput(const QString& path, int frame,
     throw Error("artifact_read_failed",
                 "The PNG decoder buffer could not be opened.");
   QImageReader reader(&buffer, "png");
-  if (reader.size() != QSize(request.width, request.height))
+  const TDimension size = request.outputSize();
+  if (reader.size() != QSize(size.lx, size.ly))
     throw Error("invalid_artifact",
                 "The rendered PNG dimensions differ from the request.");
   const QImage decoded = reader.read();
@@ -860,8 +901,8 @@ public:
     MovieVerificationConfig config;
     config.mediaToolsDirectory = mediaToolsDirectory;
     config.moviePath    = QString::fromStdWString(outputPath().getWideString());
-    config.width        = request.width;
-    config.height       = request.height;
+    config.width        = request.outputSize().lx;
+    config.height       = request.outputSize().ly;
     config.frameCount   = request.count();
     config.frameRate    = frameRate;
     config.maximumBytes = request.reserveBytes();
@@ -1003,7 +1044,9 @@ static void configureSnapshot(RenderJob& job) {
   output->setRenderSettings(settings);
   output->setRange(job.request.start, job.request.end, job.request.step);
   output->setOffset(0);
-  output->setAspectMode(TOutputProperties::NoAspectExport);
+  output->setAspectMode(job.request.aspectMode);
+  output->setAspectRatio(job.request.aspectRatio);
+  output->setAspectColor(job.request.aspectColor);
   output->setMultimediaRendering(0);
   output->getBoardSettings()->setActive(false);
   output->setPath(job.outputPath());
@@ -1164,8 +1207,8 @@ private:
                          {"width", request.width},
                          {"height", request.height},
                          {"max_dimension", m_plan.bound()}});
-    if (movie() && (request.step != 1 || request.width % 2 != 0 ||
-                    request.height % 2 != 0))
+    if (movie() && (request.step != 1 || request.outputSize().lx % 2 != 0 ||
+                    request.outputSize().ly % 2 != 0))
       return check.fail("unsupported_render_settings",
                         "MP4 requires step 1 and even output width and height.",
                         {{"reason", "mp4_even_dimensions_step_1"}});
@@ -1686,6 +1729,36 @@ static QJsonObject jobOperation(const QString& name, const QString& description,
 
 }  // namespace RenderDetail
 
+// An explicit aspect export for one render: none, or letterbox or crop to a
+// ratio with an optional fill color.
+static QJsonObject aspectExportSchema() {
+  const auto channel = [] { return RenderDetail::integerSchema(0, 255); };
+  const QJsonObject color{{"type", "object"},
+                          {"additionalProperties", false},
+                          {"properties", QJsonObject{{"r", channel()},
+                                                     {"g", channel()},
+                                                     {"b", channel()},
+                                                     {"a", channel()}}},
+                          {"required", QJsonArray{"r", "g", "b", "a"}}};
+  const QJsonObject none{
+      {"type", "object"},
+      {"additionalProperties", false},
+      {"properties", QJsonObject{{"mode", QJsonObject{{"const", "none"}}}}},
+      {"required", QJsonArray{"mode"}}};
+  const QJsonObject fitted{
+      {"type", "object"},
+      {"additionalProperties", false},
+      {"properties",
+       QJsonObject{
+           {"mode", QJsonObject{{"type", "string"},
+                                {"enum", QJsonArray{"letterbox", "crop"}}}},
+           {"ratio",
+            QJsonObject{{"type", "number"}, {"minimum", 0.1}, {"maximum", 10}}},
+           {"color", color}}},
+      {"required", QJsonArray{"mode", "ratio"}}};
+  return {{"oneOf", QJsonArray{none, fitted}}};
+}
+
 QJsonArray renderOperations() {
   using RenderDetail::integerSchema;
   using RenderDetail::jobOperation;
@@ -1695,6 +1768,7 @@ QJsonArray renderOperations() {
   preview.insert("frame", integerSchema(0, 1000000));
   preview.insert("width", integerSchema(1, RenderDetail::kPreviewDimension));
   preview.insert("height", integerSchema(1, RenderDetail::kPreviewDimension));
+  preview.insert("aspect_export", aspectExportSchema());
   QJsonObject sequence = document;
   sequence.insert("start_frame", integerSchema(0, 1000000));
   sequence.insert("end_frame", integerSchema(0, 1000000));
@@ -1704,6 +1778,7 @@ QJsonArray renderOperations() {
                                         {"default", "png"}});
   sequence.insert("width", integerSchema(1, RenderDetail::kMaxDimension));
   sequence.insert("height", integerSchema(1, RenderDetail::kMaxDimension));
+  sequence.insert("aspect_export", aspectExportSchema());
   QJsonObject check{
       {"document_id",
        QJsonObject{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}}};
@@ -1721,6 +1796,7 @@ QJsonArray renderOperations() {
                                      {"enum", QJsonArray{"png", "mp4"}}});
   check.insert("width", integerSchema(1, RenderDetail::kMaxDimension));
   check.insert("height", integerSchema(1, RenderDetail::kMaxDimension));
+  check.insert("aspect_export", aspectExportSchema());
   return {
       neuralPreviewOperation(),
       operation("render.capabilities",
