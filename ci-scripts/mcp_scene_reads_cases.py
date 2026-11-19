@@ -88,6 +88,12 @@ def _instance_rows(case: NativeAcceptance, document: str, child: dict[str, Any])
     )
     objects = inventory(case, document, "stage_objects", sheet_path=path)["items"]
     case.assertTrue(all(row["sheet_path"] == path for row in objects))
+    # Deltas are journaled for the top sheet only: a sheet_path names an instance by its
+    # position, which cell and column edits can rebind, so a delta has no stable subject.
+    delta = {"document_id": document, "from_revision": "0", "sheet_path": path}
+    untracked = refuse(case, case.worker, "fx.graph.delta", delta, "delta_unavailable")
+    case.assertEqual(untracked["reason"], "sheet_not_tracked")
+    case.assertEqual(read(case, "fx.graph.delta", document, from_revision="0")["changes"], [])
     wrong = [{"column_id": path[0]["column_id"], "level_id": "level_unknown"}]
     details = refuse(
         case,
@@ -102,13 +108,16 @@ def _instance_rows(case: NativeAcceptance, document: str, child: dict[str, Any])
         "invalid_handle",
     )
     case.assertEqual(details["sheet_path"], wrong)
-    refuse(
-        case,
-        case.worker,
-        "fx.graph",
-        {"document_id": document, "sheet_path": wrong},
-        "invalid_handle",
-    )
+    for tool in ("fx.graph", "fx.graph.delta"):
+        refuse(
+            case,
+            case.worker,
+            tool,
+            {"document_id": document, "sheet_path": wrong, "from_revision": "0"}
+            if tool == "fx.graph.delta"
+            else {"document_id": document, "sheet_path": wrong},
+            "invalid_handle",
+        )
 
 
 def _top_rows(case: NativeAcceptance, document: str) -> None:

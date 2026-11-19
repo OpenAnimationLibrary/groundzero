@@ -584,6 +584,41 @@
    "toolset": "core",
    "writes": false
   },
+  "fx.graph.delta": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "fx.group.create": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.group.remove": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.group.rename": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.layout.set": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.link.add": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.link.remove": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
   "fx.macro.create": {
    "origin": "worker",
    "toolset": "core",
@@ -612,6 +647,11 @@
   "fx.parameter.set_key": {
    "origin": "worker",
    "toolset": "core",
+   "writes": true
+  },
+  "fx.port_group.set": {
+   "origin": "worker",
+   "toolset": "fx-graph",
    "writes": true
   },
   "fx.preset.apply": {
@@ -2825,6 +2865,33 @@
    }
   },
   {
+   "id": "fx.graph_deltas",
+   "domain": "Effects",
+   "outcome": "See what each write changed in the effect graph, and the net change since any recent revision.",
+   "classification": "exposed",
+   "tools": [
+    "fx.graph.delta"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.schematic_groups_and_layout",
+   "domain": "Effects",
+   "outcome": "Group, ungroup and name effects in the schematic and set node positions.",
+   "classification": "exposed",
+   "tools": [
+    "fx.group.create",
+    "fx.group.remove",
+    "fx.group.rename",
+    "fx.layout.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
    "id": "fx.finishing_recipes",
    "domain": "Effects",
    "outcome": "Build light wrap, rim light, exposure grade, cross dissolve and iris wipe from listed recipes of ordinary tool calls.",
@@ -2899,12 +2966,15 @@
   {
    "id": "fx.linked_parameters",
    "domain": "Effects",
-   "outcome": "Link or unlink parameters between effects and edit dynamic port groups.",
-   "classification": "not_exposed",
-   "tools": [],
+   "outcome": "Link or unlink the parameters of effects of one type, and set the sources of dynamic port groups.",
+   "classification": "exposed",
+   "tools": [
+    "fx.link.add",
+    "fx.link.remove",
+    "fx.port_group.set"
+   ],
    "disposition": {
-    "kind": "planned",
-    "milestone": "W3"
+    "kind": "implemented"
    }
   },
   {

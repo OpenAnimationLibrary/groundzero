@@ -17,6 +17,10 @@ struct ToolEffects {
   QString job;
   QStringList processes;
   bool overwrites = false;
+  // Whether the tool can change a document's FX graph: its nodes, edges,
+  // terminal links, output, parameters, groups or placement. Only such writes
+  // record a snapshot in the FX graph journal. Not published.
+  bool fxGraph = false;
 };
 
 // The descriptor with its effects, errors and derived annotations. Errors are
@@ -34,6 +38,9 @@ QStringList declaredToolNames();
 
 // The names of the tools automation_output_schemas.json describes.
 QStringList outputSchemaNames();
+
+// Whether the effect table says the tool can change a document's FX graph.
+bool changesFxGraph(const QString& tool);
 
 // Whether a successful write advances the revision of its document.
 bool advancesRevision(const QJsonObject& descriptor);

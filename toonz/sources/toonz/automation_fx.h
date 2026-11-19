@@ -3,11 +3,12 @@
 #include "tfx.h"
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QString>
 
 #include <functional>
 
+class TDoubleParam;
 class ToonzScene;
-class QString;
 
 namespace GroundzeroAutomation {
 
@@ -24,6 +25,38 @@ QString automationFxName(const QJsonObject& params);
 
 // The effect a handle names, checked to still belong to the document's graph.
 TFx* automationOwnedFx(Document& document, const QString& id);
+// Throws locked when fx is a column effect whose column or stage object is
+// locked.
+void automationRequireColumnEditable(Document& document, TFx* fx);
+// Throws locked (reason curve_locked) when a curve of fx's parameters is
+// locked in the editor.
+void automationRequireUnlockedCurves(Document& document, TFx* fx);
+// One numeric channel of an effect parameter, as the animation tools address
+// it with fx_id and channel.
+struct AutomationFxChannel final {
+  TFx* fx             = nullptr;
+  TDoubleParam* curve = nullptr;
+  QString parameter;
+  QString channel;
+  // Index of the channel in a point or color parameter, or -1 for a scalar.
+  int component = -1;
+};
+// Refuses an animation write to channel before any change: UNSUPPORTED_FX
+// for an effect outside the profile, UNSUPPORTED_PARAMETER for a parameter
+// outside it or a color's detached alpha, locked when a column of any linked
+// member is locked, and locked (reason curve_locked) for a locked curve.
+void automationRequireFxChannelWritable(Document& document,
+                                        const AutomationFxChannel& channel);
+// Runs edit on the channel's curve in a detached clone of the effect and
+// validates the clone's profile, so the range rule and cross-parameter
+// constraints refuse the edit before the document changes. A refusal names
+// fx_id, parameter and channel (and the frame for a key or handle).
+void automationValidateFxChannelEdit(
+    Document& document, const AutomationFxChannel& channel,
+    const std::function<void(TDoubleParam&)>& edit);
+// Adds fx_id, affected_fx_ids (every member of fx's linked group, or fx) and
+// linked_group_id to the result of a write to fx's parameters.
+void automationAddFxAffected(Document& document, TFx* fx, QJsonObject& result);
 // The effect that owns the parameters: a generator column wraps its zerary
 // effect.
 TFx* automationParameterFx(TFx* fx);

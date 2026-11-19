@@ -646,7 +646,10 @@ std::unique_ptr<ToonzScene> reopenPackage(
   if (checkMacros &&
       automationMacroFingerprint(*scene, context.scratchDirectory()) !=
           package.macroFingerprint)
-    throw Error("invalid_package", "The reopened macro graph differs from its published source.");
+    throw Error("invalid_package",
+                "The reopened FX graph (macros, linked parameters, port "
+                "groups, schematic groups or placement) differs from its "
+                "published source.");
   verifyFiles(directory, package);
   return scene;
 }

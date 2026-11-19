@@ -439,8 +439,9 @@ def fx_remap_and_offset_layer_targets_are_described(case: NativeAcceptance) -> N
     case.assertTrue({"color.Red", "color.Green", "color.Blue", "color.Alpha"} <= names, names)
     red = _descriptor(described, "color.Red")
     case.assertEqual(red["kind"], "fx_parameter")
-    case.assertEqual(red["edit_via"], "fx.parameter.set_key")
-    case.assertFalse(red["writable"])
+    case.assertEqual(red["edit_via"], "animation.set_keys")
+    case.assertTrue(red["writable"], red)
+    case.assertEqual(red["value_bounds"], [0, 1])
     case.assertEqual(red["key_count"], 2)
     case.assertEqual(red["target"]["fx_id"], effect)
     channel = {"channel": "color.Red", "unit": red["unit"]}
@@ -455,10 +456,16 @@ def fx_remap_and_offset_layer_targets_are_described(case: NativeAcceptance) -> N
     color = next(item for item in shown["parameters"] if item["name"] == "color")["value"]
     case.assertAlmostEqual(sampled["values"][0]["value"] * 255, color[0], delta=0.5)
     case.assertAlmostEqual(sampled["values"][3]["value"], 0, delta=1e-9)
-    case.failure(
-        "animation.set_keys",
-        case.write_params(document, {"fx_id": effect, **channel, "keys": [_simple(0, 0)]}),
+    written = case.mutate(
+        "animation.set_keys", document, fx_id=effect, **channel, keys=[_simple(0, 0.5)]
     )
+    case.assertEqual(written["affected_fx_ids"], [effect])
+    case.assertEqual(written["keys"][0]["value"], 0.5)
+    outside = case.failure(
+        "animation.set_keys",
+        case.write_params(document, {"fx_id": effect, **channel, "keys": [_simple(0, 2)]}),
+    )
+    case.assertEqual(outside["code"], "OUT_OF_RANGE", outside)
     remap = case.success(
         "animation.channels", {"document_id": document, "column_id": column["column_id"]}
     )

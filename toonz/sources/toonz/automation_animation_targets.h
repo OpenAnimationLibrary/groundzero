@@ -1,5 +1,7 @@
 #pragma once
 
+#include "automation_fx.h"
+
 #include <QJsonObject>
 
 class TDoubleParam;
@@ -25,6 +27,16 @@ QJsonObject describeAnimationExternalChannels(Document& document,
 // The animation.keys result for a channel the descriptors above publish.
 QJsonObject inspectAnimationExternalKeys(Document& document,
                                          const QJsonObject& params);
+
+// The effect channel that fx_id and channel name, checked against unit, for
+// the animation write tools.
+//
+// Throws:
+//   Error: invalid_params with layer_id, invalid_handle or STALE_ENTITY for
+//   the handle, unsupported_target for a macro, unsupported_channel for a
+//   name the effect does not publish, invalid_unit for another unit.
+AutomationFxChannel automationFxChannel(Document& document,
+                                        const QJsonObject& params);
 
 // The animation.sample result for a channel the descriptors above publish.
 // Curves with expression, file or other content outside the profile are

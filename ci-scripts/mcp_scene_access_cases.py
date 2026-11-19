@@ -43,6 +43,7 @@ FORWARDED = {
     "scene.dependencies",
     "scene.validate",
     "fx.graph",
+    "fx.graph.delta",
     "render.preview",
     "render.submit",
     "render.preflight",

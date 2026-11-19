@@ -27,6 +27,7 @@ class TXshLevel;
 namespace GroundzeroAutomation {
 
 struct ReadOnlyScene;
+class FxGraphJournal;
 class JobRegistry;
 class Journal;
 struct SceneHostRegistry;
@@ -115,6 +116,9 @@ struct Document final {
   QString sourceScene;
   // Selection handles issued for this document's drawings.
   std::shared_ptr<SelectionRegistry> selections;
+  // The FX graph journal: snapshots after each write, the creation order of
+  // effects and the handles of schematic and linked groups.
+  std::shared_ptr<FxGraphJournal> fxJournal;
 
   QString revisionText() const;
   QString idForLevel(TXshLevel* level);

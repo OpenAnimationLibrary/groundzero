@@ -417,7 +417,7 @@ void maximumAndDisabled(Context& context) {
   require(next->getAttributes()->getId() == 65,
           "Expanded macro lost native type indexing");
   QJsonArray tooMany;
-  const auto graph = call(context, document, "fx.graph", {});
+  const auto graph = call(context, document, "fx.graph", {{"limit", 512}});
   for (const auto& value : graph.value("effects").toArray())
     if (value.toObject().value("type") == "overFx")
       tooMany.append(value.toObject().value("fx_id"));
