@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
@@ -100,6 +101,7 @@ def _reopen(case: NativeAcceptance, document: str, name: str) -> tuple[str, dict
     return reopened, _target(peg["object_id"])
 
 
+@acceptance_case
 def animation_channel_descriptors_and_fractional_sampling(
     case: NativeAcceptance,
 ) -> None:
@@ -196,6 +198,7 @@ def _reference_frames(case: NativeAcceptance, frames: list[int]) -> list[list[Pi
     return images
 
 
+@acceptance_case
 def rich_animation_round_trips_and_renders(case: NativeAcceptance) -> None:
     """Compare rich peg/camera motion with static native references and two saved generations."""
     document, target = _animated_scene(case)
@@ -246,6 +249,7 @@ def _invalid_batches() -> list[list[dict[str, Any]]]:
     return batches
 
 
+@acceptance_case
 def rich_animation_rejections_preserve_scene(case: NativeAcceptance) -> None:
     """Reject malformed and incomplete segments before any key or revision changes."""
     document, _level, column = case.populated_scene()
@@ -278,6 +282,7 @@ def rich_animation_rejections_preserve_scene(case: NativeAcceptance) -> None:
     case.assertEqual(_inspect(case, document, target), before)
 
 
+@acceptance_case
 def rich_animation_retries_and_noops(case: NativeAcceptance) -> None:
     """Preserve revisions on identical keys and replay the original authoritative receipt."""
     document = case.create()
@@ -312,6 +317,7 @@ def rich_animation_retries_and_noops(case: NativeAcceptance) -> None:
     case.assertEqual(_sample(case, document, target, [6, 15]), [51, 140])
 
 
+@acceptance_case
 def rich_animation_delete_keys_obeys_control_kinds(case: NativeAcceptance) -> None:
     """Reject control reinterpretation and atomically handle first/last key deletion."""
     document = case.create()

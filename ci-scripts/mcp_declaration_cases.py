@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_worker import SchemaViolation, check_schema, require_declared_error
 
 if TYPE_CHECKING:
@@ -118,6 +119,7 @@ def _tools(case: NativeAcceptance) -> dict[str, dict[str, Any]]:
     return {tool["name"]: tool for tool in case.capabilities()["tools"]}
 
 
+@acceptance_case
 def errors_are_declared(case: NativeAcceptance) -> None:
     """Prove the suite-wide check: observed codes are declared and an undeclared one fails."""
     tools = _tools(case)
@@ -171,6 +173,7 @@ def _job_start_creates_one_job(case: NativeAcceptance, tool: dict[str, Any]) -> 
     )
 
 
+@acceptance_case
 def effect_declarations_match_behavior(case: NativeAcceptance) -> None:
     """Hold representative tools to their declared no-op, overwrite and job effects."""
     tools = _tools(case)

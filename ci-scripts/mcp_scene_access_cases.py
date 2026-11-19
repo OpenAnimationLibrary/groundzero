@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_audio_model import tone, wav_file
+from mcp_case import acceptance_case
 from mcp_studio_palette_cases import call, refuse, tree_digest
 from mcp_worker import Worker, joined_capabilities
 
@@ -505,6 +506,7 @@ def _cancel(case: NativeAcceptance, worker: Worker, document: str, other: str) -
     case.assertIn(wait(case, worker, job)["status"], {"canceled", "completed"})
 
 
+@acceptance_case
 def read_only_journey_renders_and_preserves_sources(case: NativeAcceptance) -> None:
     """Open three user scenes, inspect, preview three frames, cancel, discard: no writes."""
     scenes = corpus(case)
@@ -600,6 +602,7 @@ def _admitted(
     refuse(case, worker, "render.preview", params, "render_blocked")
 
 
+@acceptance_case
 def read_only_render_admission_refuses_unsafe_content(case: NativeAcceptance) -> None:
     """External programs and file effects block anywhere; other unsupported content only
     when the current output renders it. Nothing is ever executed."""
@@ -695,6 +698,7 @@ def _bindings(case: NativeAcceptance, scenes: dict[str, Path]) -> None:
     discard(case, case.worker, forced["document_id"])
 
 
+@acceptance_case
 def read_only_rejections_and_limits(case: NativeAcceptance) -> None:
     """Every refusal happens before a host keeps running; limits hold from both sides."""
     scenes = corpus(case)
@@ -729,6 +733,12 @@ def _tool_params(tool: dict[str, Any], document: str) -> dict[str, Any]:
     return params
 
 
+@acceptance_case(
+    worker_only=(
+        "sends every catalog tool only its document handle; the adapter checks "
+        "those arguments against the tool's schema before the worker can refuse"
+    )
+)
 def read_only_documents_refuse_every_other_tool(case: NativeAcceptance) -> None:
     """Every write and every unqualified read refuses before its arguments are checked."""
     scenes = corpus(case)
@@ -767,6 +777,7 @@ def _refusals(column: str, objects: str, directory: str) -> list[tuple]:
     ]
 
 
+@acceptance_case
 def read_only_documents_refuse_mutations(case: NativeAcceptance) -> None:
     """Writes, and reads not yet qualified, refuse with valid arguments and change nothing."""
     scenes = corpus(case)
@@ -862,6 +873,7 @@ def _lost_host(case: NativeAcceptance, worker: Worker, scenes: dict[str, Path]) 
     case.assertEqual(host_processes(worker), [])
 
 
+@acceptance_case
 def read_only_receipts_sources_and_lost_hosts(case: NativeAcceptance) -> None:
     """Receipts replay without a second host, pins refuse stale renders, a killed host
     leaves the worker and its other documents serving."""
@@ -912,6 +924,9 @@ def _orphan_exits(case: NativeAcceptance, scene: Path) -> None:
     case.assertFalse(_alive(hosts[0][0]), "The orphaned host kept running")
 
 
+@acceptance_case(
+    worker_only="needs the --test-child-fault test hook, which the adapter never passes"
+)
 def read_only_hosts_contain_native_failures(case: NativeAcceptance) -> None:
     """A host that crashes, hangs past the 60 s open deadline or grows past 2 GiB ends the
     open, never the worker."""
@@ -963,6 +978,7 @@ def _idle_workers_exit_within_the_deadline(case: NativeAcceptance, workers: list
         case.assertLess(elapsed, DEADLINE + SLACK)
 
 
+@acceptance_case
 def read_only_damaged_scenes_are_refused(case: NativeAcceptance) -> None:
     """Scene damage that once crashed, hung or exhausted the parser is refused cleanly."""
     scenes = corpus(case)
@@ -1036,6 +1052,7 @@ def _listing(case: NativeAcceptance, worker: Worker) -> None:
     case.assertEqual(details["scope"], "listing")
 
 
+@acceptance_case
 def read_only_projects_bind_their_own_folders(case: NativeAcceptance) -> None:
     """Two projects with different +drawings and path rules open side by side; the
     editor's project roots and folders above a read root are never consulted."""
@@ -1074,6 +1091,7 @@ def _level(identifier: int, name: str, path: str) -> str:
     )
 
 
+@acceptance_case
 def read_only_level_prechecks_refuse_before_native_load(case: NativeAcceptance) -> None:
     """Partial vector levels, five-sample images and oversized first frames are refused
     by the reader pre-check, before native load could open a dialog or decode them."""
@@ -1240,6 +1258,7 @@ def _sound(case: NativeAcceptance) -> None:
     discard(case, case.worker, opened["document_id"])
 
 
+@acceptance_case
 def read_only_content_rows_cover_columns_levels_and_styles(case: NativeAcceptance) -> None:
     """Sound, sound-text, palette and mesh columns, a linked Library origin and texture
     styles are each reported, and block renders only by their rule."""
@@ -1335,6 +1354,7 @@ def _bound(
     return at
 
 
+@acceptance_case
 def read_only_structure_limits_hold_at_their_bounds(case: NativeAcceptance) -> None:
     """Columns, effects per sheet and per scene, sheets and stage objects: the bound opens,
     one more is a scene_limit; rows past 999,999 are refused by the native parser."""
@@ -1458,6 +1478,7 @@ def _documents(case: NativeAcceptance, scenes: dict[str, Path]) -> None:
         discard(case, case.worker, document)
 
 
+@acceptance_case
 def read_only_file_and_report_limits_hold_at_their_bounds(case: NativeAcceptance) -> None:
     """Scene, project and scenes.xml sizes, the 32-document limit and the 256 unsupported
     and 64 blocker rows: the bound is admitted, one more is refused or truncated."""

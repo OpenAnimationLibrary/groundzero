@@ -5,11 +5,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import mcp_census
+from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
 
+@acceptance_case
 def census_matches_live_catalog(case: NativeAcceptance) -> None:
     """Fail on any drift between the census, the README and the catalog this worker reports."""
     census = mcp_census.load_census()

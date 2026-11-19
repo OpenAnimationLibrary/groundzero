@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import decode_png
 
 if TYPE_CHECKING:
@@ -158,6 +159,7 @@ def _reject_unserializable_geometry(
         )
 
 
+@acceptance_case(name="vector_drawing_data_survives_native_roundtrip")
 def check_vector_roundtrip(test: NativeAcceptance) -> None:
     """Check native geometry, region paint, and animated palette persistence.
 
@@ -333,6 +335,7 @@ def _raster_roundtrip(test: NativeAcceptance, image_format: str) -> None:
         _png_roundtrip(test, other, restored)
 
 
+@acceptance_case(name="rgba_drawing_data_survives_native_roundtrip")
 def check_rgba_roundtrip(test: NativeAcceptance) -> None:
     """Check premultiplied RGBA8 pixels and authored DPI across PNG persistence.
 
@@ -342,6 +345,7 @@ def check_rgba_roundtrip(test: NativeAcceptance) -> None:
     _raster_roundtrip(test, "rgba8")
 
 
+@acceptance_case(name="toonz_raster_data_survives_native_roundtrip")
 def check_toonz_raster_roundtrip(test: NativeAcceptance) -> None:
     """Check exact native ink, paint, tone, palette, and DPI after TLV persistence.
 
@@ -363,6 +367,7 @@ def _lzo_call(
     )
 
 
+@acceptance_case(name="lzo_helpers_preserve_tiny_and_incompressible_data")
 def check_lzo_roundtrip(test: NativeAcceptance) -> None:
     """Exercise the shipped LZO helpers with expanding packets and invalid input.
 
@@ -482,6 +487,7 @@ def _drawing_number_roundtrip(test: NativeAcceptance, image_format: str, maximum
             )
 
 
+@acceptance_case(name="drawings_respect_native_format_number_limits")
 def check_drawing_number_limits(test: NativeAcceptance) -> None:
     """Persist native frame-number boundaries and reject overflowing PLI IDs.
 
@@ -560,6 +566,7 @@ def _palette_serialization_roundtrip(test: NativeAcceptance, image_format: str) 
     test.assertEqual(_palette(test, other, restored["level_id"]), palette)
 
 
+@acceptance_case(name="palettes_respect_native_serialization_limits")
 def check_palette_serialization_limits(test: NativeAcceptance) -> None:
     """Keep names and palette keyframes within their native serialized ranges.
 

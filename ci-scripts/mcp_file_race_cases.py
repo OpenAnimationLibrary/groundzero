@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_file_tools import PATH_TOOLS, READ_ONLY_REFUSED, PathTool
 from mcp_file_trace import tree_state
 from mcp_worker import Worker
@@ -110,6 +111,7 @@ def _race(case: NativeAcceptance, tool: PathTool, kind: str, stage: str) -> None
 KINDS = ("directory", "ancestor", "file")
 
 
+@acceptance_case(worker_only="needs the --test-path-swap test hook, which the adapter never passes")
 def swapped_paths_are_refused_after_validation(case: NativeAcceptance) -> None:
     """Refuse a request whose path was redirected after the check and before the open.
 
@@ -124,6 +126,7 @@ def swapped_paths_are_refused_after_validation(case: NativeAcceptance) -> None:
                 _race(case, tool, kind, "validated")
 
 
+@acceptance_case(worker_only="needs the --test-path-swap test hook, which the adapter never passes")
 def swapped_paths_cannot_redirect_a_pinned_directory(case: NativeAcceptance) -> None:
     """Finish an operation where it began when the path is swapped after its folder was pinned.
 

@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_file_matrix import attach_volume
 from mcp_file_tools import PATH_TOOLS, PathTool
 from mcp_worker import Worker
@@ -110,6 +111,9 @@ def _one(case: NativeAcceptance, tool: PathTool, faults: list[str], outcome: str
     case.assertEqual(staging_left(case.workspace), [], "staging was left behind")
 
 
+@acceptance_case(
+    worker_only=("needs the --test-publish-fault test hook, which the adapter never passes")
+)
 def publication_never_replaces_and_refuses_without_an_atomic_primitive(
     case: NativeAcceptance,
 ) -> None:
@@ -139,6 +143,7 @@ def _supports_atomic_create(mount: Path) -> bool:
     return True
 
 
+@acceptance_case
 def publication_on_other_file_systems_is_atomic_or_refused(case: NativeAcceptance) -> None:
     """Publish where the file system can create a name atomically; refuse where it cannot.
 

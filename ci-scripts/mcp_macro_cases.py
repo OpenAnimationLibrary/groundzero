@@ -7,6 +7,7 @@ import hashlib
 from typing import TYPE_CHECKING, Any
 
 import mcp_fx_authoring_cases as fx
+from mcp_case import acceptance_case
 from mcp_png import decode_png
 
 if TYPE_CHECKING:
@@ -91,6 +92,7 @@ def _assert_retired(case: NativeAcceptance, document: str, handles: list[str]) -
     case.assertEqual(fx._graph(case, document), graph)
 
 
+@acceptance_case
 def macro_roundtrip_preserves_pixels_and_mapping(case: NativeAcceptance) -> None:
     """Keep keyed rendering, boundaries, identities and terminal routing through native reload.
 
@@ -140,6 +142,7 @@ def _roundtrip_group(
     _assert_frames(case, final, before)
 
 
+@acceptance_case
 def macro_retries_retire_handles_without_reapplying(case: NativeAcceptance) -> None:
     """Replay original create/expand receipts even after their published handles retire.
 
@@ -183,6 +186,7 @@ def _reject(
     case.assertEqual(case.success("scene.summary", {"document_id": document})["revision"], revision)
 
 
+@acceptance_case
 def macro_preflight_and_boundary_edits_preserve_scene(case: NativeAcceptance) -> None:
     """Reject invalid selections and cycles while allowing explicit edits to macro boundaries.
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
@@ -67,6 +69,7 @@ def _close_naturally(case: NativeAcceptance) -> None:
     case.assertEqual(case.worker.process.returncode, 0, diagnostics)
 
 
+@acceptance_case
 def receipt_capacity_preserves_bounded_cancellation(case: NativeAcceptance) -> None:
     """Keep bounded first-cancel receipts independent of ordinary write capacity.
 

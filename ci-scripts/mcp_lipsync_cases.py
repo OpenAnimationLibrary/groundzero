@@ -9,6 +9,7 @@ from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
 from mcp_audio_model import constant, wav_file
+from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -186,6 +187,7 @@ DAT_CUES = [
 DAT_MAPPING = {"rest": 1, "ai": 2, "e": 3, "etc": 4, "mbp": 5}
 
 
+@acceptance_case
 def lipsync_dat_import_inspect_and_apply(case: NativeAcceptance) -> None:
     """Apply a Papagayo file from its first key's frame and keep it through a package."""
     document, level, column = _drawing_scene(case, 24, 5)
@@ -306,6 +308,7 @@ def _rational_case(case: NativeAcceptance, text: str, link: dict[str, Any]) -> N
     _check_apply(case, document, column, held, oracle_runs(spans, mapping))
 
 
+@acceptance_case
 def lipsync_rhubarb_rational_timing(case: NativeAcceptance) -> None:
     """Map microsecond cues to frames with exact rationals at 23.976, 29.97 and 12.5 fps."""
     owner, link = _linked_source(case)
@@ -393,6 +396,7 @@ def _apply_rejections(
     case.assertEqual(error["code"], "locked")
 
 
+@acceptance_case
 def lipsync_rejections_preserve_cells(case: NativeAcceptance) -> None:
     """Refuse malformed files and invalid applies before any record or cell changes."""
     for name, data, params, code in MALFORMED:

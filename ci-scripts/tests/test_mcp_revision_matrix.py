@@ -271,11 +271,10 @@ class TableChecks(unittest.TestCase):
     def setUp(self) -> None:
         self.matrix = table.load_matrix()
         self.census = mcp_census.load_census()
-        self.document = table.DOCUMENT_PATH.read_text(encoding="utf-8")
         self.acceptance = table.ACCEPTANCE_PATH.read_text(encoding="utf-8")
 
     def static(self) -> list[str]:
-        return table.static_problems(self.matrix, self.census, self.document, self.acceptance)
+        return table.static_problems(self.matrix, self.census, self.acceptance)
 
     def assert_reports(self, problems: list[str], fragment: str) -> None:
         self.assertTrue(
@@ -355,13 +354,10 @@ class TableChecks(unittest.TestCase):
         self.acceptance = self.acceptance.replace("def test_revision_matrix_fx(", "def other(")
         self.assert_reports(self.static(), "group fx: acceptance has no test_revision_matrix_fx")
 
-    def test_a_stale_document_fails(self) -> None:
-        self.document += "edited\n"
-        self.assert_reports(self.static(), "revision coverage document is stale")
-
-    def test_a_changed_table_makes_the_document_stale(self) -> None:
-        self.matrix["tools"]["column.update"]["changes"] += " and more"
-        self.assert_reports(self.static(), "revision coverage document is stale")
+    def test_the_document_names_every_entry(self) -> None:
+        document = table.render_document(self.matrix, self.census)
+        tools = {table.entry_tool(key, entry) for key, entry in self.matrix["tools"].items()}
+        self.assertEqual([tool for tool in sorted(tools) if f"`{tool}`" not in document], [])
 
     def catalog(self) -> dict[str, Any]:
         tools = []

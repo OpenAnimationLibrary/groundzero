@@ -6,6 +6,7 @@ import base64
 import hashlib
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
@@ -229,6 +230,7 @@ def _assert_fill_ids(
     case.assertEqual(case.revisions[document], revision)
 
 
+@acceptance_case(name="compound_artwork_edits_preserve_native_roundtrip")
 def artwork_transform_renumber_palette_roundtrip(case: NativeAcceptance) -> None:
     """Render independently edited animated paint after renumber, transform, and PLI reopen.
 

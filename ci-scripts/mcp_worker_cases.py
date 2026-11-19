@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO
 
+from mcp_case import acceptance_case
 from mcp_png import decode_png, write_fixture
 from mcp_worker import FULL_AUTHORITY, Worker
 
@@ -46,6 +47,10 @@ def _launch(test: NativeAcceptance, log: BinaryIO, stdin: int) -> subprocess.Pop
     return process
 
 
+@acceptance_case(
+    name="closed_protocol_output_has_controlled_exit",
+    worker_only="closes the worker's protocol output to check its own SIGPIPE handling",
+)
 def closed_output_has_controlled_exit(test: NativeAcceptance) -> None:
     """Require an output failure to drain the worker instead of receiving SIGPIPE."""
     if sys.platform == "win32":
@@ -61,6 +66,10 @@ def closed_output_has_controlled_exit(test: NativeAcceptance) -> None:
     test.assertIn("protocol output failed", log_path.read_text(encoding="utf-8"))
 
 
+@acceptance_case(
+    name="unreadable_protocol_input_is_not_clean_eof",
+    worker_only=("gives the worker a directory as protocol input to check its read-error exit"),
+)
 def unreadable_input_is_not_clean_eof(test: NativeAcceptance) -> None:
     """Require Linux directory input to report its read error with nonzero exit."""
     if sys.platform != "linux":
@@ -77,6 +86,7 @@ def unreadable_input_is_not_clean_eof(test: NativeAcceptance) -> None:
     test.assertIn("protocol input failed", log_path.read_text(encoding="utf-8"))
 
 
+@acceptance_case(name="unicode_workspace_and_asset_paths")
 def unicode_roots_admit_png(test: NativeAcceptance) -> None:
     """Exercise native command-line and codec paths containing non-ASCII characters."""
     test.workspace = test.directory / "workspace-\u4e2d\u6587"
@@ -100,6 +110,7 @@ def unicode_roots_admit_png(test: NativeAcceptance) -> None:
     )
 
 
+@acceptance_case
 def unicode_names_preserve_data_and_reject_unpaired_surrogates(test: NativeAcceptance) -> None:
     """Preserve Unicode names and refuse malformed escaped UTF-16 before mutation."""
     document = test.create()
@@ -147,6 +158,11 @@ def _reject_relative_roots(test: NativeAcceptance, launch: Path, before: set[Pat
         test.assertEqual(set(test.workspace.glob("runtime_*")), before)
 
 
+@acceptance_case(
+    worker_only=(
+        "launches the binary by relative path from other directories; the adapter never does"
+    )
+)
 def private_bootstrap_ignores_launch_configuration(test: NativeAcceptance) -> None:
     """Keep native startup inside its runtime despite arbitrary launch directories.
 

@@ -11,6 +11,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_live import verified_build_digest
 from mcp_worker import Worker
 
@@ -149,6 +150,7 @@ def _require_toolsets(case: NativeAcceptance, report: dict[str, Any]) -> None:
     case.success("toolsets.enable", {"names": ["audio"]})
 
 
+@acceptance_case
 def runtime_states_distinguish_layers(case: NativeAcceptance) -> None:
     """Report compiled, configured, loaded, verified and usable separately per capability."""
     report = _inspect(case, case.worker)
@@ -174,6 +176,7 @@ def runtime_states_distinguish_layers(case: NativeAcceptance) -> None:
     _require_state(case, state, configured=True, loaded=True, verified="passed", usable=True)
 
 
+@acceptance_case
 def runtime_media_identity(case: NativeAcceptance) -> None:
     """Report the granted media tools' hashes and versions and never run a PATH ffmpeg."""
     directory = case.media_tools
@@ -206,6 +209,7 @@ def runtime_media_identity(case: NativeAcceptance) -> None:
     case.assertEqual(_inspect(case, restarted)["media"]["state"]["verified"], "not_run")
 
 
+@acceptance_case
 def runtime_formats_native_vs_admitted(case: NativeAcceptance) -> None:
     """Separate what the native registries list from what the tools admit."""
     formats = _inspect(case, case.worker)["formats"]
@@ -225,6 +229,7 @@ def runtime_formats_native_vs_admitted(case: NativeAcceptance) -> None:
     case.assertEqual(rendered["render.submit"], ["png", "mp4"])
 
 
+@acceptance_case
 def runtime_reports_private_stuff_and_plugin_policy(case: NativeAcceptance) -> None:
     """Report built-in-only plugins, the empty private stuff folder and fonts."""
     report = _inspect(case, case.worker)
@@ -236,6 +241,7 @@ def runtime_reports_private_stuff_and_plugin_policy(case: NativeAcceptance) -> N
     _require_state(case, fonts["state"], installed=True, verified="not_applicable", usable=True)
 
 
+@acceptance_case
 def runtime_media_without_encoder_is_not_usable(case: NativeAcceptance) -> None:
     """Refuse to call media usable when ffmpeg lists no encoder for the muxer's codec."""
     directory = stub_media_tools(case, "no-encoder-tools", " V....D mpeg4  MPEG-4 part 2")
@@ -303,6 +309,7 @@ def _refused(case: NativeAcceptance, method: str, document: str, **params: Any) 
     return error
 
 
+@acceptance_case
 def render_preflight_reports_every_failure(case: NativeAcceptance) -> None:
     """Report every failing check at once; the job tools refuse with the first one."""
     tools = stub_media_tools(case, "preflight-tools", " V....D mpeg4  MPEG-4 part 2")
@@ -340,6 +347,7 @@ def render_preflight_reports_every_failure(case: NativeAcceptance) -> None:
         case.assertEqual(case.failure("render.preflight", request)["code"], "invalid_params")
 
 
+@acceptance_case
 def mp4_refused_without_encoder(case: NativeAcceptance) -> None:
     """Refuse MP4 before any job when ffmpeg has no encoder for the muxer's codec."""
     tools = stub_media_tools(case, "no-encoder-tools", " V....D mpeg4  MPEG-4 part 2")
@@ -357,6 +365,7 @@ def mp4_refused_without_encoder(case: NativeAcceptance) -> None:
     )
 
 
+@acceptance_case
 def runtime_unavailable_backends_are_not_advertised(case: NativeAcceptance) -> None:
     """Under Qt's offscreen platform on macOS, report no GL and refuse renders before a job."""
     if sys.platform != "darwin":
@@ -378,6 +387,7 @@ def runtime_unavailable_backends_are_not_advertised(case: NativeAcceptance) -> N
     )
 
 
+@acceptance_case
 def preview_reports_effective_output(case: NativeAcceptance) -> None:
     """Report the preview fit, crop, color policy and camera DPI before and with the job."""
     document = case.mutate(
@@ -415,6 +425,7 @@ def preview_reports_effective_output(case: NativeAcceptance) -> None:
     case.assertEqual(sized["effective"]["fit_scale"], 1)
 
 
+@acceptance_case
 def media_tools_replaced_after_launch_are_refused(case: NativeAcceptance) -> None:
     """Refuse MP4 once a granted media tool changes, and accept an unchanged re-stat."""
     source = case.media_tools

@@ -8,6 +8,7 @@ import subprocess
 import time
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_failure_cases import _descendants
 from mcp_scene_access_cases import corpus, open_scene
 from mcp_studio_palette_cases import call
@@ -92,6 +93,7 @@ def _unused(result: dict[str, Any]) -> set[tuple[str, int]]:
     return {(row["palette_owner"]["id"], row["style_id"]) for row in result["rows"]}
 
 
+@acceptance_case(name="scene_check_unused_styles_job")
 def unused_styles_job(case: NativeAcceptance) -> None:
     """Report exactly the styles no drawing uses, with estimate and cost, and leave the
     document and its revision unchanged."""
@@ -122,6 +124,7 @@ def _running(case: NativeAcceptance, job: str) -> None:
     case.assertFalse(status["terminal"], status)
 
 
+@acceptance_case(name="scene_check_cancel_write_and_busy")
 def scan_cancel_write_and_busy(case: NativeAcceptance) -> None:
     """A canceled scan ends at once with the rows of the palettes it finished; a second check
     is analysis_busy while a render may still start; a write fails a running scan."""
@@ -153,6 +156,7 @@ def scan_cancel_write_and_busy(case: NativeAcceptance) -> None:
     case.assertEqual(refused["code"], "result_unavailable")
 
 
+@acceptance_case(name="scene_check_inventory_cancel_keeps_partial_rows")
 def inventory_cancel_keeps_partial_rows(case: NativeAcceptance) -> None:
     """A canceled inventory keeps the rows of the levels it reached, marked incomplete."""
     _slow_worker(case)
@@ -172,6 +176,7 @@ def inventory_cancel_keeps_partial_rows(case: NativeAcceptance) -> None:
         case.assertEqual(row["item"]["owner_kind"], "level")
 
 
+@acceptance_case(name="scene_check_retention_refuses_the_33rd_check")
 def retention_refuses_the_33rd_check(case: NativeAcceptance) -> None:
     """A worker retains 32 analysis jobs; the 33rd is refused before it starts."""
     document = case.create("Retention")
@@ -198,6 +203,7 @@ def _host_wait(case: NativeAcceptance, worker: Worker, job: str) -> dict[str, An
     case.fail(f"Scene check {job} did not finish")
 
 
+@acceptance_case(name="scene_check_read_only_runs_in_the_host")
 def read_only_checks_run_in_the_host(case: NativeAcceptance) -> None:
     """Scene checks of a read-only document run in its scene host, bound to its sources;
     inventory rows name the sheet that exposes each level."""
@@ -243,6 +249,7 @@ def _native_worker(case: NativeAcceptance) -> int:
     case.fail("The adapter's native worker was not found")
 
 
+@acceptance_case(name="scene_check_analysis_job_after_worker_loss")
 def analysis_job_after_worker_loss(case: NativeAcceptance) -> None:
     """Through the adapter, a running scene check whose worker is lost reads unknown, with
     the loss, from job.status and job.list."""
@@ -281,6 +288,7 @@ def _findings(case: NativeAcceptance, document: str) -> set[tuple[str, str]]:
     return {(row["code"], row["certainty"]) for row in result["rows"]}
 
 
+@acceptance_case(name="scene_check_compatibility_codes_and_certainty")
 def compatibility_check_codes_and_certainty(case: NativeAcceptance) -> None:
     """An offset layer is a refusal risk for a legacy reader; the findings survive a save and
     reopen unchanged, and scene.validate reports none of them."""

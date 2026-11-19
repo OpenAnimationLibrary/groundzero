@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
@@ -310,6 +311,7 @@ def _rejected(test: NativeAcceptance, document: str, params: dict[str, Any]) -> 
     _cells(test, document, FRAMES)
 
 
+@acceptance_case(name="drawing_renumber_rejections_preserve_scene")
 def check_renumber_rejections(test: NativeAcceptance) -> None:
     """Reject malformed, colliding and locked mappings without partial changes.
 
@@ -361,6 +363,7 @@ def check_renumber_rejections(test: NativeAcceptance) -> None:
     test.failure("drawing.renumber", test.write_params(document, {**params, "mapping": [first]}))
 
 
+@acceptance_case(name="drawing_renumber_preserves_imported_source")
 def check_renumber_import_preserves_source(test: NativeAcceptance) -> None:
     """Keep an imported PNG unchanged while its private drawing identity changes.
 

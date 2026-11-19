@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_file_cases import Observation
 from mcp_scene_access_cases import _project, base_package, project_id, project_xml, scenes_xml
 from mcp_worker import Worker
@@ -119,6 +120,7 @@ def _foreign_scenes_folder(case: NativeAcceptance, worker: Worker) -> None:
     case.assertNotIn("private", str(listing))
 
 
+@acceptance_case
 def project_reads_hold_the_file_boundary(case: NativeAcceptance) -> None:
     """Refuse links, traversal, aliases and foreign folders in the project reads.
 
@@ -134,6 +136,7 @@ def project_reads_hold_the_file_boundary(case: NativeAcceptance) -> None:
     _foreign_scenes_folder(case, case.worker)
 
 
+@acceptance_case(worker_only="needs the --test-path-swap test hook, which the adapter never passes")
 def project_scenes_refuse_a_folder_swapped_after_validation(case: NativeAcceptance) -> None:
     """Refuse to list a scenes folder that was replaced by a link after it was approved.
 

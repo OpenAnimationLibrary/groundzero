@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_fx_authoring_cases import (
     _artwork_fixture,
     _close_worker,
@@ -44,6 +45,7 @@ def _out_of_range(minimum: float, maximum: float) -> tuple[float, float]:
     return minimum - 0.5, maximum + 0.5
 
 
+@acceptance_case
 def color_composite_bounds_reject_before_mutation(case: NativeAcceptance) -> None:
     """Advertise the profile bounds and reject edits past them without changing the scene."""
     document = _scene(case)
@@ -71,6 +73,7 @@ def _card(case: NativeAcceptance, document: str, color: tuple[int, ...]) -> str:
     return card
 
 
+@acceptance_case
 def color_composite_blend_endpoints_select_sources(case: NativeAcceptance) -> None:
     """Cross-dissolve value 0 renders Source2 and value 100 renders Source1 exactly."""
     document = _scene(case)
@@ -85,6 +88,7 @@ def color_composite_blend_endpoints_select_sources(case: NativeAcceptance) -> No
     _close_worker(case)
 
 
+@acceptance_case
 def color_composite_keys_survive_copy_and_reopen(case: NativeAcceptance) -> None:
     """Keep keyed HSV animation independent in copies and exact through save and reopen."""
     document, artwork = _artwork_fixture(case)
@@ -110,11 +114,13 @@ def color_composite_keys_survive_copy_and_reopen(case: NativeAcceptance) -> None
     _close_worker(case)
 
 
+@acceptance_case
 def color_presets_cover_native_types(case: NativeAcceptance) -> None:
     """Replay presets, copies and reopened renders for the four color-adjustment FX."""
     presets_cover_native_types(case, ("STD_brightContFx", "STD_hsvScaleFx", "multFx", "invertFx"))
 
 
+@acceptance_case
 def composite_presets_cover_native_types(case: NativeAcceptance) -> None:
     """Replay presets, copies and reopened renders for the four compositing FX."""
     presets_cover_native_types(case, ("screenFx", "inFx", "outFx", "blendFx"))

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
@@ -21,6 +23,7 @@ def _shape(result: dict[str, Any], open_read_only: int) -> dict[str, Any]:
     return {**SHAPE, "read_only_documents": counts, "documents": result["documents"]}
 
 
+@acceptance_case
 def project_inspect_reports_the_private_workspace(case: NativeAcceptance) -> None:
     """Report the fixed capabilities and exactly the documents the worker lists."""
     empty = case.success("project.inspect", {})
@@ -45,6 +48,7 @@ def project_inspect_reports_the_private_workspace(case: NativeAcceptance) -> Non
     case.assertEqual(access[opened["document_id"]], "read_only")
 
 
+@acceptance_case
 def project_inspect_is_bounded_and_read_only(case: NativeAcceptance) -> None:
     """Never list more documents than a worker admits, and never change one by reading."""
     documents = [case.create(f"Scene {index}") for index in range(DOCUMENT_LIMIT)]
@@ -59,6 +63,7 @@ def project_inspect_is_bounded_and_read_only(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("project.inspect", {})["documents"], listed)
 
 
+@acceptance_case
 def project_inspect_refuses_arguments(case: NativeAcceptance) -> None:
     """Accept no arguments: any named property fails the schema and changes nothing."""
     document = case.create()

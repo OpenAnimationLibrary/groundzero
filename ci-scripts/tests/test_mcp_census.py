@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -10,13 +11,13 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import mcp_census as census_check
+from mcp_census_text import render_document
 
 
-def committed() -> tuple[dict[str, Any], str, str]:
+def committed() -> tuple[dict[str, Any], str]:
     census = census_check.load_census()
     readme = census_check.README_PATH.read_text(encoding="utf-8")
-    document = census_check.DOCUMENT_PATH.read_text(encoding="utf-8")
-    return census, readme, document
+    return census, readme
 
 
 def fake_catalog(census: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -58,14 +59,14 @@ def fake_catalog(census: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]
 
 class CensusFailureCases(unittest.TestCase):
     def setUp(self) -> None:
-        self.census, self.readme, self.document = committed()
+        self.census, self.readme = committed()
         self.capabilities, self.fx_catalog = fake_catalog(self.census)
 
     def live(self) -> list[str]:
         return census_check.check_live(self.census, self.capabilities, self.fx_catalog, self.readme)
 
     def static(self) -> list[str]:
-        return census_check.static_problems(self.census, self.readme, self.document)
+        return census_check.static_problems(self.census, self.readme)
 
     def assert_reports(self, problems: list[str], fragment: str) -> None:
         self.assertTrue(
@@ -96,8 +97,7 @@ class CensusFailureCases(unittest.TestCase):
         message = next(p for p in self.live() if p.startswith("tool scene.invented"))
         self.assertIn("ci-scripts/mcp_census.json", message)
         self.assertIn(
-            '{"scene.invented": {"origin": "worker", "toolset": "core", "writes": true, '
-            '"tests": []}}',
+            '{"scene.invented": {"origin": "worker", "toolset": "core", "writes": true}}',
             message,
         )
         self.assertIn('"tools": ["scene.invented"]', message)
@@ -245,13 +245,25 @@ class CensusFailureCases(unittest.TestCase):
         self.outcome("scene.author_editable_shot")["journey"] = ["ci-scripts/gone.py"]
         self.assert_reports(self.static(), "journey ci-scripts/gone.py does not exist")
 
-    def test_stale_document_fails(self) -> None:
-        self.document += "edited by hand\n"
-        self.assert_reports(self.static(), "census document is stale")
+    def test_stored_census_has_no_derived_tests(self) -> None:
+        stored = json.loads(census_check.dump_census(self.census))
+        self.assertTrue(all("tests" not in entry for entry in stored["tools"].values()))
+        self.assertEqual(
+            census_check.dump_census(self.census),
+            census_check.CENSUS_PATH.read_text(encoding="utf-8"),
+        )
 
-    def test_document_is_stale_after_a_census_change(self) -> None:
-        self.outcome("scene.inspect")["outcome"] += " More."
-        self.assert_reports(self.static(), "census document is stale")
+    def test_marked_cases_count_as_acceptance_tests(self) -> None:
+        marked = census_check.marked_cases()
+        self.assertIn("test_fx_selected_output_survives_reopen", marked)
+        listed = {test for entry in self.census["tools"].values() for test in entry["tests"]}
+        prefix = f"{census_check.ACCEPTANCE}::"
+        self.assertTrue(any(test.removeprefix(prefix) in marked for test in listed))
+
+    def test_document_names_every_tool(self) -> None:
+        document = render_document(self.census, census_check.report(self.census))
+        missing = [name for name in self.census["tools"] if f"`{name}`" not in document]
+        self.assertEqual(missing, [])
 
     def test_stale_readme_index_fails(self) -> None:
         self.readme = self.readme.replace(

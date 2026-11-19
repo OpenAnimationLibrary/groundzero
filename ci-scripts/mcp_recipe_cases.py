@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_fx_authoring_cases import _artwork_fixture, _close_worker, _graph, _pixels, _reopen
 
 if TYPE_CHECKING:
@@ -180,26 +181,31 @@ def _iris_inputs(case: NativeAcceptance) -> dict[str, Any]:
     return {"document_id": document, "subject_fx_id": artwork}
 
 
+@acceptance_case
 def recipe_light_wrap_composite_runs_literally(case: NativeAcceptance) -> None:
     """Run the light-wrap composite recipe as listed and qualify its checks."""
     run_recipe_literally(case, "light-wrap-composite", _light_wrap_inputs)
 
 
+@acceptance_case
 def recipe_backlit_rim_light_runs_literally(case: NativeAcceptance) -> None:
     """Run the backlit rim-light recipe as listed and qualify its checks."""
     run_recipe_literally(case, "backlit-rim-light", _backlit_inputs)
 
 
+@acceptance_case
 def recipe_exposure_grade_runs_literally(case: NativeAcceptance) -> None:
     """Run the exposure grade recipe as listed and qualify its checks."""
     run_recipe_literally(case, "exposure-grade", _source_inputs)
 
 
+@acceptance_case
 def recipe_cross_dissolve_runs_literally(case: NativeAcceptance) -> None:
     """Run the cross-dissolve transition recipe as listed and qualify its checks."""
     run_recipe_literally(case, "cross-dissolve-transition", _dissolve_inputs)
 
 
+@acceptance_case
 def recipe_iris_wipe_runs_literally(case: NativeAcceptance) -> None:
     """Run the iris wipe transition recipe as listed and qualify its checks."""
     run_recipe_literally(case, "iris-wipe-transition", _iris_inputs)

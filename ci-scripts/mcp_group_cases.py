@@ -6,6 +6,7 @@ import base64
 from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
@@ -219,6 +220,7 @@ def _compound(
     return _reopen(case, document, target, "grouped-compound")
 
 
+@acceptance_case
 def vector_groups_preserve_paint_and_roundtrip(case: NativeAcceptance) -> None:
     """Preserve held drawings, native IDs and pixels through grouping and a compound save.
 
@@ -272,6 +274,7 @@ def _reject(
     case.assertEqual(_geometry(case, document, target), geometry)
 
 
+@acceptance_case
 def vector_groups_reject_partial_boundaries(case: NativeAcceptance) -> None:
     """Reject a private native edit that would erase a multi-stroke painted region.
 
@@ -310,6 +313,7 @@ def vector_groups_reject_partial_boundaries(case: NativeAcceptance) -> None:
     _reopen(case, document, target, "whole-boundary")
 
 
+@acceptance_case
 def vector_order_preserves_groups_and_stacking(case: NativeAcceptance) -> None:
     """Move independent overlapping painted groups and verify the intended visible overlap.
 
@@ -378,6 +382,7 @@ def _bad_ranges(case: NativeAcceptance, document: str, target: dict[str, Any]) -
             _reject(case, document, target, method, params, code=code)
 
 
+@acceptance_case
 def vector_group_noops_and_rejections(case: NativeAcceptance) -> None:
     """Keep revisions and native state unchanged for exact no-ops and invalid selections.
 

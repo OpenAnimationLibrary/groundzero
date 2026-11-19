@@ -6,6 +6,7 @@ import base64
 import hashlib
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
@@ -46,6 +47,7 @@ def _assert_preview(case: NativeAcceptance, document: str, color: Pixel) -> None
     case.assertEqual(set(pixels), {color})
 
 
+@acceptance_case(name="fx_selected_output_survives_reopen")
 def selected_output_survives_reopen(case: NativeAcceptance) -> None:
     """Render distinct output branches, persist the selection, and delete the selected output.
 
@@ -115,6 +117,7 @@ def _assert_key_render(case: NativeAcceptance, document: str) -> None:
         case.assertEqual(set(pixels), {COLORS[artifact["frame"]]}, artifact["frame"])
 
 
+@acceptance_case(name="fx_color_keys_survive_render_and_reopen")
 def color_keys_survive_render_and_reopen(case: NativeAcceptance) -> None:
     """Exercise typed RGBA keys, linear interpolation, and all rendered channels after reopen.
 

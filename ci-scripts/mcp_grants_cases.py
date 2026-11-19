@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_readonly_calls import sample
 from mcp_readonly_tree import snapshot
 from mcp_scene_access_cases import corpus, open_scene
@@ -125,26 +126,31 @@ def _grant_sets(case: NativeAcceptance, sets: list[tuple[str, ...]]) -> None:
         _grant_set(case, catalog, scene, grants)
 
 
+@acceptance_case(name="grants_inspect_only_session")
 def inspect_only_session(case: NativeAcceptance) -> None:
     """Refuse every drafting, file and job tool and admit reads, read-only opens and job reads."""
     _grant_sets(case, [()])
 
 
+@acceptance_case(name="grants_draft_grant_gates_documents")
 def draft_grant_gates_documents(case: NativeAcceptance) -> None:
     """Refuse document changes without draft, and admit them with it."""
     _grant_sets(case, [("draft",), ("file", "job")])
 
 
+@acceptance_case(name="grants_file_grant_gates_caller_paths")
 def file_grant_gates_caller_paths(case: NativeAcceptance) -> None:
     """Refuse writes to caller-named paths without file, and admit them with it."""
     _grant_sets(case, [("file",), ("draft", "job")])
 
 
+@acceptance_case(name="grants_job_grant_gates_jobs")
 def job_grant_gates_jobs(case: NativeAcceptance) -> None:
     """Refuse starting and cancelling jobs without job, and admit them with it."""
     _grant_sets(case, [("job",), ("draft", "file")])
 
 
+@acceptance_case(name="grants_full_grants_admit_every_tool")
 def full_grants_admit_every_tool(case: NativeAcceptance) -> None:
     """Admit every tool when the session holds every grant class."""
     _grant_sets(case, [CLASSES])
@@ -165,6 +171,7 @@ def _adapter_domains(case: NativeAcceptance, worker: Worker) -> None:
     case.assertEqual(_toolsets(case, worker), rows)
 
 
+@acceptance_case(name="grants_domain_grant_gates_toolsets")
 def domain_grant_gates_toolsets(case: NativeAcceptance) -> None:
     """Refuse tools of an ungranted toolset in the worker; the adapter cannot enable them."""
     catalog = _catalog(case)
@@ -199,6 +206,7 @@ def _canonical(report: dict[str, Any]) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+@acceptance_case(name="grants_authority_reports_the_launch")
 def authority_reports_the_launch(case: NativeAcceptance) -> None:
     """Report the launch authority and a digest that changes when the grants change."""
     full = case.success("automation.capabilities", {})["authority"]
@@ -249,6 +257,7 @@ WORKER_ONLY_LAUNCHES = {
 }
 
 
+@acceptance_case(name="grants_launch_options_are_explicit_and_valid")
 def grant_options_are_explicit_and_valid(case: NativeAcceptance) -> None:
     """Refuse unknown, repeated, contradictory and, for the worker, missing grant options.
 

@@ -6,6 +6,7 @@ import base64
 import hashlib
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import decode_png, fixture_pixel
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ def _read(case: NativeAcceptance, artifact: dict[str, Any]) -> tuple[dict[str, A
     return result, data
 
 
+@acceptance_case(name="blank_render_dimensions_and_alpha")
 def blank_dimensions_and_alpha(case: NativeAcceptance) -> None:
     """Render transparent blanks at odd dimensions without changing their source.
 
@@ -49,6 +51,7 @@ def blank_dimensions_and_alpha(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
 
 
+@acceptance_case
 def preview_fit_preserves_camera(case: NativeAcceptance) -> None:
     """Fit a default preview to its bound while retaining the document camera.
 
@@ -70,6 +73,7 @@ def preview_fit_preserves_camera(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("camera.inspect", {"document_id": document}), before)
 
 
+@acceptance_case(name="generator_render_preserves_straight_alpha")
 def generator_straight_alpha(case: NativeAcceptance) -> None:
     """Verify native color-card RGB and alpha survive the PNG writer boundary.
 
@@ -97,6 +101,7 @@ def generator_straight_alpha(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("fx.graph", {"document_id": document}), graph)
 
 
+@acceptance_case(name="render_snapshot_survives_edits_and_discard")
 def snapshot_survives_edits_and_discard(case: NativeAcceptance) -> None:
     """Keep rendered frames bound to their original document and drawing revision.
 
@@ -149,6 +154,7 @@ def snapshot_survives_edits_and_discard(case: NativeAcceptance) -> None:
     case.assertEqual(decode_png(retained)[2][8 * 32 + 8], fixture_pixel(8, 8, 32))
 
 
+@acceptance_case(name="changed_render_artifact_is_rejected")
 def changed_artifact_is_rejected(case: NativeAcceptance) -> None:
     """Reject changed output bytes even when the opaque artifact ID is valid.
 
@@ -166,6 +172,7 @@ def changed_artifact_is_rejected(case: NativeAcceptance) -> None:
     case.assertEqual(error["code"], "invalid_artifact")
 
 
+@acceptance_case(name="eof_cancels_render_without_forced_kill")
 def eof_cancels_without_forced_kill(case: NativeAcceptance) -> None:
     """Close input during a render and require cooperative worker termination.
 

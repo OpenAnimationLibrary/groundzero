@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_audio_model import tone, wav_file
+from mcp_case import acceptance_case
 from mcp_lipsync_cases import Cue, dat_file
 from mcp_png import write_fixture
 from mcp_worker import Worker
@@ -197,6 +198,7 @@ def _native_journey(case: NativeAcceptance) -> list[tuple[str, Any]]:
     return _normalized(record, {workspace: "<workspace>", inputs: "<inputs>"})
 
 
+@acceptance_case
 def client_results_match_native_serializer(case: NativeAcceptance) -> None:
     """Require every toolset's results through this client to equal the raw worker's.
 
@@ -224,6 +226,7 @@ def _abandon(case: NativeAcceptance, method: str, params: dict[str, Any]) -> Non
     case.assertEqual(response["error"]["code"], CANCELLED_BY_CLIENT, response)
 
 
+@acceptance_case
 def mcp_cancellation_leaves_render_running(case: NativeAcceptance) -> None:
     """Treat a cancelled MCP request as abandoned, never as cancelled native work.
 
@@ -248,6 +251,7 @@ def mcp_cancellation_leaves_render_running(case: NativeAcceptance) -> None:
     case.assertEqual(case.wait_job(job["job_id"])["status"], "canceled")
 
 
+@acceptance_case
 def document_ids_do_not_alias_after_close_and_reopen(case: NativeAcceptance) -> None:
     """Refuse every closed document id instead of resolving it to a later document."""
     seen: list[str] = []

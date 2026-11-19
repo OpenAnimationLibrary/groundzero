@@ -10,6 +10,7 @@ import zlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_library_cases import _build_library, _package_scene
 from mcp_studio_palette_cases import call, refuse, shared_worker
 from mcp_worker import Worker
@@ -59,6 +60,7 @@ def _list(case: NativeAcceptance, worker: Worker, **params: Any) -> dict[str, An
     return result
 
 
+@acceptance_case
 def library_listing_pages_are_capped(case: NativeAcceptance) -> None:
     """Cap pages at 256 items and offsets at 8192, and refuse a folder of more entries.
 
@@ -100,6 +102,7 @@ def _thumbnail(case: NativeAcceptance, worker: Worker, name: str) -> dict[str, A
     return result
 
 
+@acceptance_case
 def library_thumbnails_are_bounded(case: NativeAcceptance) -> None:
     """Admit icons of exactly 1 MiB and 1024 pixels and refuse one byte or pixel more.
 
@@ -166,6 +169,7 @@ def _pose_set(library: Path, name: str, thumbnail: bytes) -> None:
     )
 
 
+@acceptance_case
 def library_pose_thumbnails_are_bounded(case: NativeAcceptance) -> None:
     """Apply the same byte and pixel bounds to a pose thumbnail inside its pose set.
 
@@ -185,6 +189,7 @@ def library_pose_thumbnails_are_bounded(case: NativeAcceptance) -> None:
         refuse(case, worker, "library.thumbnail", {**params, "name": name}, "resource_limit")
 
 
+@acceptance_case
 def library_listing_revision_tracks_real_changes(case: NativeAcceptance) -> None:
     """Refuse a stale listing revision after a file really changes, and report the new one.
 
@@ -225,6 +230,7 @@ def library_listing_revision_tracks_real_changes(case: NativeAcceptance) -> None
         )
 
 
+@acceptance_case
 def library_case_fold_collisions_are_reported(case: NativeAcceptance) -> None:
     """Flag items whose names differ only by case, and no others.
 
@@ -249,6 +255,7 @@ def library_case_fold_collisions_are_reported(case: NativeAcceptance) -> None:
     case.assertEqual(_names(filtered), ["RIG", "Rig", "rig"])
 
 
+@acceptance_case
 def library_unreadable_dependency_is_refused_not_hidden(case: NativeAcceptance) -> None:
     """Report a permission-denied level file as a typed I/O error and keep serving.
 

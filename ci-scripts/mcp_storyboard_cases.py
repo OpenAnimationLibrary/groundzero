@@ -6,6 +6,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from mcp_audio_model import constant, wav_file
+from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -58,6 +59,7 @@ def _sound_above(case: NativeAcceptance, document: str) -> None:
     )
 
 
+@acceptance_case
 def storyboard_panels_spans_and_thumbnails(case: NativeAcceptance) -> None:
     """Report native spans and the drawing each panel shows, then render its frame."""
     document, level, _column = case.populated_scene()
@@ -92,6 +94,7 @@ def _comparable(panels: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+@acceptance_case
 def storyboard_text_round_trips_and_receipts(case: NativeAcceptance) -> None:
     """Keep Unicode captions and multi-line notes through packages and exact retries."""
     document = case.create("Storyboard")
@@ -125,6 +128,7 @@ def storyboard_text_round_trips_and_receipts(case: NativeAcceptance) -> None:
     case.assertEqual(_panels(case, reopened)["panels"], [])
 
 
+@acceptance_case
 def storyboard_rejections_preserve_panels(case: NativeAcceptance) -> None:
     """Refuse duplicates, missing panels, empty updates and control characters unchanged."""
     document = case.create("Storyboard")

@@ -6,6 +6,7 @@ import base64
 import hashlib
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
@@ -85,6 +86,7 @@ def _close(case: NativeAcceptance) -> None:
     case.assertEqual(case.worker.process.returncode, 0, case.worker.log_path.read_text())
 
 
+@acceptance_case
 def text_outline_round_trip_and_edit(case: NativeAcceptance) -> None:
     """Create and replay actual text, save/reopen PLI, then edit its native geometry.
 
@@ -154,6 +156,7 @@ def _reject(case: NativeAcceptance, document: str, target: dict[str, Any], expec
     )
 
 
+@acceptance_case
 def text_rejections_preserve_drawing(case: NativeAcceptance) -> None:
     """Reject invalid content and stale/reused writes without publishing partial art.
 

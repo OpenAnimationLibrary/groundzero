@@ -8,6 +8,7 @@ import subprocess
 import time
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_drawing_cases import INDEXED, RECTANGLE, _level, _style
 from mcp_jobs_cases import COMMON_FIELDS
 from mcp_worker import Worker
@@ -297,6 +298,7 @@ def _revision_bound(case: NativeAcceptance, document: str, level: str) -> None:
     case.assertEqual(ended["outputs"]["result_rows"], 0)
 
 
+@acceptance_case
 def drawing_analysis_job(case: NativeAcceptance) -> None:
     """One analysis job from admission to rows, without changing the document.
 
@@ -313,6 +315,7 @@ def drawing_analysis_job(case: NativeAcceptance) -> None:
     case.assertTrue(all(row["terminal"] for row in listed["jobs"]))
 
 
+@acceptance_case
 def drawing_analysis_retention_and_replay(case: NativeAcceptance) -> None:
     """Retries return the same job; the 33rd retained analysis job is refused.
 
@@ -336,6 +339,7 @@ def drawing_analysis_retention_and_replay(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("job.list", {"kind": "render_preview"})["total"], 0)
 
 
+@acceptance_case
 def drawing_analysis_toonz_raster(case: NativeAcceptance) -> None:
     """Toonz raster drawings count ink and paint pixels; roles need a vector level.
 
@@ -384,6 +388,7 @@ def _native_pids(case: NativeAcceptance) -> list[int]:
     return pids
 
 
+@acceptance_case
 def drawing_analysis_lost_worker(case: NativeAcceptance) -> None:
     """After the native worker dies, its running analysis job is unknown, never completed.
 
@@ -411,6 +416,7 @@ def drawing_analysis_lost_worker(case: NativeAcceptance) -> None:
     case.assertEqual(answer["error"]["details"]["reason"], "other_worker")
 
 
+@acceptance_case
 def drawing_analysis_polls_during_a_long_rebuild(case: NativeAcceptance) -> None:
     """Polls and a cancellation are answered while one large drawing's regions are built.
 

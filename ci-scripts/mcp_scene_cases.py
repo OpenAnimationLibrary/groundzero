@@ -8,6 +8,7 @@ import zlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png, fixture_pixel
 
 if TYPE_CHECKING:
@@ -26,6 +27,7 @@ def _key(frame: int, value: float, interpolation: str = "linear") -> dict[str, A
     return {"frame": frame, "value": value, "interpolation": interpolation}
 
 
+@acceptance_case
 def parenting_preserves_local_keys_and_changes_rendered_placement(case: NativeAcceptance) -> None:
     """Distinguish local curve values from the composed parent transform."""
     document, _level, column = case.populated_scene()
@@ -74,6 +76,7 @@ def parenting_preserves_local_keys_and_changes_rendered_placement(case: NativeAc
     case.assertEqual(decode_png(case.preview(document)), before)
 
 
+@acceptance_case
 def parenting_rejections_preserve_every_object(case: NativeAcceptance) -> None:
     """Reject self links, longer cycles, table parents and peg-to-column links."""
     document, _level, column = case.populated_scene()
@@ -109,6 +112,7 @@ def parenting_rejections_preserve_every_object(case: NativeAcceptance) -> None:
             case.assertEqual(_summary(case, document), before)
 
 
+@acceptance_case
 def locked_columns_and_deleted_handles_remain_consistent(case: NativeAcceptance) -> None:
     """Exercise lock-only writes, deletion dependencies and stale object/FX handles."""
     document, _level, column = case.populated_scene()
@@ -171,6 +175,7 @@ def _assert_retired_handles(
     case.assertEqual(_summary(case, document), before)
 
 
+@acceptance_case
 def animation_precision_and_batch_errors_preserve_existing_keys(case: NativeAcceptance) -> None:
     """Check constant/linear endpoints, integer frames, units and all-or-nothing deletion."""
     document = case.create()
@@ -228,6 +233,7 @@ def _reject_animation_batches(
             case.assertEqual(_summary(case, document)["revision"], revision)
 
 
+@acceptance_case
 def custom_dpi_survives_reopen_and_remains_independent_of_camera(case: NativeAcceptance) -> None:
     """Preserve drawing DPI, compatible new frames and image size after a camera change."""
     document = case.create()
@@ -379,6 +385,7 @@ def _render_dpi_frames(case: NativeAcceptance, document: str) -> list[tuple[int,
     return frames
 
 
+@acceptance_case
 def png_import_dimension_bounds_preserve_scene(case: NativeAcceptance) -> None:
     """Admit savable per-axis bounds and reject oversized strips before native writes.
 
@@ -441,6 +448,7 @@ def _write_strip_png(path: Path, width: int, height: int) -> None:
     path.write_bytes(data)
 
 
+@acceptance_case
 def level_capacity_rejection_preserves_scene(case: NativeAcceptance) -> None:
     """Reject level creation and PNG intake beyond the native package level limit.
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_text_cases import _pixels
 
 if TYPE_CHECKING:
@@ -70,6 +71,7 @@ def _inspect(case: NativeAcceptance, document: str, target: dict[str, Any]) -> d
     )
 
 
+@acceptance_case
 def vector_opacity_round_trip(case: NativeAcceptance) -> None:
     """Verify receipts, scalar/profile independence and source-discard PLI pixels.
 
@@ -117,6 +119,7 @@ def vector_opacity_round_trip(case: NativeAcceptance) -> None:
     case.assertEqual(_inspect(case, opened, target)["opacity_per_mille"], 327)
 
 
+@acceptance_case
 def vector_selection_and_rejection_purity(case: NativeAcceptance) -> None:
     """Verify revision-bound selection and failure purity on the actual worker.
 
@@ -195,6 +198,7 @@ def _page(case: NativeAcceptance, document: str, target: dict[str, Any], **page:
     return case.success("vector.inspect", {"document_id": document, **target, **page})
 
 
+@acceptance_case
 def vector_roles_and_style_summary(case: NativeAcceptance) -> None:
     """Roles equal the native art-layer rule and the summary covers the whole drawing.
 
@@ -257,6 +261,7 @@ def vector_roles_and_style_summary(case: NativeAcceptance) -> None:
     case.assertEqual(stale["details"]["revision"], case.revisions[document])
 
 
+@acceptance_case
 def vector_roles_without_layering(case: NativeAcceptance) -> None:
     """Colour Art below or without Line Art in between makes no Underlay or Overlay.
 
@@ -302,6 +307,7 @@ def _lasso(relation: str, points: list[dict[str, Any]]) -> dict[str, Any]:
     return {"query": {"mode": "lasso", "relation": relation, "points": points}}
 
 
+@acceptance_case
 def vector_lasso_and_selection_handles(case: NativeAcceptance) -> None:
     """Lasso relations follow the editor; handles bind to a revision and are bounded.
 
@@ -393,6 +399,7 @@ def _handle_lifetime(
     case.assertEqual(evicted["details"]["reason"], "evicted")
 
 
+@acceptance_case
 def vector_selection_is_bounded(case: NativeAcceptance) -> None:
     """More than 128 selected strokes refuse the whole selection; nothing is returned.
 
@@ -423,6 +430,7 @@ def vector_selection_is_bounded(case: NativeAcceptance) -> None:
     case.assertEqual(len(selected["stroke_indices"]), 25)
 
 
+@acceptance_case
 def opacity_set_accepts_selection_handle(case: NativeAcceptance) -> None:
     """Both opacity writes take a handle in place of indices, never both.
 

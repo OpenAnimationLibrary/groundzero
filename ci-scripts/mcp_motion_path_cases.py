@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_animation_cases import _pixels_match, _render, _sample, _simple
+from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -63,6 +64,7 @@ def _detach(case: NativeAcceptance, document: str, object_id: str) -> dict[str, 
     )
 
 
+@acceptance_case
 def motion_path_lifecycle_handles_and_receipts(case: NativeAcceptance) -> None:
     """Exercise every path lifecycle tool, shared locks, no-ops and retired handles."""
     document, _level, column = case.populated_scene()
@@ -140,6 +142,7 @@ def motion_path_lifecycle_handles_and_receipts(case: NativeAcceptance) -> None:
     case.assertEqual(error["code"], "invalid_handle")
 
 
+@acceptance_case
 def motion_path_unused_geometry_and_name_roundtrip(case: NativeAcceptance) -> None:
     """Preserve unused native path geometry and quoted Unicode names through package reopen."""
     document = case.create()
@@ -168,6 +171,7 @@ def motion_path_unused_geometry_and_name_roundtrip(case: NativeAcceptance) -> No
     case.assertEqual(len(_read(case, "motion_path.list", recovered)["paths"]), 1)
 
 
+@acceptance_case
 def motion_path_animation_render_and_reopen(case: NativeAcceptance) -> None:
     """Compare native path motion and aim with ordinary XY/rotation across saved generations."""
     document, _level, column = case.populated_scene()
@@ -229,6 +233,7 @@ def motion_path_animation_render_and_reopen(case: NativeAcceptance) -> None:
     case.assertEqual(_sample(case, reopened, _target(new_object), [6]), [50])
 
 
+@acceptance_case
 def motion_path_geometry_percentage_and_revision_rejections(case: NativeAcceptance) -> None:
     """Refuse malformed geometry, precision loss, unsupported percentages and stale reads."""
     document = case.create()

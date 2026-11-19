@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from mcp_audio_cases import Clip, _column, _import, _place
 from mcp_audio_cases import _scene as _audio_scene
 from mcp_audio_model import tone, wav_file
+from mcp_case import acceptance_case
 from mcp_file_publish_cases import staging_left
 from mcp_macro_cases import _chain, _macro
 from mcp_scene_access_cases import _op, corpus, host_processes, open_scene, project_id, wait
@@ -111,6 +112,7 @@ def _ends(case: NativeAcceptance, job: str, status: str, text: str = "") -> dict
     return ended
 
 
+@acceptance_case
 def render_cancel_leaves_no_output_and_no_process(case: NativeAcceptance) -> None:
     """Cancel a running sequence: it ends canceled with nothing on disk and no leftover process."""
     document = _scene(case, 120)
@@ -146,6 +148,9 @@ def _held(case: NativeAcceptance, document: str, status: str, closed: bool = Fal
     return job
 
 
+@acceptance_case(
+    worker_only="needs --test-render-fault hold-launch, which the adapter never passes"
+)
 def render_cancel_before_launch_leaves_nothing(case: NativeAcceptance) -> None:
     """Cancel a job held before its first frame is built."""
     _fault_worker(case, "launch", "--test-render-fault", "hold-launch")
@@ -157,6 +162,9 @@ def render_cancel_before_launch_leaves_nothing(case: NativeAcceptance) -> None:
     _assert_nothing_published(case, job)
 
 
+@acceptance_case(
+    worker_only=("needs --test-render-fault hold-dispatch, which the adapter never passes")
+)
 def render_cancel_racing_dispatch_leaves_nothing(case: NativeAcceptance) -> None:
     """Cancel a job whose frames are built but whose native renderer has not started."""
     _fault_worker(case, "dispatch", "--test-render-fault", "hold-dispatch")
@@ -168,6 +176,9 @@ def render_cancel_racing_dispatch_leaves_nothing(case: NativeAcceptance) -> None
     _assert_nothing_published(case, job)
 
 
+@acceptance_case(
+    worker_only=("needs --test-render-fault hold-publication, which the adapter never passes")
+)
 def render_cancel_racing_publication_leaves_nothing(case: NativeAcceptance) -> None:
     """Cancel after every frame is written but before the output is verified and published."""
     _fault_worker(case, "publication", "--test-render-fault", "hold-publication")
@@ -181,6 +192,9 @@ def render_cancel_racing_publication_leaves_nothing(case: NativeAcceptance) -> N
     _assert_nothing_published(case, job)
 
 
+@acceptance_case(
+    worker_only=("needs --test-render-fault fail-after-final-frame, which the adapter never passes")
+)
 def render_failure_after_final_frame_publishes_nothing(case: NativeAcceptance) -> None:
     """Fail right after the final-frame callback: failed, explained, and nothing left."""
     _fault_worker(case, "final", "--test-render-fault", "fail-after-final-frame")
@@ -194,6 +208,9 @@ def render_failure_after_final_frame_publishes_nothing(case: NativeAcceptance) -
     case.assertEqual(case.success("automation.capabilities", {})["protocol_version"], 3)
 
 
+@acceptance_case(
+    worker_only=("needs --test-render-fault gl-context-failure, which the adapter never passes")
+)
 def render_without_worker_gl_marks_graphics_failed(case: NativeAcceptance) -> None:
     """The helper's GL probe passes but the worker's render context fails: the job fails,
     publishes nothing, the cached probe is marked failed and later renders are refused."""
@@ -216,6 +233,9 @@ def render_without_worker_gl_marks_graphics_failed(case: NativeAcceptance) -> No
     case.assertEqual(_renders(case), [])
 
 
+@acceptance_case(
+    worker_only=("needs --test-render-fault encoder-failure, which the adapter never passes")
+)
 def render_encoder_failure_publishes_nothing(case: NativeAcceptance) -> None:
     """Fail the encoder at finalization of an MP4 job: no movie, no partial file, no process."""
     if case.media_tools is None:
@@ -234,6 +254,9 @@ def render_encoder_failure_publishes_nothing(case: NativeAcceptance) -> None:
     _settle_processes(case, baseline)
 
 
+@acceptance_case(
+    worker_only=("needs --test-render-fault stray-callbacks, which the adapter never passes")
+)
 def render_stray_callbacks_do_not_change_the_outcome(case: NativeAcceptance) -> None:
     """Ignore out-of-order, unrequested and post-terminal callbacks."""
     _fault_worker(case, "stray", "--test-render-fault", "stray-callbacks")
@@ -254,6 +277,9 @@ def render_stray_callbacks_do_not_change_the_outcome(case: NativeAcceptance) -> 
         )
 
 
+@acceptance_case(
+    worker_only=("kills the worker process and needs --test-render-fault hold-publication")
+)
 def render_worker_killed_mid_preview_then_new_worker(case: NativeAcceptance) -> None:
     """Kill a worker holding written frames; its successor starts clean and adopts nothing."""
     _fault_worker(case, "killed", "--test-render-fault", "hold-publication")
@@ -279,6 +305,7 @@ def render_worker_killed_mid_preview_then_new_worker(case: NativeAcceptance) -> 
     case.assertEqual(len(_renders(case)), 1)
 
 
+@acceptance_case
 def render_storage_budget_refuses_before_creating_anything(case: NativeAcceptance) -> None:
     """Refuse the job that would exceed the worker's output budget, leaving the others intact."""
     document = _scene(case)
@@ -297,6 +324,7 @@ def render_storage_budget_refuses_before_creating_anything(case: NativeAcceptanc
         case.assertEqual(case.success("job.result", {"job_id": job})["job"]["status"], "completed")
 
 
+@acceptance_case
 def render_unwritable_output_directory_is_refused_cleanly(case: NativeAcceptance) -> None:
     """Refuse a job whose private output directory cannot be created, leaving nothing behind."""
     if os.name == "nt":
@@ -371,6 +399,7 @@ def _submit_on_full_disk(case: NativeAcceptance, document: str, workspace: Path)
     return "failed"
 
 
+@acceptance_case
 def render_disk_full_fails_cleanly_and_recovers(case: NativeAcceptance) -> None:
     """Run out of disk during a render: a typed failure, no partial output, then recovery."""
     if sys.platform != "darwin":
@@ -416,6 +445,7 @@ def _staging(case: NativeAcceptance) -> list[Path]:
     return staging_left(case.workspace)
 
 
+@acceptance_case
 def package_write_refusals_leave_nothing_behind(case: NativeAcceptance) -> None:
     """Refuse an existing or unwritable package destination without touching or leaving files."""
     document = _scene(case)
@@ -443,6 +473,7 @@ def package_write_refusals_leave_nothing_behind(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("scene.summary", {"document_id": document})["revision"], revision)
 
 
+@acceptance_case(worker_only="needs --test-write-fault publish, which the adapter never passes")
 def package_publish_failure_reports_what_is_on_disk(case: NativeAcceptance) -> None:
     """A save that fails at its final rename never claims a rollback and leaves no files."""
     _fault_worker(case, "publish", "--test-write-fault", "publish")
@@ -460,6 +491,7 @@ def package_publish_failure_reports_what_is_on_disk(case: NativeAcceptance) -> N
     case.assertEqual(case.success("scene.summary", {"document_id": document})["revision"], revision)
 
 
+@acceptance_case(worker_only="needs --test-write-fault publish, which the adapter never passes")
 def mixdown_publish_failure_reports_what_is_on_disk(case: NativeAcceptance) -> None:
     """A mixdown that fails at its final rename never claims a rollback and leaves no file."""
     _fault_worker(case, "mixdown", "--test-write-fault", "publish")
@@ -491,6 +523,7 @@ def _nothing_on_disk(case: NativeAcceptance) -> None:
     case.assertEqual(list(case.workspace.rglob("frame*.png")), [])
 
 
+@acceptance_case
 def read_only_render_cancel_and_host_loss_leave_nothing(case: NativeAcceptance) -> None:
     """A scene host's canceled or lost render ends terminal, leaves no file or process."""
     scene = corpus(case)["A"]
@@ -535,6 +568,7 @@ def _second_worker(case: NativeAcceptance, name: str) -> Worker:
     return worker
 
 
+@acceptance_case
 def live_worker_and_host_files_survive_another_workers_start(case: NativeAcceptance) -> None:
     """A second worker on the same workspace leaves a live worker's and host's files alone."""
     scene = corpus(case)["A"]
@@ -585,6 +619,7 @@ def _wait_dead(case: NativeAcceptance, pids: set[int]) -> None:
     case.assertEqual(pids & _native_pids(case.workspace), set())
 
 
+@acceptance_case
 def dead_workers_directories_are_swept_and_live_ones_are_not(case: NativeAcceptance) -> None:
     """Sweep runtime and job directories whose owner is gone, even if its pid is reused."""
     if os.name == "nt":
@@ -633,6 +668,7 @@ def dead_workers_directories_are_swept_and_live_ones_are_not(case: NativeAccepta
     case.assertTrue(held.is_dir() and plain.is_dir())
 
 
+@acceptance_case
 def private_files_end_with_their_document_and_worker(case: NativeAcceptance) -> None:
     """Worker-private level, sound and project files are removed with their document or worker."""
     document = _scene(case)
@@ -655,6 +691,9 @@ def private_files_end_with_their_document_and_worker(case: NativeAcceptance) -> 
     case.assertEqual(list(case.workspace.glob("sounds")) + list(case.workspace.glob("levels")), [])
 
 
+@acceptance_case(
+    worker_only=("needs --test-write-fault macro_verify_crash, which the adapter never passes")
+)
 def crash_during_save_verification_leaves_nothing(case: NativeAcceptance) -> None:
     """A worker killed while verifying a macro scene on save leaves nothing a successor keeps."""
     workspace = _fault_worker(case, "verify", "--test-write-fault", "macro_verify_crash")
@@ -674,6 +713,7 @@ def crash_during_save_verification_leaves_nothing(case: NativeAcceptance) -> Non
     case.assertEqual([path for path in workspace.iterdir() if path.name.startswith(".")], [])
 
 
+@acceptance_case
 def finished_render_folder_is_swept_once_its_worker_is_gone(case: NativeAcceptance) -> None:
     """A finished job's folder stays while its worker lives and goes when a later worker starts."""
     if os.name == "nt":

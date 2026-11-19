@@ -21,6 +21,7 @@ from mcp_audio_model import (
     tone,
     wav_file,
 )
+from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -187,6 +188,7 @@ def _check_import(
     return imported
 
 
+@acceptance_case
 def audio_import_inspect_and_bounded_parser(case: NativeAcceptance) -> None:
     """Admit WAV/AIFF PCM exactly and refuse every malformed or unadmitted file unchanged."""
     document = _scene(case, 25)
@@ -310,6 +312,7 @@ def _volume_and_receipts(case: NativeAcceptance, document: str, column: str) -> 
     case.assertEqual(case.failure("audio.inspect", read)["code"], "revision_conflict")
 
 
+@acceptance_case
 def audio_clip_edits_reject_before_mutation(case: NativeAcceptance) -> None:
     """Place, update and remove clips by key, refusing overlap, joins, bounds and locks."""
     document, level, column, source = _clip_fixture(case)
@@ -409,6 +412,7 @@ def _model_scene(
     return document, columns, ids
 
 
+@acceptance_case
 def audio_mixdown_matches_independent_model(case: NativeAcceptance) -> None:
     """Match the native offline mix sample for sample at fractional and integer rates."""
     for fps, rate in FIXTURE_RATES:
@@ -447,6 +451,7 @@ def _format_case(
     case.mutate("scene.discard", document)
 
 
+@acceptance_case
 def audio_mixdown_formats_and_saturation(case: NativeAcceptance) -> None:
     """Promote 8-bit mixes, saturate integers, keep float overs and convert channel counts."""
     unsigned = tone(22050, "pcm_u8", 22050, step=7)
@@ -544,6 +549,7 @@ def _package_rejections(case: NativeAcceptance, document: str, ids: list[str]) -
     case.mutate("column.delete", document, column_id=trailing)
 
 
+@acceptance_case
 def audio_save_reopen_render_and_scene_tools(case: NativeAcceptance) -> None:
     """Round-trip sound through packages bit for bit and keep renders device-free."""
     document, ids, level = _package_scene(case)
@@ -589,6 +595,7 @@ def _mixdown_failures(case: NativeAcceptance, document: str) -> None:
     case.assertEqual(existing.read_bytes(), b"keep")
 
 
+@acceptance_case
 def audio_mixdown_rejections_and_receipts(case: NativeAcceptance) -> None:
     """Refuse unsafe outputs and budgets before writing, and replay exact retries."""
     document = _scene(case, 24)
@@ -623,6 +630,7 @@ def audio_mixdown_rejections_and_receipts(case: NativeAcceptance) -> None:
     )
 
 
+@acceptance_case
 def audio_movie_render_stays_video_only(case: NativeAcceptance) -> None:
     """Render MP4 from a scene with audible sound without adding an audio stream."""
     mcp_movie_cases._start_configured_worker(case, mcp_movie_cases._media_directory(case))
@@ -676,6 +684,7 @@ def _aiff24_scene(
     return document, column, clip, data
 
 
+@acceptance_case
 def audio_aiff24_round_trips_every_sample(case: NativeAcceptance) -> None:
     """Import, mix, save and reopen 24-bit AIFF with the decoded PCM equal sample for sample."""
     for channels, rate, fps, count in AIFF24_CASES:

@@ -198,1895 +198,782 @@
   "animation.channels": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_animation_channel_descriptors_and_fractional_sampling",
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_answer_the_slice_two_reads",
-    "ci-scripts/mcp_acceptance.py::test_rich_animation_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys"
-   ]
+   "writes": false
   },
   "animation.copy_curve": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_whole_curve_copy_preserves_independence_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_whole_curve_rejections_and_quantized_steps",
-    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation"
-   ]
+   "writes": true
   },
   "animation.delete_keys": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_animation_precision_and_batch_errors_preserve_existing_keys",
-    "ci-scripts/mcp_acceptance.py::test_rich_animation_delete_keys_obeys_control_kinds",
-    "ci-scripts/mcp_acceptance.py::test_rich_animation_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation"
-   ]
+   "writes": true
   },
   "animation.keys": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_animation_precision_and_batch_errors_preserve_existing_keys",
-    "ci-scripts/mcp_acceptance.py::test_parenting_preserves_local_keys_and_changes_rendered_placement",
-    "ci-scripts/mcp_acceptance.py::test_scene_edit_failures_leave_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_animation_channel_descriptors_and_fractional_sampling"
-   ]
+   "writes": false
   },
   "animation.retime_curve": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_whole_curve_rejections_and_quantized_steps",
-    "ci-scripts/mcp_acceptance.py::test_whole_curve_retime_preserves_samples_rendering_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation"
-   ]
+   "writes": true
   },
   "animation.sample": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_animation_precision_and_batch_errors_preserve_existing_keys",
-    "ci-scripts/mcp_acceptance.py::test_animation_channel_descriptors_and_fractional_sampling",
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_exposures_animation_and_document_isolation",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": false
   },
   "animation.set_keys": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_animation_precision_and_batch_errors_preserve_existing_keys",
-    "ci-scripts/mcp_acceptance.py::test_rich_animation_retries_and_noops",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_rich_animation_round_trips_and_renders",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "artifact.read": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_changed_render_artifact_is_rejected",
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_artifact_swapped_for_a_link_is_refused",
-    "ci-scripts/mcp_acceptance.py::test_audio_movie_render_stays_video_only",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": false
   },
   "assistance.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_passive_inspection_preserves_state",
-    "ci-scripts/mcp_acceptance.py::test_runtime_reports_private_stuff_and_plugin_policy",
-    "toonz/sources/toonz/tests/automation_assistance_test.cpp"
-   ]
+   "writes": false
   },
   "assistance.neural.preview": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render"
-   ]
+   "writes": true
   },
   "audio.clip.place": {
    "origin": "worker",
    "toolset": "audio",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
-    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
-    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_matches_independent_model",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp"
-   ]
+   "writes": true
   },
   "audio.clip.remove": {
    "origin": "worker",
    "toolset": "audio",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp"
-   ]
+   "writes": true
   },
   "audio.clip.update": {
    "origin": "worker",
    "toolset": "audio",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp"
-   ]
+   "writes": true
   },
   "audio.column.create": {
    "origin": "worker",
    "toolset": "audio",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
-    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_matches_independent_model",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp"
-   ]
+   "writes": true
   },
   "audio.column.set_volume": {
    "origin": "worker",
    "toolset": "audio",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production"
-   ]
+   "writes": true
   },
   "audio.import": {
    "origin": "worker",
    "toolset": "audio",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_import_inspect_and_bounded_parser",
-    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp"
-   ]
+   "writes": true
   },
   "audio.inspect": {
    "origin": "worker",
    "toolset": "audio",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
-    "ci-scripts/mcp_acceptance.py::test_audio_import_inspect_and_bounded_parser",
-    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_rejections_and_receipts",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
-   ]
+   "writes": false
   },
   "audio.mixdown": {
    "origin": "worker",
    "toolset": "audio",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_rejections_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_mixdown_publish_failure_reports_what_is_on_disk",
-    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
-    "ci-scripts/mcp_acceptance.py::test_audio_mixdown_formats_and_saturation",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
-   ]
+   "writes": true
   },
   "automation.capabilities": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_grants_authority_reports_the_launch",
-    "ci-scripts/mcp_acceptance.py::test_integers_beyond_exact_precision_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_live_worker_and_host_files_survive_another_workers_start",
-    "ci-scripts/mcp_acceptance.py::test_private_bootstrap_ignores_launch_configuration",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp"
-   ]
+   "writes": false
   },
   "automation.list_documents": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_errors_are_declared",
-    "ci-scripts/mcp_acceptance.py::test_finished_render_folder_is_swept_once_its_worker_is_gone",
-    "ci-scripts/mcp_acceptance.py::test_grants_draft_grant_gates_documents",
-    "ci-scripts/mcp_acceptance.py::test_grants_file_grant_gates_caller_paths",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
-   ]
+   "writes": false
   },
   "camera.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_preview_fit_preserves_camera",
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_preview_reports_effective_output",
-    "ci-scripts/mcp_acceptance.py::test_rich_animation_round_trips_and_renders",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": false
   },
   "camera.update": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
-    "tools/mcp/src/native.test.ts"
-   ]
+   "writes": true
   },
   "cast.list": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_cast_paging_preserves_native_state",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "toonz/sources/toonz/tests/automation_production_test.cpp",
-    "tools/mcp/src/native.test.ts"
-   ]
+   "writes": false
   },
   "cast.usage": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_scene_usage_and_dependencies",
-    "ci-scripts/mcp_acceptance.py::test_scene_cell_limit_suppresses_unused_claims",
-    "toonz/sources/toonz/tests/automation_production_test.cpp",
-    "tools/mcp/src/native.test.ts"
-   ]
+   "writes": false
   },
   "column.cells": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
-    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_preserves_imported_source",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
-   ]
+   "writes": false
   },
   "column.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_locked_columns_and_deleted_handles_remain_consistent",
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
-    "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
-    "toonz/sources/toonz/tests/automation_lipsync_test.cpp",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "column.delete": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_locked_columns_and_deleted_handles_remain_consistent",
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene"
-   ]
+   "writes": true
   },
   "column.expose": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_exposures_animation_and_document_isolation",
-    "ci-scripts/mcp_acceptance.py::test_multiletter_drawing_suffix_survives_native_save_and_exposure",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "toonz/sources/toonz/tests/automation_storyboard_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "column.update": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_locked_columns_and_deleted_handles_remain_consistent",
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
-   ]
+   "writes": true
   },
   "drawing.analysis.submit": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_retention_and_replay",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_toonz_raster",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_lost_worker",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "drawing.clone": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_drawings_respect_native_format_number_limits",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_lost_worker",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_polls_during_a_long_rebuild",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "drawing.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_multiletter_drawing_suffix_survives_native_save_and_exposure",
-    "ci-scripts/mcp_acceptance.py::test_vector_transform_rejections_and_noops_preserve_revision",
-    "ci-scripts/mcp_acceptance.py::test_drawings_respect_native_format_number_limits",
-    "ci-scripts/mcp_acceptance.py::test_non_lowercase_drawing_suffixes_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp",
-    "toonz/sources/toonz/tests/automation_group_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "drawing.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_rgba_renumber_preserves_exposures_and_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_toonz_renumber_preserves_exposures_and_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_renumber_preserves_exposures_and_native_roundtrip",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": false
   },
   "drawing.remove": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "drawing.renumber": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_rgba_renumber_preserves_exposures_and_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
-    "ci-scripts/mcp_acceptance.py::test_toonz_renumber_preserves_exposures_and_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp"
-   ]
+   "writes": true
   },
   "fx.catalog": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_census_matches_live_catalog",
-    "ci-scripts/mcp_acceptance.py::test_finishing_bounds_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_cover_each_admitted_native_type",
-    "ci-scripts/mcp_acceptance.py::test_hidden_fx_parameters_are_neither_listed_nor_writable",
-    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": false
   },
   "fx.connect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_cover_each_admitted_native_type",
-    "ci-scripts/mcp_acceptance.py::test_glow_without_light_preserves_source_pixels",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "fx.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
-    "ci-scripts/mcp_acceptance.py::test_color_composite_blend_endpoints_select_sources",
-    "ci-scripts/mcp_acceptance.py::test_finishing_required_inputs_are_diagnosed",
-    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "fx.delete": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_fx_selected_output_survives_reopen",
-    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": true
   },
   "fx.disconnect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": true
   },
   "fx.duplicate": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
-    "ci-scripts/mcp_acceptance.py::test_color_composite_keys_survive_copy_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_fx_duplicate_and_enable_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_color_composite_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp"
-   ]
+   "writes": true
   },
   "fx.enabled.set": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_fx_duplicate_and_enable_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
-    "ci-scripts/mcp_acceptance.py::test_finishing_render_deadline_stops_slow_job",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_color_composite_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp"
-   ]
+   "writes": true
   },
   "fx.graph": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_inventory_tells_instances_from_definitions",
-    "ci-scripts/mcp_acceptance.py::test_fx_color_keys_survive_render_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_fx_selected_output_survives_reopen",
-    "ci-scripts/mcp_acceptance.py::test_generator_render_preserves_straight_alpha",
-    "toonz/sources/toonz/tests/automation_color_composite_test.cpp",
-    "toonz/sources/toonz/tests/automation_macro_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": false
   },
   "fx.macro.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_macro_retries_retire_handles_without_reapplying",
-    "ci-scripts/mcp_acceptance.py::test_macro_roundtrip_preserves_pixels_and_mapping",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_macro_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp"
-   ]
+   "writes": true
   },
   "fx.macro.expand": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_macro_retries_retire_handles_without_reapplying",
-    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_macro_roundtrip_preserves_pixels_and_mapping",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_macro_test.cpp"
-   ]
+   "writes": true
   },
   "fx.output.select": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_fx_selected_output_survives_reopen",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": true
   },
   "fx.parameter.get": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_enum_parameters_accept_only_native_integers",
-    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
-    "ci-scripts/mcp_acceptance.py::test_fx_preset_capacity_keeps_exact_replay",
-    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
-    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": false
   },
   "fx.parameter.set": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_finishing_bounds_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_finishing_gradient_separation_rejects_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_color_composite_blend_endpoints_select_sources",
-    "ci-scripts/mcp_acceptance.py::test_color_composite_bounds_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_finishing_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "fx.parameter.set_key": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_color_composite_keys_survive_copy_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_fx_duplicate_and_enable_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
-    "ci-scripts/mcp_acceptance.py::test_movie_snapshot_metadata_and_pixels",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp",
-    "toonz/sources/toonz/tests/automation_color_composite_test.cpp"
-   ]
+   "writes": true
   },
   "fx.preset.apply": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_cover_each_admitted_native_type",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp",
-    "toonz/sources/toonz/tests/automation_color_composite_test.cpp"
-   ]
+   "writes": true
   },
   "fx.preset.save": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_fx_preset_capacity_keeps_exact_replay",
-    "ci-scripts/mcp_acceptance.py::test_fx_preset_integrity_and_file_receipts",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_cover_each_admitted_native_type",
-    "ci-scripts/mcp_acceptance.py::test_fx_presets_preserve_keys_and_target_graph",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp",
-    "toonz/sources/toonz/tests/automation_color_composite_test.cpp"
-   ]
+   "writes": true
   },
   "fx.recipe.list": {
    "origin": "worker",
    "toolset": "fx-finishing",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_recipe_backlit_rim_light_runs_literally",
-    "ci-scripts/mcp_acceptance.py::test_recipe_cross_dissolve_runs_literally",
-    "ci-scripts/mcp_acceptance.py::test_recipe_exposure_grade_runs_literally",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
-   ]
+   "writes": false
   },
   "fx.rename": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_fx_authoring_rejections_preserve_document",
-    "ci-scripts/mcp_acceptance.py::test_fx_duplicate_and_enable_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_fx_preset_capacity_keeps_exact_replay",
-    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_authoring_test.cpp"
-   ]
+   "writes": true
   },
   "fx.terminal.set": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_macro_preflight_and_boundary_edits_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
-    "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_every_other_tool",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_fx",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "hook.delete": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging"
-   ]
+   "writes": true
   },
   "hook.inspect": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
-    "ci-scripts/mcp_acceptance.py::test_rig_pass_hook_matches_render",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp"
-   ]
+   "writes": false
   },
   "hook.set": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
-    "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_rig_parent_policy_and_refusals",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp"
-   ]
+   "writes": true
   },
   "job.cancel": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_job_repeated_status_and_cancel",
-    "ci-scripts/mcp_acceptance.py::test_job_stalled_cancellation_stays_non_terminal",
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp"
-   ]
+   "writes": true
   },
   "job.list": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_job_list_filters_and_paging",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_retention_and_replay",
-    "ci-scripts/mcp_acceptance.py::test_job_busy_host_answers_polls_and_cancel",
-    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp"
-   ]
+   "writes": false
   },
   "job.result": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_render_cancel_leaves_no_output_and_no_process",
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "toonz/sources/toonz/tests/automation_scene_check_test.cpp",
-    "toonz/sources/toonz/tests/automation_drawing_analysis_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": false
   },
   "job.status": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_job_movie_cancel_while_encoding_is_forced",
-    "ci-scripts/mcp_acceptance.py::test_job_stalled_cancellation_stays_non_terminal",
-    "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_scene_check_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": false
   },
   "level.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
-    "ci-scripts/mcp_acceptance.py::test_cast_paging_preserves_native_state",
-    "ci-scripts/mcp_acceptance.py::test_level_capacity_rejection_preserves_scene",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_rows_cover_columns_levels_and_styles",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "level.import": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_png_import_dimension_bounds_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
-    "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
-    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene"
-   ]
+   "writes": true
   },
   "level.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_import_inspect_and_bounded_parser",
-    "ci-scripts/mcp_acceptance.py::test_multiletter_drawing_suffix_survives_native_save_and_exposure"
-   ]
+   "writes": false
   },
   "library.inspect": {
    "origin": "worker",
    "toolset": "shared-library",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
-    "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
-    "ci-scripts/mcp_acceptance.py::test_library_unreadable_dependency_is_refused_not_hidden",
-    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on"
-   ]
+   "writes": false
   },
   "library.list": {
    "origin": "worker",
    "toolset": "shared-library",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_library_listing_pages_are_capped",
-    "ci-scripts/mcp_acceptance.py::test_library_listing_revision_tracks_real_changes",
-    "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
-    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
-    "toonz/sources/toonz/tests/automation_shared_test.cpp"
-   ]
+   "writes": false
   },
   "library.thumbnail": {
    "origin": "worker",
    "toolset": "shared-library",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_library_thumbnails_are_bounded",
-    "ci-scripts/mcp_acceptance.py::test_library_items_report_identity_dependencies_and_thumbnails",
-    "ci-scripts/mcp_acceptance.py::test_library_pose_thumbnails_are_bounded",
-    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
-    "toonz/sources/toonz/tests/automation_shared_test.cpp"
-   ]
+   "writes": false
   },
   "lipsync.apply": {
    "origin": "worker",
    "toolset": "lipsync",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_lipsync_dat_import_inspect_and_apply",
-    "ci-scripts/mcp_acceptance.py::test_lipsync_rejections_preserve_cells",
-    "ci-scripts/mcp_acceptance.py::test_lipsync_rhubarb_rational_timing",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
-   ]
+   "writes": true
   },
   "lipsync.import": {
    "origin": "worker",
    "toolset": "lipsync",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_lipsync_rejections_preserve_cells",
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_lipsync_dat_import_inspect_and_apply",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
-   ]
+   "writes": true
   },
   "lipsync.inspect": {
    "origin": "worker",
    "toolset": "lipsync",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_lipsync_dat_import_inspect_and_apply",
-    "toonz/sources/toonz/tests/automation_lipsync_test.cpp"
-   ]
+   "writes": false
   },
   "live.capabilities": {
    "origin": "live_bridge",
    "toolset": "live",
-   "writes": false,
-   "tests": [
-    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
-    "tools/mcp/src/server.test.ts",
-    "ci-scripts/mcp_live.py"
-   ]
+   "writes": false
   },
   "live.fx.set_scalar_value": {
    "origin": "live_bridge",
    "toolset": "live",
-   "writes": true,
-   "tests": [
-    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
-    "tools/mcp/src/server.test.ts",
-    "ci-scripts/mcp_live.py"
-   ]
+   "writes": true
   },
   "live.inspect": {
    "origin": "live_bridge",
    "toolset": "live",
-   "writes": false,
-   "tests": [
-    "tools/mcp/src/live-protocol.test.ts",
-    "ci-scripts/mcp_live.py"
-   ]
+   "writes": false
   },
   "live.receipt": {
    "origin": "live_bridge",
    "toolset": "live",
-   "writes": false,
-   "tests": [
-    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
-    "toonz/sources/toonz/tests/automation_live_race_test.cpp",
-    "tools/mcp/src/live.test.ts",
-    "ci-scripts/mcp_live.py"
-   ]
+   "writes": false
   },
   "live.stage.set_key_value": {
    "origin": "live_bridge",
    "toolset": "live",
-   "writes": true,
-   "tests": [
-    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
-    "toonz/sources/toonz/tests/automation_live_race_test.cpp",
-    "tools/mcp/src/live.test.ts",
-    "ci-scripts/mcp_live.py"
-   ]
+   "writes": true
   },
   "live.status": {
    "origin": "live_bridge",
    "toolset": "live",
-   "writes": false,
-   "tests": [
-    "toonz/sources/toonz/tests/automation_live_protocol_test.cpp",
-    "toonz/sources/toonz/tests/automation_live_security_test.cpp",
-    "tools/mcp/src/live.test.ts",
-    "ci-scripts/mcp_live.py"
-   ]
+   "writes": false
   },
   "motion_path.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
-   ]
+   "writes": true
   },
   "motion_path.delete": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
-   ]
+   "writes": true
   },
   "motion_path.duplicate": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
-   ]
+   "writes": true
   },
   "motion_path.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
-   ]
+   "writes": false
   },
   "motion_path.list": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
-   ]
+   "writes": false
   },
   "motion_path.rename": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation"
-   ]
+   "writes": true
   },
   "motion_path.update": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
-   ]
+   "writes": true
   },
   "object.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_unicode_names_preserve_data_and_reject_unpaired_surrogates",
-    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "object.handles.set": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_lifecycle_and_drawing_edits",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
-   ]
+   "writes": true
   },
   "object.parent": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_parent_policy_and_refusals",
-    "ci-scripts/mcp_acceptance.py::test_parenting_preserves_local_keys_and_changes_rendered_placement",
-    "ci-scripts/mcp_acceptance.py::test_locked_columns_and_deleted_handles_remain_consistent",
-    "ci-scripts/mcp_acceptance.py::test_parenting_rejections_preserve_every_object",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "object.path.attach": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_geometry_percentage_and_revision_rejections",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
-   ]
+   "writes": true
   },
   "object.path.detach": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_animation_render_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_motion_path_lifecycle_handles_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_animation",
-    "toonz/sources/toonz/tests/automation_motion_path_test.cpp"
-   ]
+   "writes": true
   },
   "object.pivot.set": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
-   ]
+   "writes": true
   },
   "offset_layer.create": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_compatibility_codes_and_certainty",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "tools/mcp/src/native.test.ts"
-   ]
+   "writes": true
   },
   "offset_layer.delete": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp"
-   ]
+   "writes": true
   },
   "offset_layer.update": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys",
-    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_rigging",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp"
-   ]
+   "writes": true
   },
   "palette.clone_style": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": true
   },
   "palette.create_style": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_scene_check_cancel_write_and_busy",
-    "ci-scripts/mcp_acceptance.py::test_hosted_scene_check_ends_with_its_host_and_its_worker",
-    "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_analysis_job_after_worker_loss",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": true
   },
   "palette.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_rgba_renumber_preserves_exposures_and_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_text_rejections_preserve_drawing",
-    "ci-scripts/mcp_acceptance.py::test_toonz_renumber_preserves_exposures_and_native_roundtrip",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": false
   },
   "palette.page.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": true
   },
   "palette.page.move": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "palette.page.remove": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "palette.page.rename": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "palette.pages": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_palette_page_capacity_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_answer_the_slice_two_reads",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip"
-   ]
+   "writes": false
   },
   "palette.rename_style": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "palette.style.move": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_palette_page_rejections_preserve_palette",
-    "ci-scripts/mcp_acceptance.py::test_toonz_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_palette_lifecycle_preserves_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "palette.update_style": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_palette_updates_preserve_other_animation_keys",
-    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_palettes_respect_native_serialization_limits",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp"
-   ]
+   "writes": true
   },
   "project.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_project_inspect_reports_the_private_workspace",
-    "ci-scripts/mcp_acceptance.py::test_project_inspect_is_bounded_and_read_only",
-    "ci-scripts/mcp_acceptance.py::test_project_inspect_refuses_arguments",
-    "ci-scripts/mcp_acceptance.py::test_project_reads_hold_the_file_boundary"
-   ]
+   "writes": false
   },
   "project.list": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
-    "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits",
-    "ci-scripts/mcp_acceptance.py::test_project_listings_stay_in_the_folder_they_pinned",
-    "ci-scripts/mcp_acceptance.py::test_read_only_damaged_scenes_are_refused",
-    "toonz/sources/toonz/tests/automation_scene_host_test.cpp"
-   ]
+   "writes": false
   },
   "project.scenes": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes",
-    "ci-scripts/mcp_acceptance.py::test_project_reads_hold_the_file_boundary",
-    "ci-scripts/mcp_acceptance.py::test_project_listings_stay_in_the_folder_they_pinned",
-    "ci-scripts/mcp_acceptance.py::test_project_scenes_refuse_a_folder_swapped_after_validation"
-   ]
+   "writes": false
   },
   "raster.export_png": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_publication_on_other_file_systems_is_atomic_or_refused",
-    "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
-    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
-    "ci-scripts/mcp_acceptance.py::test_rgba_drawing_data_survives_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "raster.import_png": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission",
-    "ci-scripts/mcp_acceptance.py::test_native_decoder_failure_leaves_document_usable",
-    "ci-scripts/mcp_acceptance.py::test_rgba_drawing_data_survives_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_toonz_raster_data_survives_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "raster.patch": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_native_raster_pixels_and_atomic_patch_rejection",
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_toonz_raster",
-    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "raster.read_pixels": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_held_drawing_clone_is_independent_and_preserves_suffix",
-    "ci-scripts/mcp_acceptance.py::test_native_raster_pixels_and_atomic_patch_rejection",
-    "ci-scripts/mcp_acceptance.py::test_raster_png_roundtrip_and_source_precision_admission"
-   ]
+   "writes": false
   },
   "render.capabilities": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_mp4_refused_without_encoder",
-    "ci-scripts/mcp_acceptance.py::test_render_without_worker_gl_marks_graphics_failed",
-    "ci-scripts/mcp_acceptance.py::test_runtime_media_identity",
-    "tools/mcp/src/native.test.ts"
-   ]
+   "writes": false
   },
   "render.preflight": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_render_preflight_reports_every_failure",
-    "ci-scripts/mcp_acceptance.py::test_graphics_probe_timeout_is_not_a_verdict",
-    "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused",
-    "ci-scripts/mcp_acceptance.py::test_preview_reports_effective_output",
-    "toonz/sources/toonz/tests/automation_runtime_test.cpp"
-   ]
+   "writes": false
   },
   "render.preview": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_effect_declarations_match_behavior",
-    "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job",
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "render.submit": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_exact_render_retry_returns_the_same_job",
-    "ci-scripts/mcp_acceptance.py::test_finishing_preflight_bounds_render_extent",
-    "ci-scripts/mcp_acceptance.py::test_mcp_cancellation_leaves_render_running",
-    "ci-scripts/mcp_acceptance.py::test_cancellation_and_worker_termination_are_bounded",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "rig.evaluate": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_rig_pass_hook_matches_render",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "tools/mcp/src/native.test.ts"
-   ]
+   "writes": false
   },
   "rig.inspect": {
    "origin": "worker",
    "toolset": "rigging",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_refuse_mutations",
-    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_rig_handles_and_pivot_report_world_changes",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp"
-   ]
+   "writes": false
   },
   "runtime.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_automation_processes_stay_in_the_background",
-    "ci-scripts/mcp_acceptance.py::test_graphics_probe_timeout_is_not_a_verdict",
-    "ci-scripts/mcp_acceptance.py::test_job_record_identity_inputs_limits",
-    "ci-scripts/mcp_acceptance.py::test_media_tools_replaced_after_launch_are_refused"
-   ]
+   "writes": false
   },
   "scene.check.submit": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_scene_check_cancel_write_and_busy",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_read_only_runs_in_the_host",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_retention_refuses_the_33rd_check",
-    "ci-scripts/mcp_acceptance.py::test_hosted_scene_check_ends_with_its_host_and_its_worker",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
-    "toonz/sources/toonz/tests/automation_scene_check_test.cpp"
-   ]
+   "writes": true
   },
   "scene.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_protocol_rejects_malformed_and_oversize_requests",
-    "ci-scripts/mcp_acceptance.py::test_lipsync_rhubarb_rational_timing",
-    "ci-scripts/mcp_acceptance.py::test_project_inspect_is_bounded_and_read_only",
-    "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "scene.dependencies": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_dependencies_list_every_file_read",
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_read_only_projects_bind_their_own_folders",
-    "ci-scripts/mcp_acceptance.py::test_scene_check_read_only_runs_in_the_host",
-    "toonz/sources/toonz/tests/automation_production_test.cpp",
-    "tools/mcp/src/native.test.ts"
-   ]
+   "writes": false
   },
   "scene.discard": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_private_files_end_with_their_document_and_worker",
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
-    "ci-scripts/mcp_acceptance.py::test_document_ids_do_not_alias_after_close_and_reopen",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_scene_host_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "scene.inventory": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_inventory_tells_instances_from_definitions",
-    "ci-scripts/mcp_acceptance.py::test_read_only_inventory_bounds_its_rows"
-   ]
+   "writes": false
   },
   "scene.open": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_motion_path_unused_geometry_and_name_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_unregistered_and_altered_packages_are_not_admitted",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "toonz/sources/toonz/tests/automation_rig_test.cpp",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "scene.open_read_only": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_receipts_sources_and_lost_hosts",
-    "ci-scripts/mcp_acceptance.py::test_read_only_file_and_report_limits_hold_at_their_bounds",
-    "ci-scripts/mcp_acceptance.py::test_read_only_hosts_contain_native_failures",
-    "ci-scripts/mcp_acceptance.py::test_read_only_rejections_and_limits",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle"
-   ]
+   "writes": true
   },
   "scene.package_info": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_aiff24_round_trips_every_sample",
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
-    "ci-scripts/mcp_acceptance.py::test_rig_additive_scale_renders_and_reopens",
-    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens"
-   ]
+   "writes": false
   },
   "scene.save_copy": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
-    "ci-scripts/mcp_acceptance.py::test_effect_declarations_match_behavior",
-    "ci-scripts/mcp_acceptance.py::test_publication_on_other_file_systems_is_atomic_or_refused",
-    "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": true
   },
   "scene.settings": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_revision_conflicts_noops_and_receipt_replay",
-    "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
-    "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_effect_declarations_match_behavior",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp"
-   ]
+   "writes": true
   },
   "scene.source_status": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_reports_each_change",
-    "ci-scripts/mcp_acceptance.py::test_read_only_content_digests_hold_their_deadlines",
-    "ci-scripts/mcp_acceptance.py::test_read_only_source_status_checks_content_within_bounds"
-   ]
+   "writes": false
   },
   "scene.summary": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
-    "ci-scripts/mcp_acceptance.py::test_errors_are_declared",
-    "ci-scripts/mcp_acceptance.py::test_scene_edit_failures_leave_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_vector_transform_rejections_and_noops_preserve_revision",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
-    "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "tools/mcp/src/native.test.ts",
-    "ci-scripts/mcp_shot.py"
-   ]
+   "writes": false
   },
   "scene.validate": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_read_only_projects_inspect_and_list_scenes",
-    "ci-scripts/mcp_acceptance.py::test_scene_cell_limit_suppresses_unused_claims",
-    "toonz/sources/toonz/tests/automation_production_test.cpp",
-    "tools/mcp/src/native.test.ts"
-   ]
+   "writes": false
   },
   "shared.roots": {
    "origin": "worker",
    "toolset": "shared-library",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
-    "ci-scripts/mcp_acceptance.py::test_shared_root_flags_are_explicit_and_read_only",
-    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
-    "toonz/sources/toonz/tests/automation_shared_test.cpp",
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
-   ]
+   "writes": false
   },
   "storyboard.panel.create": {
    "origin": "worker",
    "toolset": "storyboard",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
-    "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
-   ]
+   "writes": true
   },
   "storyboard.panel.delete": {
    "origin": "worker",
    "toolset": "storyboard",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
-   ]
+   "writes": true
   },
   "storyboard.panel.update": {
    "origin": "worker",
    "toolset": "storyboard",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_production",
-    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
-   ]
+   "writes": true
   },
   "storyboard.panels": {
    "origin": "worker",
    "toolset": "storyboard",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_client_results_match_native_serializer",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_panels_spans_and_thumbnails",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_rejections_preserve_panels",
-    "ci-scripts/mcp_acceptance.py::test_storyboard_text_round_trips_and_receipts",
-    "toonz/sources/toonz/tests/automation_storyboard_test.cpp"
-   ]
+   "writes": false
   },
   "studio_palette.find": {
    "origin": "worker",
    "toolset": "shared-library",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
-    "toonz/sources/toonz/tests/automation_shared_test.cpp"
-   ]
+   "writes": false
   },
   "studio_palette.inspect": {
    "origin": "worker",
    "toolset": "shared-library",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
-    "ci-scripts/mcp_acceptance.py::test_shared_parsers_refuse_damaged_files",
-    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
-    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
-    "toonz/sources/toonz/tests/automation_shared_test.cpp"
-   ]
+   "writes": false
   },
   "studio_palette.list": {
    "origin": "worker",
    "toolset": "shared-library",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_studio_palettes_list_inspect_find_preserve_roots",
-    "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
-    "ci-scripts/mcp_acceptance.py::test_shared_listings_stay_in_the_folder_they_pinned",
-    "ci-scripts/mcp_acceptance.py::test_shared_roots_hold_the_file_boundary",
-    "toonz/sources/toonz/tests/automation_shared_test.cpp"
-   ]
+   "writes": false
   },
   "text.fonts": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_text_outline_round_trip_and_edit",
-    "ci-scripts/mcp_acceptance.py::test_text_rejections_preserve_drawing",
-    "toonz/sources/toonz/tests/automation_text_test.cpp"
-   ]
+   "writes": false
   },
   "tool.describe": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
-   ]
+   "writes": false
   },
   "toolsets.disable": {
    "origin": "adapter",
    "toolset": "adapter",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_runtime_states_distinguish_layers",
-    "tools/mcp/src/toolsets.test.ts"
-   ]
+   "writes": true
   },
   "toolsets.enable": {
    "origin": "adapter",
    "toolset": "adapter",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_grants_domain_grant_gates_toolsets",
-    "ci-scripts/mcp_acceptance.py::test_runtime_states_distinguish_layers",
-    "tools/mcp/src/toolsets.test.ts"
-   ]
+   "writes": true
   },
   "toolsets.list": {
    "origin": "adapter",
    "toolset": "adapter",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_grants_domain_grant_gates_toolsets",
-    "tools/mcp/src/toolsets.test.ts"
-   ]
+   "writes": false
   },
   "vector.edit": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_unknown_style_rejects_the_whole_vector_batch",
-    "ci-scripts/mcp_acceptance.py::test_vector_edits_validate_the_whole_batch",
-    "ci-scripts/mcp_acceptance.py::test_vector_fill_and_quadratic_geometry_validation",
-    "ci-scripts/mcp_acceptance.py::test_oversized_vector_selection_is_refused",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp",
-    "toonz/sources/toonz/tests/automation_text_test.cpp"
-   ]
+   "writes": true
   },
   "vector.fill": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_vector_affine_preserves_paint_and_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_drawing_data_survives_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_fill_and_quadratic_geometry_validation",
-    "ci-scripts/mcp_acceptance.py::test_vector_transform_respects_fractional_pli_precision",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   },
   "vector.group.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
-    "ci-scripts/mcp_acceptance.py::test_vector_groups_reject_partial_boundaries",
-    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_order_preserves_groups_and_stacking",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_group_test.cpp"
-   ]
+   "writes": true
   },
   "vector.group.remove": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
-    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_group_test.cpp"
-   ]
+   "writes": true
   },
   "vector.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_vector_edits_validate_the_whole_batch",
-    "ci-scripts/mcp_acceptance.py::test_unknown_style_rejects_the_whole_vector_batch",
-    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
-    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
-   ]
+   "writes": false
   },
   "vector.opacity.inspect": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_answer_the_slice_two_reads",
-    "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
-    "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
-    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
-   ]
+   "writes": false
   },
   "vector.opacity.profile.set": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_opacity_set_accepts_selection_handle",
-    "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
-    "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
-   ]
+   "writes": true
   },
   "vector.opacity.set": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_opacity_set_accepts_selection_handle",
-    "ci-scripts/mcp_acceptance.py::test_vector_lasso_and_selection_handles",
-    "ci-scripts/mcp_acceptance.py::test_vector_opacity_round_trip",
-    "ci-scripts/mcp_acceptance.py::test_drawing_analysis_job",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
-   ]
+   "writes": true
   },
   "vector.order.move": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
-    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_order_preserves_groups_and_stacking",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_group_test.cpp"
-   ]
+   "writes": true
   },
   "vector.select": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_vector_lasso_and_selection_handles",
-    "ci-scripts/mcp_acceptance.py::test_vector_selection_and_rejection_purity",
-    "ci-scripts/mcp_acceptance.py::test_vector_selection_is_bounded",
-    "ci-scripts/mcp_acceptance.py::test_opacity_set_accepts_selection_handle",
-    "toonz/sources/toonz/tests/automation_vector_opacity_test.cpp"
-   ]
+   "writes": false
   },
   "vector.structure": {
    "origin": "worker",
    "toolset": "core",
-   "writes": false,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_read_only_documents_answer_the_slice_two_reads",
-    "ci-scripts/mcp_acceptance.py::test_vector_group_noops_and_rejections",
-    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_groups_reject_partial_boundaries",
-    "toonz/sources/toonz/tests/automation_group_test.cpp"
-   ]
+   "writes": false
   },
   "vector.text.create": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_text_rejections_preserve_drawing",
-    "ci-scripts/mcp_acceptance.py::test_text_outline_round_trip_and_edit",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing",
-    "toonz/sources/toonz/tests/automation_text_test.cpp"
-   ]
+   "writes": true
   },
   "vector.transform": {
    "origin": "worker",
    "toolset": "core",
-   "writes": true,
-   "tests": [
-    "ci-scripts/mcp_acceptance.py::test_vector_transform_rejections_and_noops_preserve_revision",
-    "ci-scripts/mcp_acceptance.py::test_compound_artwork_edits_preserve_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_affine_preserves_paint_and_native_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_vector_groups_preserve_paint_and_roundtrip",
-    "ci-scripts/mcp_acceptance.py::test_revision_matrix_drawing"
-   ]
+   "writes": true
   }
  },
  "outcomes": [

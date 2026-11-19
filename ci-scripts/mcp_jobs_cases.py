@@ -8,6 +8,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_failure_cases import _fault_worker, _scene
 from mcp_live import verified_build_digest
 from mcp_movie_cases import _fixture, _media_directory, _options, _start_configured_worker
@@ -100,6 +101,7 @@ def _held(case: NativeAcceptance) -> str:
     return _scene(case)
 
 
+@acceptance_case(worker_only="needs --test-render-fault hold-launch")
 def job_states_and_refused_second_submit(case: NativeAcceptance) -> None:
     """A second render while one runs is render_busy, creates nothing, and lists one job."""
     document = _held(case)
@@ -124,6 +126,7 @@ def job_states_and_refused_second_submit(case: NativeAcceptance) -> None:
     case.assertLessEqual(ended["cancellation"]["requested_ms"], timing["ended_ms"])
 
 
+@acceptance_case
 def job_record_identity_inputs_limits(case: NativeAcceptance) -> None:
     """A job names its worker and build, its admitted request, limits and outputs.
 
@@ -164,6 +167,7 @@ def _build_digest(case: NativeAcceptance) -> str:
     return verified_build_digest(case.native_executable)
 
 
+@acceptance_case(name="job_submit_retry_returns_same_job")
 def submit_retry_returns_same_job(case: NativeAcceptance) -> None:
     """An exact retry of a job-starting call returns the stored job and starts no render."""
     document = case.create()
@@ -180,6 +184,7 @@ def submit_retry_returns_same_job(case: NativeAcceptance) -> None:
     case.assertEqual(changed["code"], "operation_conflict")
 
 
+@acceptance_case(name="job_repeated_status_and_cancel")
 def repeated_status_and_cancel(case: NativeAcceptance) -> None:
     """Status is stable once terminal; a late cancellation is recorded and changes nothing."""
     document = case.create()
@@ -197,6 +202,7 @@ def repeated_status_and_cancel(case: NativeAcceptance) -> None:
     case.assertEqual(len(case.success("job.result", {"job_id": job["job_id"]})["artifacts"]), 1)
 
 
+@acceptance_case(name="job_stale_ids")
 def stale_job_ids(case: NativeAcceptance) -> None:
     """An id from another worker or never issued is refused and says which."""
     worker = case.success("automation.capabilities", {})["worker"]["instance_id"]
@@ -213,6 +219,7 @@ def stale_job_ids(case: NativeAcceptance) -> None:
     )
 
 
+@acceptance_case
 def job_list_filters_and_paging(case: NativeAcceptance) -> None:
     """job.list filters by document, kind and state, pages newest first, and keeps discarded
     documents' jobs."""
@@ -250,6 +257,10 @@ def job_list_filters_and_paging(case: NativeAcceptance) -> None:
     )
 
 
+@acceptance_case(
+    name="job_stalled_cancellation_stays_non_terminal",
+    worker_only="needs --test-render-fault hold-writers",
+)
 def stalled_cancellation_stays_non_terminal(case: NativeAcceptance) -> None:
     """Writers still open 30 s after cancellation show stalled without a terminal claim."""
     _fault_worker(case, "stall", "--test-render-fault", "hold-writers")
@@ -271,6 +282,7 @@ def stalled_cancellation_stays_non_terminal(case: NativeAcceptance) -> None:
     case.assertEqual((ended["status"], ended["stalled"]), ("canceled", False), ended)
 
 
+@acceptance_case(name="job_movie_cancel_while_encoding_is_forced")
 def movie_cancel_while_encoding_is_forced(case: NativeAcceptance) -> None:
     """Cancelling an MP4 job while its encoder runs reports the encoder as killed."""
     _start_configured_worker(case, _media_directory(case))
@@ -319,6 +331,7 @@ def _timed(case: NativeAcceptance, worker: Worker, method: str, params: dict[str
     return result
 
 
+@acceptance_case(name="job_busy_host_answers_polls_and_cancel")
 def busy_host_answers_polls_and_cancel(case: NativeAcceptance) -> None:
     """A scene host whose thread is busy rendering answers job.status, job.list and
     job.cancel at once, and the cancelled job ends canceled once the host is free."""

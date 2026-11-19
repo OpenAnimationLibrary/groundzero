@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 import mcp_revision_matrix
+from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -452,6 +453,7 @@ def writing_tools(capabilities: dict[str, Any]) -> list[str]:
     )
 
 
+@acceptance_case(name="revision_matrix_covers_the_catalog")
 def check_catalog(case: NativeAcceptance) -> None:
     """Fail when the table and the running worker's writing tools disagree."""
     capabilities = case.capabilities()

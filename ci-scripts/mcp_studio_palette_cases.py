@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_worker import Worker
 
 if TYPE_CHECKING:
@@ -76,6 +77,7 @@ def refuse(
     return response["error"]["details"]
 
 
+@acceptance_case
 def shared_root_flags_are_explicit_and_read_only(case: NativeAcceptance) -> None:
     """Refuse unsafe grants at launch; granted roots stay read-only unless named."""
     studio = case.directory / "studio"
@@ -166,6 +168,7 @@ def _inspect_warm(case: NativeAcceptance, worker: Worker) -> None:
     case.assertTrue(call(case, worker, "studio_palette.inspect", frozen)["read_only"])
 
 
+@acceptance_case
 def studio_palettes_list_inspect_find_preserve_roots(case: NativeAcceptance) -> None:
     """Browse a studio tree with identities, links and duplicates without changing it."""
     studio, project = case.directory / "studio", case.directory / "project"

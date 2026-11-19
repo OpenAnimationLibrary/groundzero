@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mcp_case import acceptance_case
 from mcp_worker import FULL_AUTHORITY
 
 if TYPE_CHECKING:
@@ -37,6 +38,7 @@ def _reject(case: NativeAcceptance, name: str, options: list[str]) -> None:
     case.assertIn("--media-tools", case.launch_refused(options, f"media-{name}"))
 
 
+@acceptance_case
 def media_directories_require_explicit_canonical_arguments(case: NativeAcceptance) -> None:
     """Reject incomplete, relative, missing, duplicate, or aliased directory grants."""
     directory = _pair(case, "argument-tools")
@@ -58,6 +60,7 @@ def media_directories_require_explicit_canonical_arguments(case: NativeAcceptanc
     _reject(case, "linked-ancestor", ["--media-tools", str(ancestor / directory.name)])
 
 
+@acceptance_case
 def media_tools_require_both_regular_unlinked_helpers(case: NativeAcceptance) -> None:
     """Reject missing helpers, directories used as executables, and helper symlinks."""
     for helper in ("ffmpeg", "ffprobe"):
@@ -77,6 +80,7 @@ def media_tools_require_both_regular_unlinked_helpers(case: NativeAcceptance) ->
                 _reject(case, name, ["--media-tools", str(directory)])
 
 
+@acceptance_case
 def media_tools_require_posix_execute_permission(case: NativeAcceptance) -> None:
     """Exercise POSIX execute-bit admission independently for each configured helper."""
     if os.name == "nt":
@@ -88,6 +92,7 @@ def media_tools_require_posix_execute_permission(case: NativeAcceptance) -> None
             _reject(case, f"nonexecutable-{helper}", ["--media-tools", str(directory)])
 
 
+@acceptance_case
 def media_tools_on_path_do_not_enable_movies(case: NativeAcceptance) -> None:
     """Keep the capability disabled when real media binaries are only on PATH."""
     directory = case.media_tools

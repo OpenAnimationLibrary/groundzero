@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
@@ -15,6 +17,7 @@ def _read(case: NativeAcceptance, document: str, method: str, **options: Any) ->
     return case.success(method, params)
 
 
+@acceptance_case
 def cast_paging_preserves_native_state(case: NativeAcceptance) -> None:
     """Read stable pages and reject stale or invalid page inputs without mutation.
 
@@ -46,6 +49,7 @@ def cast_paging_preserves_native_state(case: NativeAcceptance) -> None:
         case.assertEqual(case.failure(method, stale)["code"], "stale_revision")
 
 
+@acceptance_case
 def scene_usage_and_dependencies(case: NativeAcceptance) -> None:
     """Keep usage ranges, dependency coverage and basic scene checks truthful.
 
@@ -82,6 +86,7 @@ def scene_usage_and_dependencies(case: NativeAcceptance) -> None:
     case.assertEqual(_read(case, document, "cast.usage"), usage)
 
 
+@acceptance_case
 def scene_cell_limit_suppresses_unused_claims(case: NativeAcceptance) -> None:
     """Stop a real long exposure at the cell budget without certifying unused cast.
 

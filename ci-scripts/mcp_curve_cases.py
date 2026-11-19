@@ -17,6 +17,7 @@ from mcp_animation_cases import (
     _simple,
     _target,
 )
+from mcp_case import acceptance_case
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
@@ -35,6 +36,7 @@ def _copy(source: dict[str, str], destination: dict[str, str]) -> dict[str, Any]
     return {"source": source, "destination": destination, "destination_policy": "replace_all"}
 
 
+@acceptance_case
 def whole_curve_copy_preserves_independence_and_receipts(case: NativeAcceptance) -> None:
     """Copy every supported unit, retain exact receipts, and replace with empty defaults."""
     document = case.create()
@@ -75,6 +77,7 @@ def _samples_match(case: NativeAcceptance, actual: list[float], expected: list[f
         case.assertAlmostEqual(value, reference, delta=1e-7)
 
 
+@acceptance_case
 def whole_curve_retime_preserves_samples_rendering_and_reopen(case: NativeAcceptance) -> None:
     """Verify rational retime against pre-edit samples, native pixels and saved generations."""
     document, target = _animated_scene(case)
@@ -115,6 +118,7 @@ def _reject_unchanged(
     case.assertEqual(case.success("scene.summary", {"document_id": document}), before)
 
 
+@acceptance_case
 def whole_curve_rejections_and_quantized_steps(case: NativeAcceptance) -> None:
     """Refuse nonexact timing, locks and invalid endpoints without changing keys or revisions."""
     document = case.create()

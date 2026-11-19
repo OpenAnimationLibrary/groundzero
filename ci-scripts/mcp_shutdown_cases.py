@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import mcp_analysis_cases
 import mcp_failure_cases
 import mcp_scene_check_cases
+from mcp_case import acceptance_case
 from mcp_scene_access_cases import (
     DEADLINE,
     DEADLINE_EXIT,
@@ -60,6 +61,7 @@ def _claims(workspace: Path) -> list[Path]:
     ]
 
 
+@acceptance_case
 def end_of_input_during_a_render_cleans_up(case: NativeAcceptance) -> None:
     """Input ending mid-render cancels it, removes its output and exits in time; a finished
     job keeps its output and a claim marker no process holds, for a later worker to sweep."""
@@ -82,6 +84,9 @@ def end_of_input_during_a_render_cleans_up(case: NativeAcceptance) -> None:
         case.assertFalse(_held(marker), "the exited worker's claim is still held")
 
 
+@acceptance_case(
+    worker_only="needs the --test-child-fault test hook, which the adapter never passes"
+)
 def end_of_input_during_a_request_is_bounded(case: NativeAcceptance) -> None:
     """A request still running when input ends gets what remains of the deadline; the worker
     then ends itself and its scene host ends with it."""
@@ -106,6 +111,9 @@ def end_of_input_during_a_request_is_bounded(case: NativeAcceptance) -> None:
     case.assertFalse(_alive(hosts[0][0]), "The scene host outlived its worker")
 
 
+@acceptance_case(
+    worker_only=("needs --test-render-fault teardown-hang, which the adapter never passes")
+)
 def shutdown_deadline_ends_a_stuck_teardown(case: NativeAcceptance) -> None:
     """A teardown that never finishes ends at the deadline with its own exit code, and the
     next worker in the workspace sweeps what it left."""
@@ -174,6 +182,9 @@ def _helper(worker: Worker) -> int:
     raise AssertionError("The graphics probe helper did not start")
 
 
+@acceptance_case(
+    worker_only="needs the --test-child-fault test hook, which the adapter never passes"
+)
 def automation_processes_stay_in_the_background(case: NativeAcceptance) -> None:
     """Workers, scene hosts and helpers are no regular applications and never take focus,
     and a worker still renders."""
@@ -229,6 +240,9 @@ def _preflight(case: NativeAcceptance, worker: Worker) -> dict[str, Any]:
     return worker.call("render.preflight", {**params, "kind": "preview", "frame": 0})["result"]
 
 
+@acceptance_case(
+    worker_only="needs the --test-child-fault test hook, which the adapter never passes"
+)
 def graphics_probe_timeout_is_not_a_verdict(case: NativeAcceptance) -> None:
     """A probe that does not finish in time leaves graphics unknown and is tried again; a
     probe that fails is the verdict and is kept."""
@@ -248,6 +262,7 @@ def graphics_probe_timeout_is_not_a_verdict(case: NativeAcceptance) -> None:
     case.assertEqual(_preflight(case, crashed)["probes_run"], [], "A failed probe was retried")
 
 
+@acceptance_case
 def end_of_input_during_an_analysis_job_is_bounded(case: NativeAcceptance) -> None:
     """Input ending while an analysis job runs in application-thread slices still exits in
     time and cleanly; meanwhile polls answered off that thread see the job's progress."""
@@ -275,6 +290,7 @@ def _hosted_check(case: NativeAcceptance, scene: Path, name: str) -> tuple[str, 
     return job["job_id"], host
 
 
+@acceptance_case
 def hosted_scene_check_ends_with_its_host_and_its_worker(case: NativeAcceptance) -> None:
     """A scene check running in a scene host fails when its host is killed, and one still
     running when input ends goes with the worker: in time, with the host gone and no claim
@@ -299,6 +315,7 @@ def hosted_scene_check_ends_with_its_host_and_its_worker(case: NativeAcceptance)
     case.assertEqual(_claims(case.workspace), [])
 
 
+@acceptance_case
 def end_of_input_during_a_region_rebuild(case: NativeAcceptance) -> None:
     """Input ending while one large drawing's regions are being built exits in time with
     nothing left behind: the job is cancelled and the rebuild, on a private clone, ends with

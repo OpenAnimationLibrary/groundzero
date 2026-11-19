@@ -9,6 +9,7 @@ import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_file_matrix import attach_volume
 from mcp_file_tools import invoke
 from mcp_png import write_fixture
@@ -43,6 +44,7 @@ def _refused(case: NativeAcceptance, label: str, arguments: list[str], mention: 
     case.assertTrue(named, f"{label}: the refusal does not say what it refused: {diagnostics}")
 
 
+@acceptance_case
 def launch_options_naming_a_root_are_all_qualified(case: NativeAcceptance) -> None:
     """Fail when the worker accepts a directory option these cases do not cover.
 
@@ -86,6 +88,7 @@ def _bad_roots(case: NativeAcceptance) -> list[tuple[str, str, str]]:
     ]
 
 
+@acceptance_case
 def launch_roots_refuse_unsafe_paths(case: NativeAcceptance) -> None:
     """Refuse every kind of unusable directory for each launch option that names one.
 
@@ -148,6 +151,7 @@ def _import_through(case: NativeAcceptance, worker: Worker, path: str) -> dict[s
     return invoke(case, "level.import", document, path=path, name="Launched", dpi=120)
 
 
+@acceptance_case
 def launch_roots_are_canonical_and_never_widen(case: NativeAcceptance) -> None:
     """Admit a non-canonical spelling of a root only as its real directory, never as an alias.
 
@@ -176,6 +180,7 @@ def launch_roots_are_canonical_and_never_widen(case: NativeAcceptance) -> None:
                 case.assertEqual(refused["error"]["code"], "path_denied", refused)
 
 
+@acceptance_case
 def launch_roots_on_another_volume_work_and_stay_separate(case: NativeAcceptance) -> None:
     """Admit a root that lives on its own volume, and deny a link from the other roots into it.
 
@@ -194,6 +199,7 @@ def launch_roots_on_another_volume_work_and_stay_separate(case: NativeAcceptance
     case.assertEqual(refused["error"]["code"], "path_denied", refused)
 
 
+@acceptance_case
 def launch_roots_that_cannot_be_read_stay_unreadable(case: NativeAcceptance) -> None:
     """Admit an unreadable or read-only input root, and read nothing through the unreadable one.
 
@@ -219,6 +225,7 @@ def launch_roots_that_cannot_be_read_stay_unreadable(case: NativeAcceptance) -> 
     case.assertIn("result", _import_through(case, worker, str(shelf / "shelved.png")))
 
 
+@acceptance_case
 def launch_roots_with_odd_names_are_admitted_as_names(case: NativeAcceptance) -> None:
     """Treat a newline, a control character or a 255-byte name in a root as ordinary name text.
 

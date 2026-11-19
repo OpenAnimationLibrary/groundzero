@@ -12,6 +12,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_worker import Worker
 
 if TYPE_CHECKING:
@@ -235,6 +236,7 @@ def _decoded_colors(case: NativeAcceptance, path: Path) -> None:
     )
 
 
+@acceptance_case
 def movie_snapshot_metadata_and_pixels(case: NativeAcceptance) -> None:
     """Decode distinct translucent frames after source edits and discard.
 
@@ -278,6 +280,7 @@ def _reject_submit(
     case.assertEqual(set(case.workspace.rglob("*")), paths)
 
 
+@acceptance_case
 def movie_without_media_tools_is_rejected(case: NativeAcceptance) -> None:
     """Keep MP4 disabled without explicit configuration while PNG remains usable.
 
@@ -289,6 +292,7 @@ def movie_without_media_tools_is_rejected(case: NativeAcceptance) -> None:
     case.assertTrue(case.preview(document))
 
 
+@acceptance_case
 def movie_options_reject_unsupported_values(case: NativeAcceptance) -> None:
     """Reject unsupported movie dimensions and sampling before touching native state.
 
@@ -313,6 +317,7 @@ def _unpublished(case: NativeAcceptance, job: dict[str, Any], expected: str) -> 
     case.assertEqual(error["code"], "artifacts_unavailable")
 
 
+@acceptance_case
 def movie_cancellation_publishes_no_artifact(case: NativeAcceptance) -> None:
     """Cancel a real movie job and require closed writers before terminal status.
 
@@ -341,6 +346,7 @@ def _private_media(case: NativeAcceptance) -> Path:
     return directory.resolve()
 
 
+@acceptance_case
 def movie_writer_failure_publishes_no_artifact(case: NativeAcceptance) -> None:
     """Fail a real writer after successful startup without publishing partial output.
 

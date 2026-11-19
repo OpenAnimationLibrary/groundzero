@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from mcp_case import acceptance_case
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
 
+@acceptance_case
 def passive_inspection_preserves_state(case: NativeAcceptance) -> None:
     """Inspect selected components without changing documents or claiming readiness.
 

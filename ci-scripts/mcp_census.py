@@ -1,15 +1,17 @@
 """Generate and check the MCP capability census against the tool catalog, README and tests.
 
 The census data file lists every artist outcome with its classification, the tools that deliver
-it and a disposition. Tool, toolset and test fields are derived. `--update` rewrites them, the
-README tool index and the census document. The default check needs no worker; `--executable`
-adds the comparison with the live catalog.
+it and a disposition. Each tool's tests are derived from the repository sources on every load
+and are not stored. `--update` rewrites the tool and toolset fields and the README tool index;
+`--document PATH` writes the census document, which is not kept in the repository. The default
+check needs no worker; `--executable` adds the comparison with the live catalog.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import functools
 import json
 import re
 import sys
@@ -29,7 +31,6 @@ SCRIPTS = ROOT / "ci-scripts"
 CENSUS_PATH = SCRIPTS / "mcp_census.json"
 CENSUS_RELATIVE = "ci-scripts/mcp_census.json"
 README_PATH = ROOT / "tools" / "mcp" / "README.md"
-DOCUMENT_PATH = ROOT / "doc" / "mcp_capability_census.md"
 NATIVE_TESTS = ROOT / "toonz" / "sources" / "toonz" / "tests"
 ADAPTER_SOURCES = ROOT / "tools" / "mcp" / "src"
 ACCEPTANCE = "ci-scripts/mcp_acceptance.py"
@@ -72,13 +73,20 @@ UPPERCASE = re.compile(r"\b[A-Z][A-Z0-9]{2,}\b")
 
 
 def load_census(path: Path = CENSUS_PATH) -> dict[str, Any]:
-    """Read the census data file."""
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Read the census data file and derive each tool's tests from the sources."""
+    census = json.loads(path.read_text(encoding="utf-8"))
+    for tool, tests in derive_tests(census).items():
+        census["tools"][tool]["tests"] = tests
+    return census
 
 
 def dump_census(census: dict[str, Any]) -> str:
-    """Serialize the census with a stable layout."""
-    return json.dumps(census, indent=1, ensure_ascii=False) + "\n"
+    """Serialize the census with a stable layout, without the derived tests."""
+    tools = {
+        name: {key: value for key, value in entry.items() if key != "tests"}
+        for name, entry in census["tools"].items()
+    }
+    return json.dumps({**census, "tools": tools}, indent=1, ensure_ascii=False) + "\n"
 
 
 def _outcome_problems(outcome: dict[str, Any], tools: dict[str, Any]) -> list[str]:
@@ -148,7 +156,7 @@ def outcome_help(tool: str) -> str:
 
 def tool_entry_help(tool: str, toolset: str, writes: bool) -> str:
     """Say which file and entry to add for a catalog tool the census lacks."""
-    example = {tool: {"origin": "worker", "toolset": toolset, "writes": writes, "tests": []}}
+    example = {tool: {"origin": "worker", "toolset": toolset, "writes": writes}}
     return (
         f'  Add this under "tools" in {CENSUS_RELATIVE} (or run mcp_census.py --executable '
         f"APP --update), then list the tool in an outcome:\n  {json.dumps(example)}\n"
@@ -177,6 +185,8 @@ def check_outcomes(census: dict[str, Any]) -> list[str]:
 
 def _test_exists(identifier: str, root: Path) -> bool:
     path, _, name = identifier.partition("::")
+    if path == ACCEPTANCE and name in marked_cases(root):
+        return True
     target = root / path
     if not target.is_file():
         return False
@@ -331,13 +341,6 @@ def check_readme_index(census: dict[str, Any], readme: str) -> list[str]:
     return []
 
 
-def check_document(census: dict[str, Any], document: str) -> list[str]:
-    """Require the committed census document to match the data file byte for byte."""
-    if document != render_document(census, report(census)):
-        return ["census document is stale; run mcp_census.py --update"]
-    return []
-
-
 def report(census: dict[str, Any]) -> dict[str, Any]:
     """Count inventoried, implemented and tested outcomes and tools."""
     tools = census["tools"]
@@ -385,7 +388,6 @@ def format_report(counts: dict[str, Any]) -> str:
 def static_problems(
     census: dict[str, Any],
     readme: str,
-    document: str,
     root: Path = ROOT,
 ) -> list[str]:
     """Run every check that needs no worker."""
@@ -395,8 +397,6 @@ def static_problems(
     problems += check_readme(census, readme)
     problems += check_numeric_claims(census, readme, root)
     problems += check_readme_index(census, readme)
-    if not check_outcomes(census):
-        problems += check_document(census, document)
     return problems
 
 
@@ -516,6 +516,32 @@ def _catalog_claim_problems(
     return problems
 
 
+def _case_name(function: ast.FunctionDef) -> str | None:
+    """The test name `mcp_case.acceptance_case` gives a function, or none if it is unmarked."""
+    for decorator in function.decorator_list:
+        call = decorator if isinstance(decorator, ast.Call) else None
+        target = call.func if call else decorator
+        if not (isinstance(target, ast.Name) and target.id == "acceptance_case"):
+            continue
+        for keyword in call.keywords if call else []:
+            if keyword.arg == "name" and isinstance(keyword.value, ast.Constant):
+                return f"test_{keyword.value.value}"
+        return f"test_{function.name}"
+    return None
+
+
+@functools.cache
+def marked_cases(root: Path = ROOT) -> dict[str, tuple[str, ast.FunctionDef]]:
+    """Map each discovered acceptance test name to its case module and function."""
+    cases: dict[str, tuple[str, ast.FunctionDef]] = {}
+    for path in sorted((root / "ci-scripts").glob("mcp_*_cases.py")):
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            name = _case_name(node) if isinstance(node, ast.FunctionDef) else None
+            if name and isinstance(node, ast.FunctionDef):
+                cases[name] = (path.stem, node)
+    return cases
+
+
 def _function_index(tree: ast.AST) -> dict[str, ast.FunctionDef]:
     return {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
 
@@ -584,6 +610,9 @@ def acceptance_coverage(tools: set[str]) -> dict[str, Counter[str]]:
         if name.startswith("test_"):
             reached = _reachable(("mcp_acceptance", function), index, names)
             coverage[f"{ACCEPTANCE}::{name}"] = _tool_counts(reached, tools)
+    for name, (module, function) in marked_cases().items():
+        reached = _reachable((module, function), index, names)
+        coverage[f"{ACCEPTANCE}::{name}"] = _tool_counts(reached, tools)
     return coverage
 
 
@@ -620,12 +649,18 @@ def _file_candidates(tool_names: set[str]) -> dict[str, dict[str, Counter[str]]]
     return kinds
 
 
+@functools.cache
+def _candidates(names: frozenset[str]) -> dict[str, dict[str, Counter[str]]]:
+    """Count, per kind of test, how often each test names each tool; read once per process."""
+    candidates = _file_candidates(set(names))
+    candidates["acceptance"] = acceptance_coverage(set(names))
+    candidates["matrix"] = _matrix_candidates(set(names))
+    return candidates
+
+
 def derive_tests(census: dict[str, Any]) -> dict[str, list[str]]:
     """List, for each tool, the tests that call it most, from the repository sources."""
-    names = set(census["tools"])
-    candidates = _file_candidates(names)
-    candidates["acceptance"] = acceptance_coverage(names)
-    candidates["matrix"] = _matrix_candidates(names)
+    candidates = _candidates(frozenset(census["tools"]))
     result: dict[str, list[str]] = {}
     for tool, entry in census["tools"].items():
         chosen: list[str] = []
@@ -649,6 +684,7 @@ def _adapter_allowed(kind: str, test: str, entry: dict[str, Any]) -> bool:
 
 def refresh_tools(census: dict[str, Any], capabilities: dict[str, Any] | None) -> None:
     """Rewrite derived tool fields: the catalog's toolset and write flag, then tests."""
+    # Tests are derived again on load; they are set here so a new entry is complete in memory.
     if capabilities is not None:
         for tool in capabilities["tools"]:
             entry = census["tools"].setdefault(
@@ -681,12 +717,11 @@ def fetch_catalog(executable: Path) -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def update(census: dict[str, Any], capabilities: dict[str, Any] | None) -> None:
-    """Rewrite the census data file, the README tool index and the census document."""
+    """Rewrite the census data file and the README tool index."""
     refresh_tools(census, capabilities)
     CENSUS_PATH.write_text(dump_census(census), encoding="utf-8")
     readme = README_PATH.read_text(encoding="utf-8")
     README_PATH.write_text(replace_region(readme, render_readme_index(census)), encoding="utf-8")
-    DOCUMENT_PATH.write_text(render_document(census, report(census)), encoding="utf-8")
 
 
 def main() -> int:
@@ -694,6 +729,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, help="Compare with this worker's catalog")
     parser.add_argument("--update", action="store_true", help="Rewrite derived files")
+    parser.add_argument("--document", type=Path, help="Write the census document to this file")
     args = parser.parse_args()
     census = load_census()
     catalog = fetch_catalog(args.executable.resolve(strict=True)) if args.executable else None
@@ -701,7 +737,9 @@ def main() -> int:
         update(census, catalog[0] if catalog else None)
         census = load_census()
     readme = README_PATH.read_text(encoding="utf-8")
-    problems = static_problems(census, readme, DOCUMENT_PATH.read_text(encoding="utf-8"))
+    problems = static_problems(census, readme)
+    if args.document:
+        args.document.write_text(render_document(census, report(census)), encoding="utf-8")
     if catalog:
         problems += check_live(census, catalog[0], catalog[1], readme)
     print(format_report(report(census)))

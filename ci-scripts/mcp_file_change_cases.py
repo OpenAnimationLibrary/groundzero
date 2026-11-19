@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import decode_png, fixture_pixel, write_fixture
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ def _check_pixels(case: NativeAcceptance, artifact: dict[str, Any]) -> None:
         case.assertEqual(pixels[(y * scale) * width + x * scale], expected, (x, y))
 
 
+@acceptance_case
 def linked_input_changes_while_a_render_runs(case: NativeAcceptance) -> None:
     """Keep a running render on the bytes it pinned however its source file is changed.
 
@@ -70,6 +72,7 @@ def linked_input_changes_while_a_render_runs(case: NativeAcceptance) -> None:
     _check_pixels(case, artifacts[0])
 
 
+@acceptance_case
 def import_keeps_its_own_copy_when_the_source_changes(case: NativeAcceptance) -> None:
     """Render from the private copy an import made, not from the file it came from.
 
@@ -84,6 +87,7 @@ def import_keeps_its_own_copy_when_the_source_changes(case: NativeAcceptance) ->
     _check_pixels(case, artifact)
 
 
+@acceptance_case
 def artifact_swapped_for_a_link_is_refused(case: NativeAcceptance) -> None:
     """Refuse an artifact whose file was replaced by a link to an identical copy elsewhere.
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_file_cases import Observation
 from mcp_file_matrix import attach_volume, release_pipe_later
 from mcp_library_cases import _build_library, _package_scene
@@ -216,6 +217,7 @@ def _run(case: NativeAcceptance, worker: Worker, roots: Roots, probe: Probe) -> 
     case.assertTrue(quiet, f"{probe.label} left traces: {detail}")
 
 
+@acceptance_case
 def shared_roots_hold_the_file_boundary(case: NativeAcceptance) -> None:
     """Refuse links, aliases, traversal, odd names and swaps under every shared-root tool.
 
@@ -244,6 +246,7 @@ def shared_roots_hold_the_file_boundary(case: NativeAcceptance) -> None:
             _run(case, worker, roots, probe)
 
 
+@acceptance_case(worker_only="needs the --test-path-swap test hook, which the adapter never passes")
 def shared_listings_stay_in_the_folder_they_pinned(case: NativeAcceptance) -> None:
     """List the shared folder that was pinned, never the one swapped in after it.
 

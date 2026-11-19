@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from mcp_animation_cases import _pixels_match, _render
+from mcp_case import acceptance_case
 from mcp_png import Pixel
 
 if TYPE_CHECKING:
@@ -272,6 +273,7 @@ def _arm_rig(case: NativeAcceptance) -> tuple[str, str, dict[str, Any], dict[str
     return document, body, body_column, arm_column
 
 
+@acceptance_case
 def rig_hook_attach_renders_and_reopens(case: NativeAcceptance) -> None:
     """Render an arm attached at body hook H1 and pivoting about its own hook H2."""
     document, body, body_column, arm_column = _arm_rig(case)
@@ -311,6 +313,7 @@ def _level_id(case: NativeAcceptance, document: str, name: str) -> str:
     return next(item["level_id"] for item in levels if item["name"] == name)
 
 
+@acceptance_case
 def rig_pass_hook_matches_render(case: NativeAcceptance) -> None:
     """Accumulate a pass hook natively and agree with the rendered attachment."""
     document = _scene(case, "Pass hook")
@@ -362,6 +365,7 @@ def _scale_sample(case: NativeAcceptance, document: str, peg: str, **layer: str)
     )["values"][0]
 
 
+@acceptance_case
 def rig_additive_scale_renders_and_reopens(case: NativeAcceptance) -> None:
     """Render a 1 + 0.5 offset-layer scale, its disabled state, and both after reopen."""
     document = _scene(case, "Additive scale")
@@ -422,6 +426,7 @@ def _shift(case: NativeAcceptance, change: dict[str, Any], before: Point, after:
     _assert_near(case, measured, reported, 0.75)
 
 
+@acceptance_case
 def rig_handles_and_pivot_report_world_changes(case: NativeAcceptance) -> None:
     """Match handle and pivot world deltas with measured render shifts."""
     document = _scene(case, "Handles and pivot")
@@ -474,6 +479,7 @@ def _users(case: NativeAcceptance, document: str, level: str) -> list[dict[str, 
     ]
 
 
+@acceptance_case
 def rig_hook_lifecycle_and_drawing_edits(case: NativeAcceptance) -> None:
     """Exercise hook writes, users, locks, receipts and hook-aware drawing edits."""
     document = _scene(case, "Hook lifecycle")
@@ -621,6 +627,7 @@ def _drawing_edits(case: NativeAcceptance, document: str, level: str, child: str
     case.assertEqual(error["details"]["hooks"][0]["hook_number"], 3)
 
 
+@acceptance_case
 def rig_layer_lifecycle_and_animation_keys(case: NativeAcceptance) -> None:
     """Create, rename, reorder, disable and delete layers with keys through animation tools."""
     document = _scene(case, "Layer lifecycle")
@@ -723,6 +730,7 @@ def _layer_targets(case: NativeAcceptance, document: str, peg: str) -> None:
     )
 
 
+@acceptance_case
 def rig_parent_policy_and_refusals(case: NativeAcceptance) -> None:
     """Require the parent placement policy, validate hook strings and bound depth."""
     document = _scene(case, "Parent policy")

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import mcp_readonly_fixture
+from mcp_case import acceptance_case
 from mcp_readonly_calls import (
     EITHER,
     READ_CALLS,
@@ -364,6 +365,7 @@ def scaled_scene_sizes(case: NativeAcceptance) -> dict[str, int]:
     return sizes
 
 
+@acceptance_case
 def report_default_read_result_sizes(case: NativeAcceptance) -> None:
     """List the reads whose default result passes 64 KiB, and bound automation.capabilities.
 
@@ -447,6 +449,7 @@ def check_read_only_documents(harness: Harness, catalog: Sequence[dict[str, Any]
     harness.check_group("every other tool" + READ_ONLY_SUFFIX, pairs, READ_ONLY_SUFFIX)
 
 
+@acceptance_case(name="every_read_tool_leaves_files_and_native_state_unchanged")
 def every_read_tool_leaves_everything_unchanged(case: NativeAcceptance) -> None:
     """Call each catalog read tool with successful and refused arguments and require no change.
 
@@ -476,6 +479,7 @@ def _writer(f: Fixture, **params: Any) -> dict[str, Any]:
     return {**document, "operation_id": f"mislabelled-{case.operations}", **params}
 
 
+@acceptance_case(name="readonly_harness_catches_writing_tools_labelled_as_reads")
 def harness_catches_writing_tools_labelled_as_reads(case: NativeAcceptance) -> None:
     """Point the harness at writing tools as if they were reads and require it to object.
 
@@ -527,6 +531,7 @@ def _require_known_violations_to_be_exact(case: NativeAcceptance, harness: Harne
     case.assertTrue(all("revision went from" in line for line in unexplained), unexplained)
 
 
+@acceptance_case(name="readonly_harness_requires_an_entry_for_each_read_tool")
 def requires_an_entry_for_each_read_tool(case: NativeAcceptance) -> None:
     """Fail a catalog read tool that has no entry, naming what to add, and ignore writers.
 
@@ -550,6 +555,7 @@ def _write(path: Path, data: bytes = b"data") -> Path:
     return path
 
 
+@acceptance_case(name="readonly_tree_hashing_sees_every_kind_of_change")
 def tree_hashing_sees_every_kind_of_change(case: NativeAcceptance) -> None:
     """Require snapshots to report each way a file can change, and caches to be private.
 
@@ -578,6 +584,7 @@ def tree_hashing_sees_every_kind_of_change(case: NativeAcceptance) -> None:
         target = _write(root / "folder" / "file.bin")
 
 
+@acceptance_case(name="readonly_user_level_files_are_watched_by_name")
 def user_level_files_are_watched_by_name(case: NativeAcceptance) -> None:
     """Require entries of a shared user-level directory to be seen only when they match.
 
@@ -603,6 +610,7 @@ def user_level_files_are_watched_by_name(case: NativeAcceptance) -> None:
     case.assertEqual(snapshot_named({"absent": shared / "none"}, USER_LEVEL_NAMES), {})
 
 
+@acceptance_case(name="readonly_cache_declarations_are_private_and_exact")
 def declared_caches_are_private_and_exact(case: NativeAcceptance) -> None:
     """Require caches to lie in private storage and to excuse only what they declare.
 

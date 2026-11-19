@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
@@ -44,6 +46,7 @@ def _integer_properties(schema: Any, path: str) -> list[tuple[str, dict[str, Any
     return found
 
 
+@acceptance_case
 def integers_beyond_exact_precision_are_refused(case: NativeAcceptance) -> None:
     """Refuse integers a JSON double cannot hold exactly instead of rounding them.
 
@@ -65,6 +68,9 @@ def integers_beyond_exact_precision_are_refused(case: NativeAcceptance) -> None:
             case.assertLessEqual(schema.get("maximum", 2**63), MAX_SAFE_INTEGER)
 
 
+@acceptance_case(
+    worker_only=("writes NaN and overflowing number literals, which no SDK client can encode")
+)
 def non_finite_numbers_are_refused_before_dispatch(case: NativeAcceptance) -> None:
     """Refuse NaN, infinities and overflowing literals as unparsable requests.
 
@@ -78,6 +84,7 @@ def non_finite_numbers_are_refused_before_dispatch(case: NativeAcceptance) -> No
     _no_documents(case)
 
 
+@acceptance_case
 def wrong_value_kinds_are_refused_by_schema(case: NativeAcceptance) -> None:
     """Refuse a non-integer, string, boolean, null or array where an integer is declared.
 
@@ -90,6 +97,7 @@ def wrong_value_kinds_are_refused_by_schema(case: NativeAcceptance) -> None:
     _no_documents(case)
 
 
+@acceptance_case
 def nested_values_are_refused_by_schema(case: NativeAcceptance) -> None:
     """Refuse a deeply nested value in an undeclared field as a schema violation.
 
@@ -105,6 +113,9 @@ def nested_values_are_refused_by_schema(case: NativeAcceptance) -> None:
     _no_documents(case)
 
 
+@acceptance_case(
+    worker_only="writes request lines nested beyond the worker's own JSON parser limit"
+)
 def deep_nesting_is_refused_by_the_parser(case: NativeAcceptance) -> None:
     """Refuse nesting beyond the JSON parser's limit as a typed parse error.
 
@@ -120,6 +131,9 @@ def deep_nesting_is_refused_by_the_parser(case: NativeAcceptance) -> None:
     _no_documents(case)
 
 
+@acceptance_case(
+    worker_only="writes request lines that repeat a key, which no SDK client can encode"
+)
 def duplicate_keys_are_refused_before_dispatch(case: NativeAcceptance) -> None:
     """Refuse a repeated key at any depth, however it is spelled, before it can act.
 
@@ -148,6 +162,7 @@ def duplicate_keys_are_refused_before_dispatch(case: NativeAcceptance) -> None:
     case.assertEqual(created["result"]["name"], "Distinct keys")
 
 
+@acceptance_case
 def non_lowercase_drawing_suffixes_are_refused(case: NativeAcceptance) -> None:
     """Refuse every suffix outside zero to eight lowercase ASCII letters, changing nothing.
 
@@ -190,6 +205,7 @@ def _curve_value(case: NativeAcceptance, document: str, effect: str) -> int:
     return next(item for item in result["parameters"] if item["name"] == "curveType")["value"]
 
 
+@acceptance_case
 def enum_parameters_accept_only_native_integers(case: NativeAcceptance) -> None:
     """Refuse menu captions, aliases and near-integers for an enumerated FX parameter.
 
@@ -225,6 +241,7 @@ def enum_parameters_accept_only_native_integers(case: NativeAcceptance) -> None:
     case.assertEqual(captions[changed["value"]], "Ease In")
 
 
+@acceptance_case
 def hidden_fx_parameters_are_neither_listed_nor_writable(case: NativeAcceptance) -> None:
     """Keep a hidden native parameter (the blur SSE switch) out of reads and writes.
 
@@ -333,6 +350,7 @@ def _line_break_variants(schema: dict[str, Any]) -> list[str]:
     return [text for text in candidates if whole.fullmatch(text) is None]
 
 
+@acceptance_case
 def published_patterns_are_enforced_with_whole_string_semantics(case: NativeAcceptance) -> None:
     """Refuse a line break after, before or instead of every published pattern's match.
 

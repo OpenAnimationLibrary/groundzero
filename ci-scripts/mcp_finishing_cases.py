@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_fx_authoring_cases import (
     _close_worker,
     _graph,
@@ -113,6 +114,7 @@ def _check_catalog(case: NativeAcceptance) -> None:
     case.assertEqual(separation["id"], "linear_gradient_separation")
 
 
+@acceptance_case
 def finishing_bounds_reject_before_mutation(case: NativeAcceptance) -> None:
     """Advertise every tightened range and reject values past it without changing the scene."""
     _check_catalog(case)
@@ -143,6 +145,7 @@ def _separation_failure(
     case.assertAlmostEqual(details["frame"], frame, places=6)
 
 
+@acceptance_case
 def finishing_gradient_separation_rejects_before_mutation(case: NativeAcceptance) -> None:
     """Reject linear-gradient points that come within 0.001 at any frame, keys included."""
     document = _scene(case)
@@ -214,6 +217,7 @@ def _scale_keys(
     )
 
 
+@acceptance_case
 def finishing_preflight_bounds_render_extent(case: NativeAcceptance) -> None:
     """Reject renders whose scaled extent passes the limit, at the first failing frame."""
     document, target, artwork = _artwork(case)
@@ -249,6 +253,7 @@ def finishing_preflight_bounds_render_extent(case: NativeAcceptance) -> None:
     _close_worker(case)
 
 
+@acceptance_case
 def finishing_preflight_requires_unmirrored_erosion(case: NativeAcceptance) -> None:
     """Reject erode/dilate under a mirrored placement before rendering, then render unmirrored."""
     document, target, artwork = _artwork(case)
@@ -263,6 +268,7 @@ def finishing_preflight_requires_unmirrored_erosion(case: NativeAcceptance) -> N
     _close_worker(case)
 
 
+@acceptance_case
 def finishing_required_inputs_are_diagnosed(case: NativeAcceptance) -> None:
     """Report REQUIRED_INPUT_MISSING until the effect's required input is connected."""
     document = _scene(case)
@@ -292,6 +298,9 @@ def _deadline_worker(case: NativeAcceptance, milliseconds: int) -> None:
     case.addCleanup(case.worker.close)
 
 
+@acceptance_case(
+    worker_only=("needs the --test-render-deadline-ms test hook, which the adapter never passes")
+)
 def finishing_render_deadline_stops_slow_job(case: NativeAcceptance) -> None:
     """End a slow light-wrap render at its deadline without artifacts and keep serving."""
     _deadline_worker(case, 1500)
@@ -334,6 +343,7 @@ def _soft_disk(case: NativeAcceptance, document: str) -> str:
     return disk
 
 
+@acceptance_case
 def light_presets_cover_native_types(case: NativeAcceptance) -> None:
     """Replay presets, copies and reopened renders for the six light and glow finishing FX."""
     presets_cover_native_types(
@@ -350,6 +360,7 @@ def light_presets_cover_native_types(case: NativeAcceptance) -> None:
     )
 
 
+@acceptance_case
 def stylize_presets_cover_native_types(case: NativeAcceptance) -> None:
     """Replay presets, copies and reopened renders for the six blur and stylize finishing FX."""
     presets_cover_native_types(
@@ -366,6 +377,7 @@ def stylize_presets_cover_native_types(case: NativeAcceptance) -> None:
     )
 
 
+@acceptance_case
 def grade_presets_cover_native_types(case: NativeAcceptance) -> None:
     """Replay presets, copies and reopened renders for the five matte and grade finishing FX."""
     presets_cover_native_types(

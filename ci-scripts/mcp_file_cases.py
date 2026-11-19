@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import mcp_file_tools
+from mcp_case import acceptance_case
 from mcp_file_matrix import (
     ALIAS,
     BY_MODE,
@@ -39,6 +40,7 @@ PERMISSION = {"unreadable folder", "read-only folder"}
 SCHEMA_REJECTION = "INVALID_ARGUMENTS"
 
 
+@acceptance_case
 def file_tools_are_all_qualified(case: NativeAcceptance) -> None:
     """Fail when a catalog tool names a path but the boundary table does not cover it.
 
@@ -183,16 +185,19 @@ def run_matrix(case: NativeAcceptance, mode: str) -> None:
     _no_logs_name(case, marker, started)
 
 
+@acceptance_case
 def read_tools_hold_the_file_boundary(case: NativeAcceptance) -> None:
     """Hold every input-reading tool to the boundary scenarios (the files-in family)."""
     run_matrix(case, "read")
 
 
+@acceptance_case
 def write_tools_hold_the_file_boundary(case: NativeAcceptance) -> None:
     """Hold every output-writing tool to the boundary scenarios (the files-out family)."""
     run_matrix(case, "write")
 
 
+@acceptance_case
 def published_tools_hold_the_file_boundary(case: NativeAcceptance) -> None:
     """Hold every tool that reopens a worker publication to the boundary scenarios."""
     run_matrix(case, "published")

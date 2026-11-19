@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import decode_png
 from mcp_studio_palette_cases import (
     PALETTE_ID,
@@ -174,6 +175,7 @@ def _thumbnails(case: NativeAcceptance, worker: Worker) -> None:
     )
 
 
+@acceptance_case
 def library_items_report_identity_dependencies_and_thumbnails(case: NativeAcceptance) -> None:
     """Report identities without inventing them, pin dependencies, and never write."""
     package = _package_scene(case)
@@ -247,6 +249,7 @@ def _hardened_parsers_refuse(case: NativeAcceptance, scene: str, library: Path) 
     call(case, worker, "studio_palette.inspect", params)
 
 
+@acceptance_case
 def shared_parsers_refuse_damaged_files(case: NativeAcceptance) -> None:
     """The damaged templates and palettes that once ended a parse helper are refused."""
     scene = (_package_scene(case) / "scene.tnz").read_text()
@@ -255,6 +258,9 @@ def shared_parsers_refuse_damaged_files(case: NativeAcceptance) -> None:
     _hardened_parsers_refuse(case, scene, library)
 
 
+@acceptance_case(
+    worker_only="needs the --test-child-fault test hook, which the adapter never passes"
+)
 def shared_parser_failures_leave_worker_serving(case: NativeAcceptance) -> None:
     """Native parser crashes, hangs and memory growth end only the parse helper."""
     scene = (_package_scene(case) / "scene.tnz").read_text()

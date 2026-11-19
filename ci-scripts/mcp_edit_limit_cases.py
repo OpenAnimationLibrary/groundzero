@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
@@ -40,6 +42,7 @@ def _select(
     )
 
 
+@acceptance_case
 def unknown_style_rejects_the_whole_vector_batch(case: NativeAcceptance) -> None:
     """Refuse a style the palette lacks before any stroke of the batch is applied.
 
@@ -76,6 +79,7 @@ def unknown_style_rejects_the_whole_vector_batch(case: NativeAcceptance) -> None
     )
 
 
+@acceptance_case
 def oversized_vector_selection_is_refused(case: NativeAcceptance) -> None:
     """Return at most 128 selected strokes and refuse a larger result, never truncating it.
 
@@ -106,6 +110,7 @@ def _exposed_card(case: NativeAcceptance) -> str:
     return document
 
 
+@acceptance_case
 def render_frame_ranges_are_refused_before_a_job_exists(case: NativeAcceptance) -> None:
     """Refuse an end before the start, a negative frame and a zero step without creating a job.
 
@@ -130,6 +135,7 @@ def render_frame_ranges_are_refused_before_a_job_exists(case: NativeAcceptance) 
     case.assertEqual(case.wait_job(job["job_id"])["status"], "completed")
 
 
+@acceptance_case
 def exact_render_retry_returns_the_same_job(case: NativeAcceptance) -> None:
     """Replay a submit receipt instead of starting a second render, even after the job ends.
 

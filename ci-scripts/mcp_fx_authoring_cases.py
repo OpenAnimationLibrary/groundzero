@@ -9,6 +9,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png, fixture_pixel
 
 if TYPE_CHECKING:
@@ -153,6 +154,7 @@ def _reopen(case: NativeAcceptance, document: str) -> tuple[str, dict[str, str]]
     return restored, names
 
 
+@acceptance_case
 def fx_duplicate_and_enable_preserve_native_roundtrip(case: NativeAcceptance) -> None:
     """Keep copied animation independent, generator exposure ownership, and native bypass."""
     document = _scene(case)
@@ -259,6 +261,7 @@ def _blur_fixture(case: NativeAcceptance) -> tuple[str, str, str]:
     return document, source, blur
 
 
+@acceptance_case
 def fx_presets_preserve_keys_and_target_graph(case: NativeAcceptance) -> None:
     """Transfer a keyed native blur while retaining target routing and exact bypass pixels."""
     document, artwork, blur = _blur_fixture(case)
@@ -326,6 +329,7 @@ def _reject_unchanged(
     case.assertEqual(case.success("scene.summary", {"document_id": document})["revision"], revision)
 
 
+@acceptance_case
 def fx_authoring_rejections_preserve_document(case: NativeAcceptance) -> None:
     """Reject invalid names, foreign handles, structural copies, stale revisions and locks."""
     document = _scene(case)
@@ -356,6 +360,7 @@ def fx_authoring_rejections_preserve_document(case: NativeAcceptance) -> None:
     _close_worker(case)
 
 
+@acceptance_case
 def fx_preset_integrity_and_file_receipts(case: NativeAcceptance) -> None:
     """Reject tampering before mutation and replay exact file receipts after source edits."""
     document = _scene(case)
@@ -459,6 +464,7 @@ def _preset_path_rejections(
     extra.unlink()
 
 
+@acceptance_case
 def fx_preset_capacity_keeps_exact_replay(case: NativeAcceptance) -> None:
     """Enforce preset and receipt quotas without invalidating exact file publication retries."""
     document = _scene(case)
@@ -560,6 +566,7 @@ def presets_cover_native_types(
     _close_worker(case)
 
 
+@acceptance_case
 def fx_presets_cover_each_admitted_native_type(case: NativeAcceptance) -> None:
     """Require the full admitted catalog and replay presets for the original six factories."""
     catalog = case.success("fx.catalog", {})

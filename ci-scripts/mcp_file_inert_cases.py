@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mcp_case import acceptance_case
 from mcp_file_cases import Observation
 from mcp_library_cases import _build_library, _package_scene
 from mcp_studio_palette_cases import PALETTE_ID, palette_text, shared_worker
@@ -77,6 +78,7 @@ def _calls(case: NativeAcceptance, worker: Worker, palette: str, item: str) -> l
     return texts
 
 
+@acceptance_case
 def instruction_like_text_is_returned_as_data_and_never_acted_on(case: NativeAcceptance) -> None:
     """Return names, scene names and Library metadata that read as commands without obeying them.
 

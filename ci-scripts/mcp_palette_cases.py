@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
+
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
 
@@ -210,6 +212,7 @@ def _assert_lifecycle(test: NativeAcceptance, image_format: str) -> None:
     test.assertEqual([cell["drawing_id"] for cell in cells["cells"]], [DRAWING, DRAWING])
 
 
+@acceptance_case(name="vector_palette_lifecycle_preserves_native_roundtrip")
 def check_vector_palette_lifecycle(test: NativeAcceptance) -> None:
     """Preserve vector style IDs, page order, and independent animated copies.
 
@@ -219,6 +222,7 @@ def check_vector_palette_lifecycle(test: NativeAcceptance) -> None:
     _assert_lifecycle(test, "vector")
 
 
+@acceptance_case(name="toonz_palette_lifecycle_preserves_native_roundtrip")
 def check_toonz_palette_lifecycle(test: NativeAcceptance) -> None:
     """Preserve TLV ink/paint references and ordered animated palette pages.
 
@@ -228,6 +232,7 @@ def check_toonz_palette_lifecycle(test: NativeAcceptance) -> None:
     _assert_lifecycle(test, "toonzRaster")
 
 
+@acceptance_case(name="palette_page_rejections_preserve_palette")
 def check_palette_page_rejections(test: NativeAcceptance) -> None:
     """Reject unsafe page operations without changing artwork, keys, or revision.
 
@@ -280,6 +285,7 @@ def check_palette_page_rejections(test: NativeAcceptance) -> None:
     test.assertEqual(test.success("scene.summary", {"document_id": document})["revision"], revision)
 
 
+@acceptance_case(name="palette_page_capacity_preserves_native_roundtrip")
 def check_palette_page_capacity(test: NativeAcceptance) -> None:
     """Accept 128 pages, reject page 129, and reclaim a removed empty page.
 

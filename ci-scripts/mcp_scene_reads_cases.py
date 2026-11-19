@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import mcp_scene_access_cases as access
+from mcp_case import acceptance_case
 from mcp_studio_palette_cases import call, refuse
 from mcp_worker import Worker
 
@@ -138,6 +139,7 @@ def _count_objects(case: NativeAcceptance, document: str) -> int:
     return inventory(case, document, "stage_objects")["discovered"]
 
 
+@acceptance_case
 def read_only_inventory_tells_instances_from_definitions(case: NativeAcceptance) -> None:
     """Two instances of one sub-xsheet are two rows with one level_id; reads, graphs and
     renders never add stage objects."""
@@ -181,6 +183,7 @@ def _many_objects(base: Path, folder: Path) -> Path:
     return folder / "shot.tnz"
 
 
+@acceptance_case
 def read_only_inventory_bounds_its_rows(case: NativeAcceptance) -> None:
     """A section past 65,536 rows is cut there and says so; pages stay within 1 MiB."""
     base = access.base_package(case)
@@ -210,6 +213,7 @@ def _preflight_agrees(case: NativeAcceptance, document: str, changed: dict[str, 
     case.assertEqual(report["first_failure"], "source_pins")
 
 
+@acceptance_case
 def read_only_source_status_reports_each_change(case: NativeAcceptance) -> None:
     """Modified, replaced and missing pins are told apart; a missing scene is missing;
     a decoding read of a changed level is refused."""
@@ -270,6 +274,7 @@ def _metadata_only(status: dict[str, Any]) -> set[str]:
     return {Path(path).name for path in status["verification"]["metadata_only_paths"]}
 
 
+@acceptance_case
 def read_only_source_status_checks_content_within_bounds(case: NativeAcceptance) -> None:
     """An equal-size rewrite in place within one clock tick is a change for a digested file;
     a file above the per-file bound is reported as checked by metadata only."""
@@ -329,6 +334,7 @@ def _budget_scene(case: NativeAcceptance, count: int) -> Path:
     return folder / "shot.tnz"
 
 
+@acceptance_case
 def read_only_content_digests_hold_their_deadlines(case: NativeAcceptance) -> None:
     """At the digest budget, open and source_status finish inside their deadlines, and the
     files past the budget are checked by metadata only."""
@@ -423,6 +429,7 @@ def _advisories(case: NativeAcceptance, scene: Path, show: str) -> None:
     access.discard(case, case.worker, document)
 
 
+@acceptance_case
 def read_only_projects_inspect_and_list_scenes(case: NativeAcceptance) -> None:
     """A granted project's file is parsed in a helper and its scenes folder listed;
     scenes that differ from its defaults are advised."""
@@ -463,6 +470,7 @@ def _dependency_scene(case: NativeAcceptance, base: Path) -> Path:
     return folder / "shot.tnz"
 
 
+@acceptance_case
 def read_only_dependencies_list_every_file_read(case: NativeAcceptance) -> None:
     """Hook sidecars, textures, sound sources and FX file resources are listed with their
     resolution and pin state."""
@@ -544,6 +552,7 @@ def _fx_reads(case: NativeAcceptance, document: str) -> None:
     case.assertIn("value", {row["name"] for row in parameters["parameters"]})
 
 
+@acceptance_case
 def read_only_documents_answer_the_slice_two_reads(case: NativeAcceptance) -> None:
     """Each of the twelve slice-2 reads answers on a user scene, from its host."""
     scenes = access.corpus(case)
@@ -573,6 +582,9 @@ def read_only_documents_answer_the_slice_two_reads(case: NativeAcceptance) -> No
 # ---------------------------------------------------------------- deadline
 
 
+@acceptance_case(
+    worker_only="needs the --test-child-fault test hook, which the adapter never passes"
+)
 def read_only_reads_end_at_the_read_deadline(case: NativeAcceptance) -> None:
     """A host that stops answering a read is stopped at 30 seconds; the document is lost
     and the worker keeps serving."""

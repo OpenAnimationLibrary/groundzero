@@ -7,6 +7,7 @@ import hashlib
 import math
 from typing import TYPE_CHECKING, Any
 
+from mcp_case import acceptance_case
 from mcp_png import Pixel, decode_png
 
 if TYPE_CHECKING:
@@ -233,6 +234,7 @@ def _reopen(case: NativeAcceptance, document: str) -> tuple[str, dict[str, Any]]
     return opened, {"level_id": summary["levels"][0]["level_id"], "drawing_id": DRAWING}
 
 
+@acceptance_case(name="vector_affine_preserves_paint_and_native_roundtrip")
 def vector_affine_preserves_paint_and_roundtrip(case: NativeAcceptance) -> None:
     """Transform nested paint and an open stroke, then verify native PLI geometry and pixels.
 
@@ -336,6 +338,7 @@ def _reject_raster(case: NativeAcceptance, document: str) -> None:
     case.assertEqual(case.success("scene.summary", {"document_id": document}), summary)
 
 
+@acceptance_case(name="vector_transform_rejections_and_noops_preserve_revision")
 def vector_transform_rejections_and_noops(case: NativeAcceptance) -> None:
     """Reject unsupported matrices and output bounds without publishing a partial drawing.
 
@@ -381,6 +384,7 @@ def vector_transform_rejections_and_noops(case: NativeAcceptance) -> None:
     _reject_raster(case, document)
 
 
+@acceptance_case
 def vector_transform_scales_radii_explicitly(case: NativeAcceptance) -> None:
     """Distinguish preserved widths from native determinant-scaled widths in geometry and pixels.
 
@@ -424,6 +428,7 @@ def _assert_pli_precision(
             case.assertAlmostEqual(point["thickness"], source["thickness"], delta=radius_error)
 
 
+@acceptance_case(name="vector_transform_respects_fractional_pli_precision")
 def vector_transform_fractional_pli_precision(case: NativeAcceptance) -> None:
     """Qualify transformed fractional coordinates and radii against actual PLI precision.
 
