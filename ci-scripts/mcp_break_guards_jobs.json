@@ -64,5 +64,21 @@
         ]
       }
     ]
+  },
+  {
+    "id": "receipts-never-drop-unjournaled",
+    "file": "toonz/sources/toonz/automation_dispatch.cpp",
+    "native": true,
+    "find": "  if (receipt.durable) m_droppable.push_back(operationId);",
+    "replace": "  m_droppable.push_back(operationId);",
+    "why": "An in-memory receipt the journal does not hold is never dropped; without a journal the receipt limit refuses with its reason.",
+    "tests": [
+      {
+        "kind": "acceptance",
+        "names": [
+          "native_domain_regressions"
+        ]
+      }
+    ]
   }
 ]
