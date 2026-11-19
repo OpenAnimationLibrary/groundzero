@@ -70,8 +70,8 @@ def _noise_png(path: Path, size: int, seed: int) -> None:
 
 def _raster(case: NativeAcceptance, document: str) -> None:
     first, second = case.inputs / "noise-1.png", case.inputs / "noise-2.png"
-    _noise_png(first, 256, 1)
-    _noise_png(second, 256, 2)
+    _noise_png(first, 512, 1)
+    _noise_png(second, 512, 2)
     level = case.mutate("level.import", document, path=str(first), name="Noise", dpi=120)
     case.mutate(
         "raster.import_png",
