@@ -420,10 +420,11 @@
    "toolset": "core",
    "writes": false,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_errors_are_declared",
     "ci-scripts/mcp_acceptance.py::test_finished_render_folder_is_swept_once_its_worker_is_gone",
     "ci-scripts/mcp_acceptance.py::test_dead_workers_directories_are_swept_and_live_ones_are_not",
     "ci-scripts/mcp_acceptance.py::test_instruction_like_text_is_returned_as_data_and_never_acted_on",
-    "ci-scripts/mcp_acceptance.py::test_missing_saved_assets_are_not_admitted"
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
    ]
   },
   "camera.inspect": {
@@ -1542,10 +1543,10 @@
    "toolset": "core",
    "writes": true,
    "tests": [
+    "ci-scripts/mcp_acceptance.py::test_effect_declarations_match_behavior",
     "ci-scripts/mcp_acceptance.py::test_job_submit_retry_returns_same_job",
     "ci-scripts/mcp_acceptance.py::test_read_only_journey_renders_and_preserves_sources",
     "ci-scripts/mcp_acceptance.py::test_readonly_harness_catches_writing_tools_labelled_as_reads",
-    "ci-scripts/mcp_acceptance.py::test_every_read_tool_leaves_files_and_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_render",
     "toonz/sources/toonz/tests/automation_fx_preflight_test.cpp",
     "ci-scripts/mcp_shot.py"
@@ -1700,9 +1701,9 @@
    "writes": true,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_effect_declarations_match_behavior",
     "ci-scripts/mcp_acceptance.py::test_custom_dpi_survives_reopen_and_remains_independent_of_camera",
     "ci-scripts/mcp_acceptance.py::test_package_publish_failure_reports_what_is_on_disk",
-    "ci-scripts/mcp_acceptance.py::test_package_write_refusals_leave_nothing_behind",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_lifecycle",
     "toonz/sources/toonz/tests/automation_audio_test.cpp",
     "toonz/sources/toonz/tests/automation_rig_test.cpp",
@@ -1717,7 +1718,7 @@
     "ci-scripts/mcp_acceptance.py::test_revision_conflicts_noops_and_receipt_replay",
     "ci-scripts/mcp_acceptance.py::test_receipt_capacity_preserves_bounded_cancellation",
     "ci-scripts/mcp_acceptance.py::test_audio_clip_edits_reject_before_mutation",
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "ci-scripts/mcp_acceptance.py::test_effect_declarations_match_behavior",
     "ci-scripts/mcp_acceptance.py::test_revision_matrix_scene",
     "toonz/sources/toonz/tests/automation_audio_test.cpp"
    ]
@@ -1738,11 +1739,11 @@
    "writes": false,
    "tests": [
     "ci-scripts/mcp_acceptance.py::test_drawing_renumber_rejections_preserve_scene",
+    "ci-scripts/mcp_acceptance.py::test_errors_are_declared",
     "ci-scripts/mcp_acceptance.py::test_scene_edit_failures_leave_native_state_unchanged",
     "ci-scripts/mcp_acceptance.py::test_vector_transform_rejections_and_noops_preserve_revision",
-    "ci-scripts/mcp_acceptance.py::test_audio_save_reopen_render_and_scene_tools",
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp",
     "toonz/sources/toonz/tests/automation_audio_test.cpp",
-    "toonz/sources/toonz/tests/automation_fx_test.cpp",
     "tools/mcp/src/native.test.ts",
     "ci-scripts/mcp_shot.py"
    ]
@@ -1861,6 +1862,14 @@
     "ci-scripts/mcp_acceptance.py::test_text_outline_round_trip_and_edit",
     "ci-scripts/mcp_acceptance.py::test_text_rejections_preserve_drawing",
     "toonz/sources/toonz/tests/automation_text_test.cpp"
+   ]
+  },
+  "tool.describe": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false,
+   "tests": [
+    "toonz/sources/toonz/tests/automation_dispatch_test.cpp"
    ]
   },
   "toolsets.disable": {
