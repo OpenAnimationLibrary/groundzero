@@ -191,9 +191,16 @@ class Session:
         """Call a reading tool on the scene."""
         return self.case.success(tool, {"document_id": self.document, **params})
 
+    def summary(self) -> dict[str, Any]:
+        """Read the scene summary, which holds a model scene in one page."""
+        summary = self.read("scene.summary", {})
+        partial = [name for name, page in summary["pages"].items() if page["next_offset"]]
+        self.case.assertEqual(partial, [], "the model compared a partial summary")
+        return summary
+
     def observe(self) -> dict[str, Any]:
         """Read everything the model predicts, with the worker's read tools only."""
-        summary = self.read("scene.summary", {})
+        summary = self.summary()
         names = {item["level_id"]: item["name"] for item in summary["levels"]}
         camera = summary["camera"]
         pegs = [item for item in summary["objects"] if item["kind"] == "pegbar"]
@@ -293,7 +300,7 @@ class Session:
         opened = self.case.mutate("scene.open", None, path=saved["package_directory"])
         old, self.document = self.document, opened["document_id"]
         self.case.mutate("scene.discard", old)
-        summary = self.read("scene.summary", {})
+        summary = self.summary()
         self.handles["level"] = {item["name"]: item["level_id"] for item in summary["levels"]}
         self.handles["column"] = {item["name"]: item["column_id"] for item in summary["columns"]}
         self.handles["peg"] = {

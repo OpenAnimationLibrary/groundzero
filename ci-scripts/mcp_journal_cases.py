@@ -603,11 +603,32 @@ def crash_during_compaction_loses_nothing(case: NativeAcceptance) -> None:
     case.assertEqual(case.success("journal.status", {})["state"], "ok")
 
 
+def _recipe_step(name: str, tool: str, **arguments: Any) -> dict[str, Any]:
+    return {"id": name, "tool": tool, "arguments": arguments}
+
+
+# A recipe that saves, edits, saves again and goes on from the second package.
+RESUMED_RECIPE = {
+    "steps": [
+        _recipe_step(
+            "save_a", "scene.save_copy", document_id="${input.document_id}", directory="${input.a}"
+        ),
+        _recipe_step("retime", "scene.settings", document_id="${input.document_id}", frame_rate=12),
+        _recipe_step(
+            "save_b", "scene.save_copy", document_id="${input.document_id}", directory="${input.b}"
+        ),
+        _recipe_step("reopen", "scene.open", path="${input.b}"),
+    ]
+}
+
+
 @acceptance_case(worker_only=FAULT_FLAG)
 def recipe_resume_lists_and_settles_unresolved(case: NativeAcceptance) -> None:
     """A recipe whose worker died mid-way is resumed by listing its unresolved writes and
     settling each: the interrupted save is found published, nothing runs twice and there is
-    one package per save. Steps are inline; move onto mcp_recipe_run.py at integration."""
+    one package per save."""
+    from mcp_recipe_run import RecipeRun, run_step, substitute
+
     saved = "recipe-save-b"
     restart(
         case,
@@ -618,12 +639,16 @@ def recipe_resume_lists_and_settles_unresolved(case: NativeAcceptance) -> None:
         saved,
     )
     document, _level, _column = case.populated_scene()
-    first = case.mutate("scene.save_copy", document, directory=str(case.workspace / "save-a"))
-    case.mutate("scene.settings", document, frame_rate=12)
-    second = case.write_params(document, {"directory": str(case.workspace / "save-b")})
+    folders = {name: str(case.workspace / f"save-{name}") for name in ("a", "b")}
+    run = RecipeRun(RESUMED_RECIPE, {"document_id": document, **folders})
+    save_a, retime, save_b, reopen = RESUMED_RECIPE["steps"]
+    first = run_step(case, run, save_a)
+    run_step(case, run, retime)
+    arguments = substitute(save_b["arguments"], run.inputs, run.results)
+    second = case.write_params(arguments.pop("document_id"), arguments)
     second["operation_id"] = saved
     with case.assertRaises(RuntimeError):
-        case.worker.call("scene.save_copy", second)
+        case.worker.call(save_b["tool"], second)
     case.assertEqual(case.worker.process.wait(timeout=30), CRASH_EXIT_CODE)
     restart(case, "resumed")
     unresolved = case.success("operation.list", {})["operations"]
@@ -631,11 +656,12 @@ def recipe_resume_lists_and_settles_unresolved(case: NativeAcceptance) -> None:
     settled = status(case, saved)
     case.assertEqual(settled["verdict"]["kind"], "published")
     case.assertEqual(settled["verdict"]["evidence"]["target"], "save-b")
-    case.assertEqual(case.failure("scene.save_copy", second)["code"], "operation_interrupted")
+    case.assertEqual(case.failure(save_b["tool"], second)["code"], "operation_interrupted")
     packages = sorted(path.name for path in case.workspace.glob("save-*"))
     case.assertEqual(packages, ["save-a", "save-b"])
-    case.assertEqual(first["package_directory"], str(case.workspace / "save-a"))
+    case.assertEqual(first["package_directory"], folders["a"])
     case.assertEqual(case.success("operation.list", {})["operations"], unresolved)
     # The reconciler registered the published package, so the recipe goes on from it.
-    resumed = case.mutate("scene.open", None, path=str(case.workspace / "save-b"))
+    resumed = run_step(case, run, reopen)
     case.assertEqual(resumed["admission"], "workspace_registry")
+    case.assertEqual(run.executed, ["save_a", "retime", "reopen"])
