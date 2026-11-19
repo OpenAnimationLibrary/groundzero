@@ -721,3 +721,11 @@ def intake_retry_after_a_lost_worker_never_duplicates(case: NativeAcceptance) ->
     case.assertEqual(len(copies), 2)
     case.assertLessEqual(set(again), set(copies), "the retry made a second set of copies")
     case.assertEqual((status["state"], retried), ("completed", None))
+
+
+@acceptance_case
+def intake_provenance_refuses_an_unknown_level(case: NativeAcceptance) -> None:
+    """intake.provenance names a level of the document; a handle that is none is refused."""
+    document = case.create("No such level")
+    error = case.failure("intake.provenance", {"document_id": document, "level_id": "level_none"})
+    case.assertEqual(error["code"], "invalid_handle", error)

@@ -346,3 +346,11 @@ def _parent_column(case: NativeAcceptance, document: str) -> str:
     rider = case.mutate("column.create", document, name="Rider")["object_id"]
     _link(case, document, rider, holder["object_id"], "preserve_local")
     return holder["column_id"]
+
+
+@acceptance_case
+def object_groups_refuses_a_stale_revision(case: NativeAcceptance) -> None:
+    """object.groups reads at the revision the caller holds, and refuses another."""
+    document = case.create("Stale groups")
+    error = case.failure("object.groups", {"document_id": document, "expected_revision": "999"})
+    case.assertEqual(error["code"], "revision_conflict", error)
