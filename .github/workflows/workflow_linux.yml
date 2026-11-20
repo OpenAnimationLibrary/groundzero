@@ -254,7 +254,8 @@ jobs:
     - name: Qualify native MCP worker milestones
       id: mcp_native
       if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
-      timeout-minutes: 15
+      # Provisional until the sharded step has been measured on this runner.
+      timeout-minutes: 30
       env:
         QT_QPA_PLATFORM: xcb
         LIBGL_ALWAYS_SOFTWARE: '1'
@@ -263,7 +264,7 @@ jobs:
         xvfb-run -a -s '-screen 0 1280x1024x24' \
           "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_acceptance.py \
           --executable toonz/build/bin/OpenToonz --output toonz/build/mcp-acceptance \
-          --media-tools "$MCP_MEDIA_TOOLS"
+          --media-tools "$MCP_MEDIA_TOOLS" --shards auto
 
     - name: Check native MCP acceptance scripts
       if: ${{ !cancelled() }}

@@ -351,6 +351,9 @@ class Worker:
         """
         sampler = shutil.which("sample")
         if sampler is None:
+            # The shard runner counts these files; without a sampler the file says so.
+            report = self.log_path.with_suffix(".stalled-exit.txt")
+            report.write_text(f"process {self.process.pid} missed its exit deadline; no sampler\n")
             return
         for pid in self._descendants():
             suffix = "" if pid == self.process.pid else f".{pid}"

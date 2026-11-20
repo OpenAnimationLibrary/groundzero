@@ -25,6 +25,7 @@ import mcp_file_project_cases
 import mcp_movie_eof
 import mcp_renumber_cases
 import mcp_revision_cases
+import mcp_shards
 from mcp_case import MARK
 from mcp_png import decode_png, fixture_pixel, write_fixture
 from mcp_worker import FULL_AUTHORITY, Worker, joined_capabilities
@@ -1113,12 +1114,60 @@ def register_cases() -> None:
 register_cases()
 
 
+class TimedResult(unittest.TextTestResult):
+    """A text result that also records how many seconds each test took."""
+
+    seconds: dict[str, float]
+    _started = 0.0
+
+    def startTest(self, test: unittest.TestCase) -> None:
+        self._started = time.monotonic()
+        super().startTest(test)
+
+    def stopTest(self, test: unittest.TestCase) -> None:
+        super().stopTest(test)
+        name = test.id().rsplit(".", 1)[-1]
+        self.seconds[name] = round(time.monotonic() - self._started, 2)
+
+
+class TimedRunner(unittest.TextTestRunner):
+    """A text runner whose result records each test's seconds."""
+
+    def _makeResult(self) -> TimedResult:
+        return TimedResult(self.stream, self.descriptions, self.verbosity)
+
+
+def _suite(only: Path | None) -> unittest.TestSuite:
+    loader = unittest.defaultTestLoader
+    if only is None:
+        return loader.loadTestsFromTestCase(NativeAcceptance)
+    names = [line for line in only.read_text(encoding="utf-8").splitlines() if line]
+    return unittest.TestSuite(NativeAcceptance(name) for name in names)
+
+
+def _run(only: Path | None) -> int:
+    report_path = NativeAcceptance.output / "acceptance.txt"
+    TimedResult.seconds = {}
+    with report_path.open("w", encoding="utf-8") as report:
+        result = TimedRunner(stream=Tee(sys.stdout, report), verbosity=2).run(_suite(only))
+    (NativeAcceptance.output / mcp_shards.DURATIONS_NAME).write_text(
+        json.dumps(TimedResult.seconds, indent=1, sort_keys=True) + "\n"
+    )
+    for test, traceback in result.errors + result.failures:
+        annotation(test.id(), traceback)
+    return 0 if result.wasSuccessful() else 1
+
+
 def main() -> int:
     """Run the real-worker suite and retain both text output and native diagnostics."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--media-tools", type=Path)
+    parser.add_argument(
+        "--shards", type=mcp_shards.shard_count, default=1, help="a number, or auto (one per CPU)"
+    )
+    parser.add_argument("--only", type=Path, help="a file naming the tests to run, one per line")
     args = parser.parse_args()
     NativeAcceptance.executable = args.executable.resolve(strict=True)
     NativeAcceptance.output = args.output.resolve()
@@ -1126,13 +1175,13 @@ def main() -> int:
         args.media_tools.resolve(strict=True) if args.media_tools else None
     )
     NativeAcceptance.output.mkdir(parents=True, exist_ok=True)
-    report_path = NativeAcceptance.output / "acceptance.txt"
-    with report_path.open("w", encoding="utf-8") as report:
-        suite = unittest.defaultTestLoader.loadTestsFromTestCase(NativeAcceptance)
-        result = unittest.TextTestRunner(stream=Tee(sys.stdout, report), verbosity=2).run(suite)
-    for test, traceback in result.errors + result.failures:
-        annotation(test.id(), traceback)
-    return 0 if result.wasSuccessful() else 1
+    if args.shards == 1 or args.only:
+        return _run(args.only)
+    command = [sys.executable, str(Path(__file__).resolve()), "--executable", str(args.executable)]
+    if args.media_tools:
+        command += ["--media-tools", str(args.media_tools)]
+    names = unittest.defaultTestLoader.getTestCaseNames(NativeAcceptance)
+    return mcp_shards.run(list(names), args.shards, NativeAcceptance.output, command)
 
 
 if __name__ == "__main__":
