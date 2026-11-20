@@ -63,6 +63,11 @@ jobs:
       OPENCV_VERSION: "4.13.0"              # OpenCV version
       OpenCV_DIR: C:\tools\opencv\build     # Path to OpenCV
 
+      # FFmpeg release used by the image-I/O tests (Gyan Doshi essentials build, static).
+      # The SHA-256 is the one listed on the release page and on gyan.dev for this file.
+      FFMPEG_VERSION: "9.0.2"
+      FFMPEG_SHA256: "4705843ccaaf54257c16ad90f3e952ece33c17df964ecf7bfdbb0f49c7171077"
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -151,28 +156,65 @@ jobs:
         # Preserve cmd logging and exit handling; fixed paths and environment only.
         shell: cmd # zizmor: ignore[misfeature]
 
-      # Public image-I/O tests use a full FFmpeg distribution and ffprobe.
-      - name: Install FFmpeg export test tools if absent
+      # Public image-I/O tests need ffmpeg and ffprobe in one folder on PATH at
+      # configure time. The runner image has neither. The archive is checked
+      # against a pinned SHA-256 whichever source it comes from.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: ffmpeg-cache
+        with:
+          path: ${{ runner.temp }}\ffmpeg-archive
+          key: ffmpeg-windows-${{ env.FFMPEG_SHA256 }}
+      - name: Install pinned FFmpeg export test tools
+        id: ffmpeg_install
+        timeout-minutes: 15
         shell: pwsh
         run: |
-          # Chocolatey can exit 0 with nothing installed when its package
-          # feed fails, so an attempt succeeds only when both tools are found.
-          function Test-FfmpegTools {
-            (Get-Command ffmpeg -ErrorAction SilentlyContinue) -and (Get-Command ffprobe -ErrorAction SilentlyContinue)
+          $ErrorActionPreference = "Stop"
+          $name = "ffmpeg-$env:FFMPEG_VERSION-essentials_build"
+          $archiveDir = Join-Path $env:RUNNER_TEMP "ffmpeg-archive"
+          $archive = Join-Path $archiveDir "$name.7z"
+          New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+          function Test-Archive {
+            (Test-Path -LiteralPath $archive -PathType Leaf) -and
+              ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -eq $env:FFMPEG_SHA256)
           }
-          if (!(Test-FfmpegTools)) {
-            for ($attempt = 1; $attempt -le 3; $attempt++) {
-              choco install ffmpeg --yes --no-progress
-              $chocoExit = $LASTEXITCODE
-              if (Test-FfmpegTools) { break }
-              if ($attempt -eq 3) {
-                Write-Output "::error title=FFmpeg dependency installation::ffmpeg and ffprobe are still missing after three Chocolatey attempts (last exit code $chocoExit); inspect the package-feed response above."
-                throw "FFmpeg installation failed"
-              }
-              Start-Sleep -Seconds (10 * $attempt)
+          $sources = @(
+            "https://github.com/GyanD/codexffmpeg/releases/download/$env:FFMPEG_VERSION/$name.7z",
+            "https://www.gyan.dev/ffmpeg/builds/packages/$name.7z"
+          )
+          $failures = @()
+          foreach ($url in $sources) {
+            for ($attempt = 1; $attempt -le 3 -and !(Test-Archive); $attempt++) {
+              curl.exe -fsSL --connect-timeout 20 --max-time 120 -o $archive $url
+              $curlExit = $LASTEXITCODE
+              if (Test-Archive) { break }
+              Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+              $reason = if ($curlExit -eq 0) { "checksum mismatch" } else { "curl exit $curlExit" }
+              $failures += "$url attempt ${attempt}: $reason"
+              if ($attempt -lt 3) { Start-Sleep -Seconds (5 * $attempt) }
             }
           }
-          Get-Command ffmpeg, ffprobe -ErrorAction Stop
+          if (!(Test-Archive)) {
+            $tried = $failures -join "; "
+            Write-Output "::error title=FFmpeg dependency installation::FFmpeg $env:FFMPEG_VERSION is unavailable. The Actions cache had no verified archive (key ffmpeg-windows-$env:FFMPEG_SHA256). Downloads failed: $tried"
+            throw "FFmpeg installation failed"
+          }
+          $tools = Join-Path $env:RUNNER_TEMP "ffmpeg-tools"
+          7z x $archive "-o$tools" -y "$name/bin/ffmpeg.exe" "$name/bin/ffprobe.exe"
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract FFmpeg from the verified archive" }
+          $bin = Join-Path $tools "$name\bin"
+          foreach ($tool in @("ffmpeg.exe", "ffprobe.exe")) {
+            $version = & (Join-Path $bin $tool) -version
+            if ($LASTEXITCODE -ne 0) { throw "$tool did not run" }
+            Write-Output $version[0]
+          }
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $bin -Encoding utf8
+      - name: Save pinned FFmpeg archive
+        if: ${{ !cancelled() && steps.ffmpeg_install.outcome == 'success' && steps.ffmpeg-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}\ffmpeg-archive
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
 
       - name: Install custom Qt 5.15.2 with WinTab support
         run: |
