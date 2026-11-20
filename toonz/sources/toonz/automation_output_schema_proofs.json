@@ -1,0 +1,2472 @@
+{
+  "animation.channels": {
+    "handler": "inspectAnimationChannels",
+    "read": [
+      "cycle",
+      "cycle_supported",
+      "edit_via",
+      "kind",
+      "target"
+    ]
+  },
+  "animation.copy_curve": {
+    "handler": "copyAnimationCurve",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "animation.delete_keys": {
+    "handler": "deleteKeys",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "animation.duplicate_keys": {
+    "handler": "duplicateKeys",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "created_frames",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "frame",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "animation.insert_breakdown": {
+    "handler": "insertBreakdown",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "frame",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "animation.keys": {
+    "handler": "inspectKeys",
+    "read": []
+  },
+  "animation.move_keys": {
+    "handler": "moveKeys",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "frame",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "moved_frames",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "animation.retime_curve": {
+    "handler": "retimeAnimationCurve",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "animation.sample": {
+    "handler": "sampleAnimation",
+    "read": []
+  },
+  "animation.set_cycle": {
+    "handler": "setCycle",
+    "read": [
+      "frame"
+    ]
+  },
+  "animation.set_keys": {
+    "handler": "setKeys",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "artifact.read": {
+    "handler": "artifactRead",
+    "read": []
+  },
+  "assistance.inspect": {
+    "handler": null,
+    "read": []
+  },
+  "assistance.neural.preview": {
+    "handler": "submitNeural",
+    "read": []
+  },
+  "audio.clip.place": {
+    "handler": "placeClip",
+    "read": []
+  },
+  "audio.clip.remove": {
+    "handler": "removeClip",
+    "read": []
+  },
+  "audio.clip.update": {
+    "handler": "updateClip",
+    "read": []
+  },
+  "audio.column.create": {
+    "handler": "createColumn",
+    "read": []
+  },
+  "audio.column.set_volume": {
+    "handler": "setVolume",
+    "read": []
+  },
+  "audio.import": {
+    "handler": "importAudio",
+    "read": []
+  },
+  "audio.inspect": {
+    "handler": "inspectAudio",
+    "read": []
+  },
+  "audio.mixdown": {
+    "handler": "mixdown",
+    "read": []
+  },
+  "camera.create": {
+    "handler": "createCamera",
+    "read": []
+  },
+  "camera.duplicate": {
+    "handler": "duplicateCamera",
+    "read": []
+  },
+  "camera.inspect": {
+    "handler": "inspectCamera",
+    "read": []
+  },
+  "camera.list": {
+    "handler": "listCameras",
+    "read": []
+  },
+  "camera.remove": {
+    "handler": "removeCamera",
+    "read": [
+      "new_parent_id",
+      "object_id"
+    ]
+  },
+  "camera.select": {
+    "handler": "selectCamera",
+    "read": []
+  },
+  "camera.update": {
+    "handler": "updateCamera",
+    "read": []
+  },
+  "cast.list": {
+    "handler": null,
+    "read": []
+  },
+  "cast.usage": {
+    "handler": null,
+    "read": []
+  },
+  "cells.clear": {
+    "handler": "clearCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.copy": {
+    "handler": "copyCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.insert": {
+    "handler": "insertCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.remove": {
+    "handler": "removeCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.replace": {
+    "handler": "replaceCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.retime": {
+    "handler": "retimeCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "cells.set": {
+    "handler": "setCells",
+    "read": [
+      "cell_range_after",
+      "cell_range_before",
+      "changed",
+      "first_frame",
+      "last_frame",
+      "rows_delta"
+    ]
+  },
+  "column.cells": {
+    "handler": "inspectCells",
+    "read": []
+  },
+  "column.create": {
+    "handler": "createColumn",
+    "read": []
+  },
+  "column.delete": {
+    "handler": "deleteColumn",
+    "read": [
+      "object_id",
+      "parent_id"
+    ]
+  },
+  "column.duplicate": {
+    "handler": "duplicateColumn",
+    "read": [
+      "fx_id",
+      "source_fx_id"
+    ]
+  },
+  "column.expose": {
+    "handler": "exposeColumn",
+    "read": []
+  },
+  "column.kinds": {
+    "handler": "columnKinds",
+    "read": [
+      "available",
+      "cell_tools",
+      "create_tool",
+      "create_toolset",
+      "creatable",
+      "delete_tool",
+      "duplicable",
+      "kind",
+      "movable",
+      "native_type",
+      "reason"
+    ]
+  },
+  "column.move": {
+    "handler": "moveColumns",
+    "read": [
+      "column_id",
+      "position_after",
+      "position_before",
+      "level_id"
+    ]
+  },
+  "column.update": {
+    "handler": "updateColumn",
+    "read": []
+  },
+  "delivery.preflight": {
+    "handler": "preflight",
+    "read": [
+      "detail",
+      "job_id",
+      "kind",
+      "name",
+      "state"
+    ]
+  },
+  "delivery.publish": {
+    "handler": "publish",
+    "read": [
+      "job_id",
+      "kind"
+    ]
+  },
+  "drawing.analysis.submit": {
+    "handler": "submitDrawingAnalysis",
+    "read": [
+      "adopted_documents",
+      "count",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
+  },
+  "drawing.clone": {
+    "handler": "cloneDrawing",
+    "read": []
+  },
+  "drawing.create": {
+    "handler": "createDrawing",
+    "read": []
+  },
+  "drawing.inspect": {
+    "handler": "inspectDrawing",
+    "read": []
+  },
+  "drawing.remove": {
+    "handler": "removeDrawing",
+    "read": [
+      "column_id",
+      "column_index",
+      "first_frame",
+      "last_frame",
+      "locked",
+      "sheet_level_id"
+    ]
+  },
+  "drawing.renumber": {
+    "handler": "renumberDrawing",
+    "read": []
+  },
+  "fx.catalog": {
+    "handler": "effectCatalog",
+    "read": [
+      "admitted",
+      "editable",
+      "id",
+      "kind",
+      "label",
+      "max_ports",
+      "maximum",
+      "min_ports",
+      "minimum",
+      "native",
+      "plugin_id",
+      "position",
+      "prefix",
+      "slider",
+      "source"
+    ]
+  },
+  "fx.connect": {
+    "handler": null,
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "editable",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "prefix",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.create": {
+    "handler": "createEffect",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "editable",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "prefix",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "fx.delete": {
+    "handler": "deleteEffect",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "fx.disconnect": {
+    "handler": null,
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "editable",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "prefix",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.duplicate": {
+    "handler": "duplicateEffect",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "editable",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "prefix",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "fx.enabled.set": {
+    "handler": "enableEffect",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "editable",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "prefix",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "fx.graph": {
+    "handler": null,
+    "read": [
+      "current_output_fx_id",
+      "delta_window",
+      "document_id",
+      "editable",
+      "effects",
+      "fx_ids",
+      "group_id",
+      "kind",
+      "limit",
+      "limits",
+      "linked_groups",
+      "max_ports",
+      "member_count",
+      "min_ports",
+      "name",
+      "next_offset",
+      "node_count",
+      "nodes",
+      "offset",
+      "oldest_from_revision",
+      "page_bytes",
+      "parameters",
+      "parent_group_id",
+      "position",
+      "prefix",
+      "retained_bytes",
+      "retained_steps",
+      "revision",
+      "total_effects",
+      "via",
+      "x",
+      "xsheet_fx_id",
+      "y"
+    ]
+  },
+  "fx.graph.delta": {
+    "handler": null,
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "changes",
+      "document_id",
+      "enabled",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "group_id",
+      "group_ids",
+      "kind",
+      "limit",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "next_offset",
+      "offset",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "sheet_path",
+      "steps_covered",
+      "terminal",
+      "total_changes",
+      "type",
+      "window",
+      "x",
+      "y"
+    ]
+  },
+  "fx.group.create": {
+    "handler": "createGroup",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "changed",
+      "document_id",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name_after",
+      "name_before",
+      "operation_id",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.group.remove": {
+    "handler": "removeGroup",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "changed",
+      "document_id",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "former_member_count",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "operation_id",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.group.rename": {
+    "handler": "renameGroup",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "changed",
+      "document_id",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "operation_id",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.layout.set": {
+    "handler": "setLayout",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "changed_count",
+      "document_id",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "operation_id",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "positions",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.link.add": {
+    "handler": "addLink",
+    "read": [
+      "affected_fx_ids",
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "changed",
+      "document_id",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_ids",
+      "kind",
+      "linked_group",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "operation_id",
+      "overwritten_parameters",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "fx.link.remove": {
+    "handler": "removeLink",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "changed",
+      "document_id",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_before",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "operation_id",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "remaining_group",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.macro.create": {
+    "handler": "createMacro",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "editable",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "prefix",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.macro.expand": {
+    "handler": "expandMacro",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.output.select": {
+    "handler": "selectOutput",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.parameter.get": {
+    "handler": "getParameters",
+    "read": [
+      "admitted",
+      "id",
+      "label",
+      "maximum",
+      "minimum",
+      "native",
+      "slider",
+      "source",
+      "value"
+    ]
+  },
+  "fx.parameter.set": {
+    "handler": null,
+    "read": [
+      "admitted",
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "id",
+      "kind",
+      "label",
+      "linked_group_id",
+      "macro",
+      "maximum",
+      "member_count_after",
+      "member_count_before",
+      "minimum",
+      "name",
+      "name_after",
+      "name_before",
+      "native",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "slider",
+      "source",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.parameter.set_key": {
+    "handler": null,
+    "read": [
+      "admitted",
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "id",
+      "kind",
+      "label",
+      "linked_group_id",
+      "macro",
+      "maximum",
+      "member_count_after",
+      "member_count_before",
+      "minimum",
+      "name",
+      "name_after",
+      "name_before",
+      "native",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "slider",
+      "source",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "type",
+      "x",
+      "y"
+    ]
+  },
+  "fx.port_group.set": {
+    "handler": "setPortGroup",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "changed",
+      "document_id",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "fx_id",
+      "generator_wrapper",
+      "graph_delta",
+      "group",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name_after",
+      "name_before",
+      "operation_id",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "ports",
+      "ports_added",
+      "ports_removed",
+      "position",
+      "revision",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "fx.preset.apply": {
+    "handler": "applyPreset",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "enabled",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "member_count_after",
+      "member_count_before",
+      "name",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "terminal",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "fx.preset.save": {
+    "handler": "savePreset",
+    "read": []
+  },
+  "fx.recipe.list": {
+    "handler": "listAutomationFxRecipes",
+    "read": []
+  },
+  "fx.rename": {
+    "handler": "renameEffect",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "editable",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "prefix",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "fx.terminal.set": {
+    "handler": "setTerminal",
+    "read": [
+      "after",
+      "after_fx_ids",
+      "aspects",
+      "before",
+      "before_fx_ids",
+      "cause",
+      "change",
+      "editable",
+      "entries",
+      "evidence_kind",
+      "from_revision",
+      "generator_wrapper",
+      "graph_delta",
+      "group_id",
+      "group_ids",
+      "kind",
+      "linked_group_id",
+      "macro",
+      "max_ports",
+      "member_count_after",
+      "member_count_before",
+      "min_ports",
+      "name_after",
+      "name_before",
+      "parameters_changed",
+      "parameters_truncated",
+      "port",
+      "port_names",
+      "position",
+      "prefix",
+      "tool",
+      "total_entries",
+      "truncated",
+      "x",
+      "y"
+    ]
+  },
+  "hook.delete": {
+    "handler": "deleteHook",
+    "read": []
+  },
+  "hook.inspect": {
+    "handler": "inspectHooks",
+    "read": []
+  },
+  "hook.set": {
+    "handler": "setHook",
+    "read": []
+  },
+  "intake.import": {
+    "handler": "importIntake",
+    "read": [
+      "alpha",
+      "bytes",
+      "color_metadata",
+      "column_id",
+      "conversion",
+      "copied_files",
+      "copy_name",
+      "decoder",
+      "document_id",
+      "dpi_policy",
+      "dpi_x",
+      "dpi_y",
+      "drawing_id",
+      "drawings",
+      "exposure",
+      "format",
+      "frame_rate",
+      "gap_rows",
+      "handling",
+      "height",
+      "job",
+      "length",
+      "level",
+      "level_id",
+      "name",
+      "number",
+      "on_gap",
+      "operation_id",
+      "outcome",
+      "pixel_format",
+      "revision",
+      "scene_frame_rate",
+      "sha256",
+      "source_directory",
+      "source_name",
+      "source_rate",
+      "start_frame",
+      "storage",
+      "stored_as",
+      "suffix",
+      "width"
+    ]
+  },
+  "intake.preflight": {
+    "handler": "preflight",
+    "read": [
+      "blocker_total",
+      "blockers",
+      "destination",
+      "document_id",
+      "execution",
+      "files",
+      "frame_rate",
+      "importable",
+      "inline_limits",
+      "link_available",
+      "next_offset",
+      "offset",
+      "plan_digest",
+      "revision",
+      "selection",
+      "sequence",
+      "source_directory",
+      "summary"
+    ]
+  },
+  "intake.provenance": {
+    "handler": "provenance",
+    "read": [
+      "alpha",
+      "bytes",
+      "color_metadata",
+      "conversion",
+      "counts",
+      "decoder",
+      "drawing_id",
+      "height",
+      "method",
+      "missing",
+      "modified",
+      "modified_ms",
+      "name",
+      "number",
+      "pixel_format",
+      "sha256",
+      "source_status",
+      "stored_as",
+      "suffix",
+      "unchanged",
+      "unreachable",
+      "width"
+    ]
+  },
+  "job.cancel": {
+    "handler": null,
+    "read": [
+      "adopted_documents",
+      "count",
+      "drawings",
+      "kind",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
+  },
+  "job.discard": {
+    "handler": "discardJob",
+    "read": [
+      "final_status",
+      "kind",
+      "job_id"
+    ]
+  },
+  "job.list": {
+    "handler": "listJobs",
+    "read": [
+      "adopted_documents",
+      "count",
+      "drawings",
+      "kind",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
+  },
+  "job.result": {
+    "handler": "result",
+    "read": [
+      "adopted_documents",
+      "artifacts",
+      "count",
+      "job",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
+  },
+  "job.status": {
+    "handler": "record",
+    "read": [
+      "adopted_documents",
+      "count",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "source_copy"
+    ]
+  },
+  "journal.status": {
+    "handler": "journalStatus",
+    "read": [
+      "alive",
+      "at_seq",
+      "by_worker",
+      "bytes",
+      "container",
+      "current",
+      "entries",
+      "first_seq",
+      "input_index",
+      "last_seq",
+      "location",
+      "name",
+      "quarantined_segments",
+      "reconciled_jobs",
+      "reconciled_operations",
+      "registered_packages",
+      "removed_containers",
+      "root",
+      "root_sha256",
+      "segment",
+      "staging_residue",
+      "started_at_ms",
+      "truncated_tail_bytes",
+      "worker_instance_id"
+    ]
+  },
+  "level.create": {
+    "handler": "createLevel",
+    "read": []
+  },
+  "level.duplicate": {
+    "handler": "duplicateLevel",
+    "read": []
+  },
+  "level.import": {
+    "handler": "importLevel",
+    "read": []
+  },
+  "level.inspect": {
+    "handler": "inspectLevel",
+    "read": [
+      "antialias_softness",
+      "applicable",
+      "cells",
+      "color_space_gamma",
+      "column_id",
+      "column_index",
+      "columns",
+      "complete",
+      "dpi",
+      "first_frame",
+      "last_frame",
+      "locked",
+      "premultiply",
+      "rows",
+      "rows_truncated",
+      "sheet_level_id",
+      "sheets",
+      "subsampling",
+      "value",
+      "white_transparent",
+      "writable"
+    ]
+  },
+  "level.remove": {
+    "handler": "removeLevel",
+    "read": [
+      "column_id",
+      "column_index",
+      "first_frame",
+      "last_frame",
+      "locked",
+      "sheet_level_id"
+    ]
+  },
+  "level.rename": {
+    "handler": "renameLevel",
+    "read": []
+  },
+  "level.settings.set": {
+    "handler": "setLevelSettings",
+    "read": [
+      "antialias_softness",
+      "applicable",
+      "color_space_gamma",
+      "dpi",
+      "premultiply",
+      "subsampling",
+      "value",
+      "white_transparent",
+      "writable"
+    ]
+  },
+  "library.inspect": {
+    "handler": "inspectItem",
+    "read": []
+  },
+  "library.list": {
+    "handler": "listItems",
+    "read": []
+  },
+  "library.thumbnail": {
+    "handler": "itemThumbnail",
+    "read": []
+  },
+  "lipsync.apply": {
+    "handler": "applyTiming",
+    "read": []
+  },
+  "lipsync.import": {
+    "handler": "importTiming",
+    "read": []
+  },
+  "lipsync.inspect": {
+    "handler": "inspectTiming",
+    "read": []
+  },
+  "motion_path.create": {
+    "handler": "createPath",
+    "read": []
+  },
+  "motion_path.delete": {
+    "handler": "deletePath",
+    "read": []
+  },
+  "motion_path.duplicate": {
+    "handler": "duplicatePath",
+    "read": []
+  },
+  "motion_path.inspect": {
+    "handler": "readPath",
+    "read": []
+  },
+  "motion_path.list": {
+    "handler": "listPaths",
+    "read": []
+  },
+  "motion_path.rename": {
+    "handler": "renamePath",
+    "read": []
+  },
+  "motion_path.update": {
+    "handler": "updatePath",
+    "read": []
+  },
+  "object.create": {
+    "handler": "createObject",
+    "read": []
+  },
+  "object.delete": {
+    "handler": "deleteObject",
+    "read": []
+  },
+  "object.duplicate": {
+    "handler": "duplicateObject",
+    "read": []
+  },
+  "object.group": {
+    "handler": "createGroup",
+    "read": []
+  },
+  "object.group.rename": {
+    "handler": "renameGroup",
+    "read": []
+  },
+  "object.groups": {
+    "handler": "listGroups",
+    "read": []
+  },
+  "object.handles.set": {
+    "handler": "setHandles",
+    "read": []
+  },
+  "object.parent": {
+    "handler": "parentObject",
+    "read": []
+  },
+  "object.path.attach": {
+    "handler": "attachPath",
+    "read": []
+  },
+  "object.path.detach": {
+    "handler": "detachPath",
+    "read": []
+  },
+  "object.pivot.set": {
+    "handler": "setPivot",
+    "read": []
+  },
+  "object.rename": {
+    "handler": "renameObject",
+    "read": []
+  },
+  "object.ungroup": {
+    "handler": "dissolveGroup",
+    "read": []
+  },
+  "offset_layer.create": {
+    "handler": "createLayer",
+    "read": []
+  },
+  "offset_layer.delete": {
+    "handler": "deleteLayer",
+    "read": []
+  },
+  "offset_layer.update": {
+    "handler": "updateLayer",
+    "read": []
+  },
+  "operation.list": {
+    "handler": "listOperations",
+    "read": []
+  },
+  "operation.status": {
+    "handler": "operationStatus",
+    "read": [
+      "evidence",
+      "expected_sha256",
+      "found",
+      "input_index",
+      "kind",
+      "location",
+      "outputs_present",
+      "path",
+      "reconciled",
+      "root",
+      "root_sha256",
+      "target"
+    ]
+  },
+  "package.remove": {
+    "handler": "removePackage",
+    "read": [
+      "input_index",
+      "path",
+      "root",
+      "root_sha256"
+    ]
+  },
+  "palette.clone_style": {
+    "handler": "cloneStyle",
+    "read": []
+  },
+  "palette.create_style": {
+    "handler": "createStyle",
+    "read": []
+  },
+  "palette.inspect": {
+    "handler": "inspectPalette",
+    "read": []
+  },
+  "palette.page.create": {
+    "handler": "createPage",
+    "read": []
+  },
+  "palette.page.move": {
+    "handler": "movePage",
+    "read": []
+  },
+  "palette.page.remove": {
+    "handler": "removePage",
+    "read": []
+  },
+  "palette.page.rename": {
+    "handler": "renamePage",
+    "read": []
+  },
+  "palette.pages": {
+    "handler": "inspectPages",
+    "read": []
+  },
+  "palette.rename_style": {
+    "handler": "renameStyle",
+    "read": []
+  },
+  "palette.style.move": {
+    "handler": "moveStyle",
+    "read": []
+  },
+  "palette.update_style": {
+    "handler": "updateStyle",
+    "read": []
+  },
+  "project.create": {
+    "handler": "createProject",
+    "read": []
+  },
+  "project.duplicate": {
+    "handler": "duplicateProject",
+    "read": []
+  },
+  "project.inspect": {
+    "handler": "inspectProject",
+    "read": []
+  },
+  "project.list": {
+    "handler": "listProjects",
+    "read": [
+      "status"
+    ]
+  },
+  "project.scenes": {
+    "handler": "listScenes",
+    "read": []
+  },
+  "raster.export_png": {
+    "handler": "exportPng",
+    "read": []
+  },
+  "raster.import_png": {
+    "handler": "importPng",
+    "read": []
+  },
+  "raster.patch": {
+    "handler": "patchPixels",
+    "read": []
+  },
+  "raster.read_pixels": {
+    "handler": "readPixels",
+    "read": []
+  },
+  "render.capabilities": {
+    "handler": "renderCapabilities",
+    "read": []
+  },
+  "render.preflight": {
+    "handler": "preflight",
+    "read": []
+  },
+  "render.preview": {
+    "handler": "submit",
+    "read": []
+  },
+  "render.submit": {
+    "handler": "submit",
+    "read": []
+  },
+  "review.compare.submit": {
+    "handler": "submitReview",
+    "read": []
+  },
+  "rig.dependents": {
+    "handler": "inspectDependents",
+    "read": []
+  },
+  "rig.evaluate": {
+    "handler": "evaluateRig",
+    "read": []
+  },
+  "rig.inspect": {
+    "handler": "inspectRig",
+    "read": []
+  },
+  "runtime.inspect": {
+    "handler": "inspect",
+    "read": []
+  },
+  "scene.check.submit": {
+    "handler": null,
+    "read": [
+      "adopted_documents",
+      "count",
+      "drawings",
+      "kind",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "requested",
+      "requested_ms",
+      "source_copy"
+    ]
+  },
+  "scene.create": {
+    "handler": "createScene",
+    "read": []
+  },
+  "scene.dependencies": {
+    "handler": null,
+    "read": []
+  },
+  "scene.discard": {
+    "handler": "discardScene",
+    "read": []
+  },
+  "scene.guides.set": {
+    "handler": "setGuides",
+    "read": []
+  },
+  "scene.import_editable": {
+    "handler": null,
+    "read": [
+      "adopted_documents",
+      "count",
+      "drawings",
+      "import",
+      "kind",
+      "levels",
+      "losses_applied",
+      "package_bytes",
+      "package_id",
+      "plan_digest",
+      "requested",
+      "requested_ms",
+      "source_copy"
+    ]
+  },
+  "scene.import_plan": {
+    "handler": "importPlan",
+    "read": [
+      "cells",
+      "column_id",
+      "columns",
+      "count",
+      "decoded_pixels",
+      "detail",
+      "drawings",
+      "effect",
+      "fx_id",
+      "kind",
+      "level_id",
+      "levels",
+      "limit",
+      "maximum",
+      "name",
+      "package_bytes",
+      "samples",
+      "sheet_path",
+      "value"
+    ]
+  },
+  "scene.inventory": {
+    "handler": null,
+    "read": []
+  },
+  "scene.open": {
+    "handler": "openPackage",
+    "read": [
+      "input_index",
+      "root",
+      "root_sha256"
+    ]
+  },
+  "scene.open_read_only": {
+    "handler": "openReadOnly",
+    "read": []
+  },
+  "scene.output.set": {
+    "handler": "setOutput",
+    "read": []
+  },
+  "scene.package_info": {
+    "handler": null,
+    "read": [
+      "class",
+      "current",
+      "input_index",
+      "path",
+      "reason",
+      "root",
+      "root_sha256",
+      "worker_instance_id"
+    ]
+  },
+  "scene.properties.inspect": {
+    "handler": "inspectProperties",
+    "read": []
+  },
+  "scene.save_copy": {
+    "handler": "saveCopy",
+    "read": [
+      "classifier_version",
+      "count",
+      "executable_sha256",
+      "importer",
+      "input_index",
+      "kind",
+      "losses_applied",
+      "path",
+      "plan_digest",
+      "profile",
+      "project_id",
+      "relative_path",
+      "root",
+      "root_path_sha256",
+      "root_sha256",
+      "scene_file_revision",
+      "scene_version",
+      "source",
+      "source_copy",
+      "source_fingerprint",
+      "unrecognized_scene_tags"
+    ]
+  },
+  "scene.save_preflight": {
+    "handler": "savePreflight",
+    "read": [
+      "availability",
+      "bytes_estimate",
+      "coded_path",
+      "detail",
+      "encoded_bytes_bound",
+      "files_estimate",
+      "free_bytes",
+      "input_index",
+      "known_bytes",
+      "name",
+      "owner_id",
+      "owner_kind",
+      "package_path",
+      "role",
+      "root_sha256",
+      "same_volume_as_workspace",
+      "save_mode",
+      "source",
+      "staging",
+      "state",
+      "upper_bound"
+    ]
+  },
+  "scene.settings": {
+    "handler": "updateSettings",
+    "read": [
+      "camstand_visible",
+      "color_filter_id",
+      "column_id",
+      "last_frame",
+      "opacity",
+      "position",
+      "preview_visible",
+      "visible"
+    ]
+  },
+  "scene.source_status": {
+    "handler": null,
+    "read": [
+      "content_checked_files",
+      "metadata_only_files",
+      "metadata_only_paths"
+    ]
+  },
+  "scene.summary": {
+    "handler": "sceneSummary",
+    "read": [
+      "camstand_visible",
+      "color_filter_id",
+      "column_id",
+      "last_frame",
+      "opacity",
+      "position",
+      "preview_visible",
+      "visible"
+    ]
+  },
+  "scene.validate": {
+    "handler": null,
+    "read": []
+  },
+  "shared.roots": {
+    "handler": "sharedRoots",
+    "read": []
+  },
+  "storyboard.panel.create": {
+    "handler": "createPanel",
+    "read": []
+  },
+  "storyboard.panel.delete": {
+    "handler": "deletePanel",
+    "read": []
+  },
+  "storyboard.panel.update": {
+    "handler": "updatePanel",
+    "read": []
+  },
+  "storyboard.panels": {
+    "handler": "listPanels",
+    "read": []
+  },
+  "studio_palette.find": {
+    "handler": "findPalette",
+    "read": []
+  },
+  "studio_palette.inspect": {
+    "handler": "inspectPalette",
+    "read": []
+  },
+  "studio_palette.list": {
+    "handler": "listPalettes",
+    "read": []
+  },
+  "text.fonts": {
+    "handler": "fonts",
+    "read": []
+  },
+  "vector.edit": {
+    "handler": "editVector",
+    "read": []
+  },
+  "vector.export_svg": {
+    "handler": "exportSvg",
+    "read": [
+      "bytes",
+      "document_id",
+      "format",
+      "operation_id",
+      "path",
+      "regions_written",
+      "revision",
+      "sha256",
+      "stroke_mode",
+      "strokes_omitted",
+      "strokes_written",
+      "verified_subset",
+      "visual_only"
+    ]
+  },
+  "vector.fill": {
+    "handler": "fillVector",
+    "read": []
+  },
+  "vector.group.create": {
+    "handler": "createVectorGroup",
+    "read": []
+  },
+  "vector.group.remove": {
+    "handler": "removeVectorGroup",
+    "read": []
+  },
+  "vector.inspect": {
+    "handler": "inspectVector",
+    "read": []
+  },
+  "vector.opacity.inspect": {
+    "handler": "inspectVectorOpacity",
+    "read": []
+  },
+  "vector.opacity.profile.set": {
+    "handler": "setVectorOpacityProfile",
+    "read": []
+  },
+  "vector.opacity.set": {
+    "handler": "setVectorOpacity",
+    "read": []
+  },
+  "vector.order.move": {
+    "handler": "moveVectorOrder",
+    "read": []
+  },
+  "vector.select": {
+    "handler": "selectVector",
+    "read": []
+  },
+  "vector.structure": {
+    "handler": "inspectVectorStructure",
+    "read": []
+  },
+  "vector.text.create": {
+    "handler": "createText",
+    "read": []
+  },
+  "vector.transform": {
+    "handler": "transformVector",
+    "read": []
+  }
+}

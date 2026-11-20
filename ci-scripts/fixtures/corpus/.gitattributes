@@ -1,0 +1,6 @@
+# Scenes and projects as the native writer produces them end lines with spaces, and the
+# manifest hashes every byte, so none of it may be normalized or whitespace-checked.
+*.tnz -whitespace -text
+*.xml -whitespace -text
+*.png binary
+*.tpl -whitespace -text

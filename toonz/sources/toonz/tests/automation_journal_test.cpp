@@ -1,0 +1,331 @@
+#include "automation_journal.h"
+
+#include "automation.h"
+
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
+#include <QTemporaryDir>
+#include <QUuid>
+
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <stdexcept>
+#include <thread>
+
+namespace GroundzeroAutomation {
+namespace {
+
+void require(bool condition, const char* message) {
+  if (!condition) throw std::runtime_error(message);
+}
+
+QString uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces); }
+
+// A journal of a worker whose runtime folder is `runtime` under the workspace;
+// a missing folder makes the worker dead to every other journal.
+std::shared_ptr<Journal> openJournal(const QString& workspace,
+                                     const QString& instance,
+                                     const QString& runtime) {
+  Journal::Start start;
+  start.workspace       = workspace;
+  start.instance        = instance;
+  start.runtimeName     = runtime;
+  start.authorityDigest = "authority";
+  return Journal::open(start);
+}
+
+QJsonObject admission(const QString& id, const QString& effectClass) {
+  return {{"operation_id", id},
+          {"arguments_sha256", QString(64, 'a')},
+          {"authority_digest", "authority"},
+          {"method", "scene.create"},
+          {"document_id", QJsonValue()},
+          {"expected_revision", QJsonValue()},
+          {"effect_class", effectClass}};
+}
+
+QString segmentPath(const QString& workspace) {
+  const QDir journal(workspace + "/.groundzero/journal");
+  const QStringList segments = journal.entryList({"seg-*.jsonl"}, QDir::Files);
+  require(!segments.isEmpty(), "the journal has no segment");
+  return journal.filePath(segments.last());
+}
+
+Error refusal(const std::function<void()>& call) {
+  try {
+    call();
+  } catch (const Error& error) {
+    return error;
+  }
+  throw std::runtime_error("a journal call was not refused");
+}
+
+void twoWritersShareOneSequence(const QString& workspace) {
+  const QString runtime = "runtime_" + uuid();
+  require(QDir(workspace).mkdir(runtime), "cannot create a runtime folder");
+  auto first  = openJournal(workspace, uuid(), runtime);
+  auto second = openJournal(workspace, uuid(), runtime);
+  require(first->available() && second->available(), "journals unavailable");
+  require(first->admit(admission("op-a", "memory")), "first admission refused");
+  require(!second->admit(admission("op-a", "memory")),
+          "a second worker admitted an operation already admitted");
+  require(second->admit(admission("op-b", "memory")), "op-b refused");
+  first->refresh();
+  const JournalOperation* a = first->find("op-a");
+  const JournalOperation* b = first->find("op-b");
+  require(a && b && b->admittedSeq > a->admittedSeq,
+          "sequences do not increase across writers");
+  require(first->outcome("op-a", {{"result", QJsonObject{{"done", true}}}},
+                         {{"code", QJsonValue()}}),
+          "outcome not recorded");
+  second->refresh();
+  require(second->response(*second->find("op-a")).value("result").toObject() ==
+              QJsonObject{{"done", true}},
+          "the other worker does not read the recorded result");
+}
+
+void largeResultsGoToBlobs(const QString& workspace) {
+  auto journal = openJournal(workspace, uuid(), "runtime_" + uuid());
+  require(journal->admit(admission("op-large", "memory")), "admission refused");
+  const QJsonObject response{
+      {"result", QJsonObject{{"text", QString(40000, 'x')}}}};
+  require(journal->outcome("op-large", response, {}), "large outcome refused");
+  const JournalOperation* operation = journal->find("op-large");
+  const QString blob = operation->outcome.value("blob").toString();
+  require(blob.size() == 64, "a 40 KB result was stored inline");
+  require(journal->response(*operation) == response, "the blob differs");
+  QFile file(workspace + "/.groundzero/journal/blobs/" + blob);
+  require(file.open(QIODevice::ReadWrite) && file.write("y") == 1,
+          "cannot alter the blob");
+  file.close();
+  require(refusal([&] { journal->response(*operation); }).code ==
+              "journal_unavailable",
+          "an altered blob was returned");
+}
+
+void tornTailIsQuarantined(const QString& workspace) {
+  {
+    auto journal = openJournal(workspace, uuid(), "runtime_" + uuid());
+    require(journal->admit(admission("op-whole", "memory")), "refused");
+  }
+  QFile segment(segmentPath(workspace));
+  require(segment.open(QIODevice::Append) && segment.write("abc {\"type\"") > 0,
+          "cannot tear the tail");
+  segment.close();
+  auto journal = openJournal(workspace, uuid(), "runtime_" + uuid());
+  const QJsonObject status = journal->status();
+  require(status.value("state") == "ok", "a torn tail marked the journal");
+  require(status.value("last_recovery")
+                  .toObject()
+                  .value("truncated_tail_bytes")
+                  .toInt() == 11,
+          "the torn tail was not cut off");
+  require(journal->find("op-whole"), "a whole record was lost with the tail");
+  require(!QDir(workspace + "/.groundzero/journal/quarantine")
+               .entryList({"tail-*"}, QDir::Files)
+               .isEmpty(),
+          "the torn tail was not kept in quarantine");
+}
+
+void damageIsQuarantinedAndReported(const QString& workspace) {
+  {
+    auto journal = openJournal(workspace, uuid(), "runtime_" + uuid());
+    require(journal->admit(admission("op-1", "memory")), "refused");
+    require(journal->admit(admission("op-2", "memory")), "refused");
+  }
+  QFile segment(segmentPath(workspace));
+  require(segment.open(QIODevice::ReadOnly), "cannot read the segment");
+  QByteArray bytes = segment.readAll();
+  segment.close();
+  const int at  = bytes.indexOf("\"op-1\"");
+  bytes[at + 2] = 'X';
+  require(segment.open(QIODevice::WriteOnly) && segment.write(bytes) > 0,
+          "cannot damage the segment");
+  segment.close();
+  auto journal = openJournal(workspace, uuid(), "runtime_" + uuid());
+  require(journal->available() && journal->state() == "damaged",
+          "damage was not reported");
+  require(!journal->find("op-1") && journal->find("op-2"),
+          "the damaged line was read or a good one lost");
+  require(journal->status().value("damage").toArray().size() == 1,
+          "no damage row");
+  require(journal->admit(admission("op-3", "memory")),
+          "writes stopped after damage");
+}
+
+void formatBeingWrittenIsAwaited(const QString& workspace) {
+  // Another worker has created FORMAT and not written its line yet.
+  const QString path = workspace + "/.groundzero/journal/FORMAT";
+  require(QDir().mkpath(workspace + "/.groundzero/journal"),
+          "cannot create the journal folder");
+  QFile empty(path);
+  require(empty.open(QIODevice::WriteOnly), "cannot create FORMAT");
+  empty.close();
+  std::thread writer([path] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    QFile format(path);
+    if (format.open(QIODevice::WriteOnly))
+      format.write("{\"format\":\"groundzero-journal\",\"version\":1}\n");
+  });
+  auto journal = openJournal(workspace, uuid(), "runtime_" + uuid());
+  writer.join();
+  require(journal->available(),
+          "a FORMAT file another worker was still writing made the journal "
+          "unavailable");
+}
+
+void newerFormatIsReadOnly(const QString& workspace) {
+  openJournal(workspace, uuid(), "runtime_" + uuid());
+  QFile format(workspace + "/.groundzero/journal/FORMAT");
+  require(format.open(QIODevice::WriteOnly) &&
+              format.write(
+                  "{\"format\":\"groundzero-journal\",\"version\":9}\n") > 0,
+          "cannot write FORMAT");
+  format.close();
+  auto journal = openJournal(workspace, uuid(), "runtime_" + uuid());
+  require(!journal->available() && journal->readable() &&
+              journal->unavailableReason() == "newer_format",
+          "a newer format was not refused");
+  require(refusal([&] { journal->admit(admission("op-x", "memory")); }).code ==
+              "journal_unavailable",
+          "a newer journal admitted a write");
+}
+
+void verdictsFollowTheEffectClass(const QString& workspace) {
+  const QString deadRuntime = "runtime_" + uuid();
+  {
+    auto dead = openJournal(workspace, uuid(), deadRuntime);
+    for (const char* kind : {"memory", "job", "publication"})
+      require(dead->admit(admission(QString("op-") + kind, kind)), "refused");
+    require(dead->admit(admission("op-written", "publication")), "refused");
+    require(dead->admit(admission("op-elsewhere", "publication")), "refused");
+    dead->intent({{"operation_id", "op-elsewhere"},
+                  {"location", QJsonObject{{"root", "input"},
+                                           {"path", "package"},
+                                           {"input_index", 0},
+                                           {"root_sha256", QString(64, 'f')}}},
+                  {"expected_sha256", QString(64, 'a')},
+                  {"content_sha256", QString(64, 'a')}});
+    QFile target(workspace + "/written.txt");
+    require(target.open(QIODevice::WriteOnly) && target.write("data") == 4,
+            "cannot write the target");
+    target.close();
+    const QString digest = journalContentDigest(workspace + "/written.txt");
+    dead->intent({{"operation_id", "op-written"},
+                  {"location", QJsonObject{{"root", "workspace"},
+                                           {"path", "written.txt"},
+                                           {"input_index", QJsonValue()},
+                                           {"root_sha256", QJsonValue()}}},
+                  {"expected_sha256", digest},
+                  {"content_sha256", digest}});
+  }
+  auto journal    = openJournal(workspace, uuid(), "runtime_" + uuid());
+  const auto kind = [&](const char* id) {
+    return journal->verdict(*journal->find(id)).value("kind").toString();
+  };
+  require(kind("op-memory") == "lost_with_worker", "memory verdict");
+  require(kind("op-job") == "job_unknown", "job verdict");
+  require(kind("op-publication") == "not_published", "publication verdict");
+  require(kind("op-written") == "published", "published verdict");
+  const QJsonObject elsewhere =
+      journal->verdict(*journal->find("op-elsewhere"));
+  require(elsewhere.value("evidence").toObject().value("found") ==
+                  "root_not_granted" &&
+              elsewhere.value("reconciled") == false,
+          "a location in a root this worker lacks was judged or reconciled");
+  require(journal->verdict(*journal->find("op-written")).value("reconciled") ==
+              true,
+          "the start-up recovery did not reconcile a dead worker's operation");
+}
+
+// Each maintenance step rewrites at most one sealed segment and brings the
+// journal within its limits: settled operations become stubs, old jobs and
+// package registrations go, and past the size limit old operations go.
+void maintenanceKeepsTheLimits(const QString& workspace) {
+  Journal::Start start;
+  start.workspace           = workspace;
+  start.instance            = uuid();
+  start.runtimeName         = "runtime_" + uuid();
+  start.authorityDigest     = "authority";
+  start.limits.segmentBytes = 4096;
+  start.limits.fullReceipts = 4;
+  start.limits.receiptStubs = 8;
+  start.limits.jobs         = 2;
+  start.limits.packages     = 1;
+  auto journal              = Journal::open(start);
+  for (int index = 0; index < 30; ++index) {
+    const QString id = "op-" + QString::number(index);
+    require(journal->admit(admission(id, "memory")), "refused");
+    require(journal->outcome(id, {{"result", QJsonObject{{"n", index}}}}, {}),
+            "outcome refused");
+    journal->recordJob({{"job_id", "job-" + QString::number(index)},
+                        {"record", QJsonObject{{"terminal", true}}}});
+    journal->registerPackage(
+        {{"package_id", "package:" + QString::number(index)},
+         {"manifest_bytes", 10}});
+  }
+  for (int step = 0; step < 64; ++step) {
+    journal->recordJob({{"job_id", "job-tick"}, {"record", QJsonObject{}}});
+    journal->maintain();
+  }
+  const QJsonObject retained = journal->status().value("retained").toObject();
+  require(retained.value("receipt_stubs").toInt() > 0, "nothing became a stub");
+  require(!journal->find("op-0") || !journal->find("op-0")->stubState.isEmpty(),
+          "the oldest operation kept its full receipt");
+  require(journal->find("op-29") && journal->find("op-29")->stubState.isEmpty(),
+          "the newest operation lost its receipt");
+  require(!journal->job("job-0"), "an old job record was kept");
+  require(journal->package("package:0") &&
+              journal->package("package:0")->value("expired").toBool(),
+          "an old package registration was not marked expired");
+  auto reader = openJournal(workspace, uuid(), "runtime_" + uuid());
+  require(reader->status().value("retained").toObject() ==
+              journal->status().value("retained").toObject(),
+          "a second reader sees a different journal");
+  // Full receipts are answered from their lines, also after compaction moved
+  // them; the index keeps no inline response.
+  for (const auto& source : {journal, reader})
+    for (int index = 26; index < 30; ++index) {
+      const JournalOperation* kept =
+          source->find("op-" + QString::number(index));
+      require(kept && !kept->outcome.contains("response") &&
+                  source->response(*kept) ==
+                      QJsonObject{{"result", QJsonObject{{"n", index}}}},
+              "a full receipt is not answered from its line after compaction");
+    }
+}
+
+void reservedPathsAreRefused(Context& context) {
+  for (const QString& path : {QString(".groundzero"), QString(".groundzero/x"),
+                              QString(".GROUNDZERO/journal/FORMAT")}) {
+    const Error error = refusal([&] { context.resolvePath(path, false); });
+    require(error.code == "path_denied" &&
+                error.details.value("reason") == "reserved",
+            "a reserved path was resolved");
+  }
+  context.resolvePath(".groundzeroish/x", true);
+}
+
+}  // namespace
+
+void runAutomationJournalTests(Context& context) {
+  const auto fresh = [&context]() {
+    auto directory = std::make_unique<QTemporaryDir>(
+        context.scratchDirectory() + "/journal-test-XXXXXX");
+    require(directory->isValid(), "cannot create a journal test workspace");
+    return directory;
+  };
+  twoWritersShareOneSequence(fresh()->path());
+  largeResultsGoToBlobs(fresh()->path());
+  tornTailIsQuarantined(fresh()->path());
+  damageIsQuarantinedAndReported(fresh()->path());
+  formatBeingWrittenIsAwaited(fresh()->path());
+  newerFormatIsReadOnly(fresh()->path());
+  verdictsFollowTheEffectClass(fresh()->path());
+  maintenanceKeepsTheLimits(fresh()->path());
+  reservedPathsAreRefused(context);
+}
+
+}  // namespace GroundzeroAutomation

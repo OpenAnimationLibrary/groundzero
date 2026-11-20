@@ -1,0 +1,369 @@
+import { constants } from "node:fs";
+import { access, lstat, realpath } from "node:fs/promises";
+import { isAbsolute, join, resolve, sep } from "node:path";
+import { parseArgs } from "node:util";
+
+export interface SharedRoot {
+  role: string;
+  path: string;
+  writable: boolean;
+}
+
+/** A granted output root: a named directory outside every other root. */
+export interface OutputRoot {
+  name: string;
+  path: string;
+  /** Whether packages and deliveries in it may be removed or replaced. */
+  modify: boolean;
+}
+
+export interface WorkerOptions {
+  executable: string;
+  workspace: string;
+  inputRoots: string[];
+  mediaToolsDirectory?: string;
+  sharedRoots?: SharedRoot[];
+  outputRoots?: OutputRoot[];
+  /** Grant classes, always with inspect. */
+  grants: string[];
+  /** Granted toolsets, or ["all"]. */
+  domains: string[];
+}
+
+const SHARED_ROLES = new Set(["studio_palettes", "project_palettes", "library"]);
+const GRANT_CLASSES = new Set(["inspect", "draft", "file", "job"]);
+const TOOLSET_NAME = /^[a-z][a-z0-9-]{0,31}$/;
+const OUTPUT_ROOT_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
+const RESERVED_ROOT_NAMES = new Set(["workspace", "input"]);
+const MAX_OUTPUT_ROOTS = 8;
+/** Today's full authority: what a session may do unless --grants narrows it. */
+export const DEFAULT_GRANTS = "inspect,draft,file,job";
+
+export interface DetachedOptions extends WorkerOptions {
+  toolsets: string[];
+  /** Refuse results outside their output schema instead of flagging them (tests). */
+  strictResults: boolean;
+}
+
+export interface LiveOptions {
+  executable: string;
+  liveSession: string;
+  strictResults: boolean;
+}
+
+export type AdapterOptions = DetachedOptions | LiveOptions;
+
+async function directory(path: string): Promise<string> {
+  if (!isAbsolute(path)) throw new Error(`Directory must be absolute: ${path}`);
+  const info = await lstat(path);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new Error(`Directory must exist and must not be a symlink: ${path}`);
+  }
+  const canonical = await realpath(path);
+  if (canonical !== resolve(path)) {
+    throw new Error(`Use the canonical directory path: ${canonical}`);
+  }
+  return canonical;
+}
+
+async function mediaDirectory(path: string): Promise<string> {
+  const canonical = await directory(path);
+  const extension = process.platform === "win32" ? ".exe" : "";
+  for (const name of ["ffmpeg", "ffprobe"]) {
+    const tool = join(canonical, name + extension);
+    const info = await lstat(tool);
+    if (!info.isFile() || info.isSymbolicLink() || (await realpath(tool)) !== tool) {
+      throw new Error(`Media tool must be a canonical regular executable file: ${tool}`);
+    }
+    await access(tool, constants.X_OK);
+  }
+  return canonical;
+}
+
+const LAUNCH_OPTIONS = {
+  executable: { type: "string" },
+  workspace: { type: "string" },
+  "input-root": { type: "string", multiple: true },
+  "media-tools": { type: "string" },
+  "shared-root": { type: "string", multiple: true },
+  "shared-write": { type: "string", multiple: true },
+  "output-root": { type: "string", multiple: true },
+  "output-modify": { type: "string", multiple: true },
+  "live-session": { type: "string" },
+  toolsets: { type: "string" },
+  grants: { type: "string" },
+  domains: { type: "string" },
+  "strict-results": { type: "boolean" },
+} as const;
+
+/** Name a flag and its value joined in one argument, as a client's args list often has them. */
+function refuseJoinedArgument(args: string[]): void {
+  for (const arg of args) {
+    const [flag = "", ...rest] = arg.split(/\s+/u);
+    if (rest.length === 0 || !flag.startsWith("--") || !(flag.slice(2) in LAUNCH_OPTIONS)) continue;
+    const value = arg.slice(flag.length).trim();
+    throw new Error(
+      `"${arg}" is one argument, but ${flag} and its value must be separate array elements: ` +
+        `${JSON.stringify(flag)}, ${JSON.stringify(value)}`,
+    );
+  }
+}
+
+function launchArguments(args: string[]) {
+  refuseJoinedArgument(args);
+  const { values, tokens } = parseArgs({
+    args,
+    options: LAUNCH_OPTIONS,
+    strict: true,
+    allowPositionals: false,
+    tokens: true,
+  });
+  const single = ["executable", "workspace", "media-tools", "live-session", "toolsets"];
+  for (const name of [...single, "grants", "domains"]) {
+    if (tokens.filter((token) => token.kind === "option" && token.name === name).length > 1) {
+      throw new Error(`Specify --${name} at most once`);
+    }
+  }
+  if (
+    !values.executable ||
+    (values.workspace === undefined && values["live-session"] === undefined)
+  ) {
+    throw new Error(
+      "Usage: groundzero-mcp --executable ABSOLUTE_FILE " +
+        "(--workspace ABSOLUTE_DIR | --live-session ABSOLUTE_SESSION_FILE)",
+    );
+  }
+  return values;
+}
+
+type LaunchArguments = ReturnType<typeof launchArguments>;
+
+const DETACHED_ONLY = [
+  "workspace",
+  "input-root",
+  "media-tools",
+  "shared-root",
+  "shared-write",
+  "output-root",
+  "output-modify",
+  "toolsets",
+  "grants",
+  "domains",
+] as const;
+
+function liveOptions(executable: string, values: LaunchArguments): LiveOptions {
+  if (DETACHED_ONLY.some((name) => values[name] !== undefined)) {
+    throw new Error(
+      "--live-session cannot be combined with workspace, input-root, media-tools, " +
+        "shared-root, shared-write, output-root, output-modify, toolsets, grants, or domains",
+    );
+  }
+  const liveSession = values["live-session"];
+  if (liveSession === undefined || !isAbsolute(liveSession) || liveSession.includes("\0")) {
+    throw new Error("--live-session must be an absolute session-file path");
+  }
+  return { executable, liveSession, strictResults: values["strict-results"] === true };
+}
+
+function toolsetNames(value: string | undefined): string[] {
+  if (value === undefined) return ["core"];
+  const names = value.split(",");
+  if (
+    names.length > 64 ||
+    names.some((name) => !TOOLSET_NAME.test(name)) ||
+    new Set(names).size !== names.length
+  ) {
+    throw new Error("--toolsets must be a comma-separated list of distinct toolset names, or all");
+  }
+  return names;
+}
+
+function distinct(flag: string, value: string): string[] {
+  const names = value.split(",");
+  if (names.includes("") || new Set(names).size !== names.length) {
+    throw new Error(`${flag} must be a comma-separated list of distinct names`);
+  }
+  return names;
+}
+
+function grantNames(value: string = DEFAULT_GRANTS): string[] {
+  const grants = distinct("--grants", value);
+  const unknown = grants.filter((grant) => !GRANT_CLASSES.has(grant));
+  if (unknown.length > 0) {
+    throw new Error(`--grants names unknown grant classes: ${unknown.join(", ")}`);
+  }
+  if (!grants.includes("inspect")) throw new Error("--grants must contain inspect");
+  return grants.sort();
+}
+
+function domainNames(value = "all"): string[] {
+  const domains = distinct("--domains", value);
+  if (domains.includes("all") && domains.length > 1) {
+    throw new Error("--domains takes all alone or a list of toolset names");
+  }
+  if (domains.length > 64 || domains.some((name) => !TOOLSET_NAME.test(name))) {
+    throw new Error("--domains must name toolsets, or all");
+  }
+  return domains.sort();
+}
+
+/** Require the toolsets shown at start to be granted domains; "all" shows every granted one. */
+function grantedToolsets(toolsets: string[], domains: string[]): string[] {
+  if (domains.includes("all")) return toolsets;
+  const outside = toolsets.filter(
+    (name) => name !== "all" && name !== "core" && !domains.includes(name),
+  );
+  if (outside.length > 0) {
+    throw new Error(`--toolsets names toolsets outside --domains: ${outside.join(", ")}`);
+  }
+  return toolsets;
+}
+
+function overlapping(first: string, second: string): boolean {
+  const within = (path: string, root: string) =>
+    path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+  return within(first, second) || within(second, first);
+}
+
+async function granted(flag: string, check: Promise<string>): Promise<string> {
+  try {
+    return await check;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid ${flag} directory: ${reason}`, { cause: error });
+  }
+}
+
+async function sharedRootGrants(values: LaunchArguments): Promise<Map<string, string>> {
+  const roots = new Map<string, string>();
+  for (const grant of values["shared-root"] ?? []) {
+    const separator = grant.indexOf("=");
+    const role = grant.slice(0, Math.max(separator, 0));
+    if (!SHARED_ROLES.has(role)) {
+      throw new Error(
+        "--shared-root requires ROLE=ABSOLUTE_DIR with ROLE studio_palettes, " +
+          "project_palettes or library",
+      );
+    }
+    if (roots.has(role)) throw new Error(`Specify --shared-root ${role} at most once`);
+    roots.set(role, await granted(`--shared-root ${role}`, directory(grant.slice(separator + 1))));
+  }
+  return roots;
+}
+
+async function sharedRoots(
+  values: LaunchArguments,
+  workspace: string,
+): Promise<SharedRoot[] | undefined> {
+  const roots = await sharedRootGrants(values);
+  const writes = values["shared-write"] ?? [];
+  if (new Set(writes).size !== writes.length || writes.some((role) => !roots.has(role))) {
+    throw new Error("--shared-write must name a configured --shared-root role at most once");
+  }
+  const paths = [workspace, ...roots.values()];
+  for (const [index, path] of paths.entries()) {
+    if (paths.slice(index + 1).some((other) => overlapping(path, other))) {
+      throw new Error("--shared-root must not overlap the workspace or another shared root");
+    }
+  }
+  if (roots.size === 0) return undefined;
+  return [...roots].map(([role, path]) => ({ role, path, writable: writes.includes(role) }));
+}
+
+async function outputRootGrants(values: LaunchArguments): Promise<Map<string, string>> {
+  const roots = new Map<string, string>();
+  const grants = values["output-root"] ?? [];
+  if (grants.length > MAX_OUTPUT_ROOTS) {
+    throw new Error(`Specify at most ${MAX_OUTPUT_ROOTS} --output-root options`);
+  }
+  for (const grant of grants) {
+    const separator = grant.indexOf("=");
+    const name = grant.slice(0, Math.max(separator, 0));
+    if (!OUTPUT_ROOT_NAME.test(name) || RESERVED_ROOT_NAMES.has(name)) {
+      throw new Error(
+        "--output-root requires NAME=ABSOLUTE_DIR with NAME of lowercase letters, digits, " +
+          "_ or -, starting with a letter, and not workspace or input",
+      );
+    }
+    if (roots.has(name)) throw new Error(`Specify --output-root ${name} at most once`);
+    roots.set(name, await granted(`--output-root ${name}`, directory(grant.slice(separator + 1))));
+  }
+  return roots;
+}
+
+/** Output roots: separate from the workspace, input and shared roots and from each other. */
+async function outputRoots(
+  values: LaunchArguments,
+  others: string[],
+): Promise<OutputRoot[] | undefined> {
+  const roots = await outputRootGrants(values);
+  const modify = values["output-modify"] ?? [];
+  if (new Set(modify).size !== modify.length || modify.some((name) => !roots.has(name))) {
+    throw new Error("--output-modify must name a configured --output-root at most once");
+  }
+  const paths = [...roots.values()];
+  for (const [index, path] of paths.entries()) {
+    const rest = [...others, ...paths.slice(index + 1)];
+    if (rest.some((other) => overlapping(path, other))) {
+      throw new Error(
+        "--output-root must not overlap the workspace, an input root, a shared root " +
+          "or another output root",
+      );
+    }
+  }
+  if (roots.size === 0) return undefined;
+  return [...roots].map(([name, path]) => ({ name, path, modify: modify.includes(name) }));
+}
+
+async function detachedOptions(
+  executable: string,
+  values: LaunchArguments,
+): Promise<DetachedOptions> {
+  if (!values.workspace) throw new Error("--workspace must be an absolute directory");
+  const workspace = await granted("--workspace", directory(values.workspace));
+  const inputRoots = await Promise.all(
+    (values["input-root"] ?? []).map((root) => granted("--input-root", directory(root))),
+  );
+  const grants = grantNames(values.grants);
+  const domains = domainNames(values.domains);
+  const options: DetachedOptions = {
+    executable,
+    workspace,
+    inputRoots: [...new Set(inputRoots)],
+    grants,
+    domains,
+    toolsets: grantedToolsets(toolsetNames(values.toolsets), domains),
+    strictResults: values["strict-results"] === true,
+  };
+  if (values["media-tools"] !== undefined) {
+    options.mediaToolsDirectory = await granted(
+      "--media-tools",
+      mediaDirectory(values["media-tools"]),
+    );
+  }
+  const shared = await sharedRoots(values, workspace);
+  if (shared !== undefined) options.sharedRoots = shared;
+  const others = [workspace, ...inputRoots, ...(shared ?? []).map((root) => root.path)];
+  const output = await outputRoots(values, others);
+  if (output !== undefined) options.outputRoots = output;
+  return options;
+}
+
+/** Validate the selected native worker or existing-editor connector launch.
+ *
+ * Args:
+ *   args: CLI arguments without the Node executable and script.
+ * Returns:
+ *   Fixed detached filesystem grants or a trusted executable and explicit live session path.
+ */
+export async function parseOptions(args: string[]): Promise<AdapterOptions> {
+  const values = launchArguments(args);
+  if (!values.executable || !isAbsolute(values.executable)) {
+    throw new Error("--executable must be an absolute path");
+  }
+  const executable = await realpath(values.executable);
+  if (!(await lstat(executable)).isFile()) throw new Error("--executable must name a regular file");
+  await access(executable, constants.X_OK);
+  if (values["live-session"] !== undefined) return liveOptions(executable, values);
+  return detachedOptions(executable, values);
+}

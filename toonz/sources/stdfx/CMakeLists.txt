@@ -1,6 +1,7 @@
 set(HEADERS
     seexprfx.h
     ../include/stdfx/shaderfx.h
+    ../include/stdfx/neuralstyleworker.h
     ../include/stdfx/shaderinterface.h
     ../include/stdfx/shadingcontext.h
     deformerfxcommon.h
@@ -425,7 +426,10 @@ option(BUILD_LUT3D_TESTS "Build the 3D LUT Bake regression executable" ${BUILD_T
 if(BUILD_LUT3D_TESTS)
     add_executable(neuralstyle_test tests/neuralstyle_test.cpp)
     target_link_libraries(neuralstyle_test toonzlib ${TNZLIBS} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${OpenCV_LIBS})
-    add_executable(neuralstyle_host_test ../neuralstyle/tests/host.cpp ../toonzlib/neuralstyle.cpp)
+    add_executable(neuralstyle_host_test
+        ../neuralstyle/tests/host.cpp
+        ../toonzlib/neuralstyle.cpp
+        ../toonzlib/neuralstyleexecution.cpp)
     target_compile_definitions(neuralstyle_host_test PRIVATE TOONZLIB_EXPORTS)
     target_link_libraries(neuralstyle_host_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_executable(referencecolormatch_test tests/referencecolormatch_test.cpp)
@@ -434,6 +438,55 @@ if(BUILD_LUT3D_TESTS)
     add_executable(lut3dbake_test tests/lut3dbake_test.cpp)
     target_link_libraries(lut3dbake_test Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui ${TNZLIBS} ${PTHREAD_LIBRARY})
     add_test(NAME lut3dbake COMMAND lut3dbake_test)
+endif()
+
+if(BUILD_LUT3D_TESTS OR BUILD_UI_PORT_TESTS)
+    add_executable(neuralstyle_validation_test
+        ../neuralstyle/tests/validation.cpp
+        ../toonzlib/neuralstyle.cpp
+        ../toonzlib/neuralstyleexecution.cpp)
+    target_compile_definitions(neuralstyle_validation_test PRIVATE TOONZLIB_EXPORTS)
+    target_link_libraries(neuralstyle_validation_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    add_executable(neuralstyle_execution_test
+        ../neuralstyle/tests/execution.cpp ../toonzlib/neuralstyleexecution.cpp)
+    target_compile_definitions(neuralstyle_execution_test PRIVATE TOONZLIB_EXPORTS)
+    target_link_libraries(neuralstyle_execution_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Threads::Threads)
+    add_executable(neuralstyle_execution_host_test
+        ../neuralstyle/tests/execution_host.cpp
+        ../toonzlib/neuralstyle.cpp ../toonzlib/neuralstyleexecution.cpp)
+    target_compile_definitions(neuralstyle_execution_host_test PRIVATE TOONZLIB_EXPORTS)
+    target_link_libraries(neuralstyle_execution_host_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Threads::Threads)
+    if(WIN32)
+        set(neuralstyle_test_path "$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>;$ENV{PATH}")
+        add_test(NAME neuralstyle_validation COMMAND ${CMAKE_COMMAND} -E env
+            "PATH=${neuralstyle_test_path}" "$<TARGET_FILE:neuralstyle_validation_test>")
+        add_test(NAME neuralstyle_execution COMMAND ${CMAKE_COMMAND} -E env
+            "PATH=${neuralstyle_test_path}" "$<TARGET_FILE:neuralstyle_execution_test>")
+    else()
+        add_test(NAME neuralstyle_validation COMMAND neuralstyle_validation_test)
+        add_test(NAME neuralstyle_execution COMMAND neuralstyle_execution_test)
+    endif()
+    set_tests_properties(neuralstyle_validation neuralstyle_execution PROPERTIES TIMEOUT 30)
+    add_executable(neuralstyle_worker_test tests/neuralstyle_worker_test.cpp)
+    target_include_directories(neuralstyle_worker_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(neuralstyle_worker_test PRIVATE
+        toonzlib ${TNZLIBS} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui
+        ${OpenCV_LIBS} Threads::Threads)
+    if(APPLE)
+        add_test(NAME neuralstyle_worker COMMAND ${CMAKE_COMMAND} -E env
+            "DYLD_LIBRARY_PATH=$<TARGET_FILE_DIR:OpenToonz>"
+            "$<TARGET_FILE:neuralstyle_worker_test>")
+    elseif(WIN32)
+        set(neuralstyle_worker_path "$<TARGET_FILE_DIR:OpenToonz>;${neuralstyle_test_path}")
+        add_test(NAME neuralstyle_worker COMMAND ${CMAKE_COMMAND} -E env
+            "PATH=${neuralstyle_worker_path}" "$<TARGET_FILE:neuralstyle_worker_test>")
+    else()
+        add_test(NAME neuralstyle_worker COMMAND neuralstyle_worker_test)
+    endif()
+    set_tests_properties(neuralstyle_worker PROPERTIES TIMEOUT 30)
 endif()
 
 # Optional regression target that renders standard FX graphs and compares

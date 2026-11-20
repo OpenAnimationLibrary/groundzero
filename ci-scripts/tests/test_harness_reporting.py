@@ -1,12 +1,11 @@
 """CI-only actual-entry contracts for reporting early Python harness failures."""
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from urllib.parse import unquote_to_bytes
-
 
 RUNNER = Path(__file__).resolve().parents[1] / "run_harness_tests.py"
 
@@ -66,7 +65,7 @@ class Fixture(unittest.TestCase):
             self.assertIn(text.encode(), report)
 
     def test_subtest_title_escapes_annotation_properties(self):
-        status, output, report = self.invoke('''import unittest
+        status, output, _report = self.invoke('''import unittest
 class Fixture(unittest.TestCase):
     def test_sub(self):
         with self.subTest(case='draw: frame,50%'): self.fail('actual subtest assertion')
@@ -110,6 +109,65 @@ class Fixture(unittest.TestCase):
         message.decode("utf-8", errors="strict")
         self.assertIn(b"exact assertion end", message)
         self.assertGreater(len(report), 20000)
+
+
+class McpHandoffReportingContracts(unittest.TestCase):
+    """Exercise rejected launcher setup without starting the native application."""
+
+    def invoke_handoff(self, root, replacements):
+        command = [sys.executable, str(RUNNER.with_name("mcp_handoff.py"))]
+        for option in ("executable", "stuff", "package", "reference", "output"):
+            path = replacements.get(option, root)
+            command.extend((f"--{option}", str(path)))
+        return subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=20,
+            check=False,
+        )
+
+    def test_missing_input_paths_fail_with_actionable_setup_annotations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for option in ("executable", "stuff", "package", "reference"):
+                with self.subTest(option=option):
+                    missing = root / f"missing-{option}"
+                    result = self.invoke_handoff(root, {option: missing})
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn(
+                        b"::error title=Normal app MCP handoff setup failed::",
+                        result.stdout,
+                    )
+                    self.assertIn(missing.name.encode(), result.stdout)
+                    self.assertNotIn(b"Traceback", result.stdout)
+
+    def test_output_directory_creation_failure_is_annotated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            blocked = root / "blocked-output"
+            blocked.write_text("This is a file, not a directory.", encoding="utf-8")
+            result = self.invoke_handoff(root, {"output": blocked / "evidence"})
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(
+                b"::error title=Normal app MCP handoff setup failed::", result.stdout
+            )
+            self.assertIn(b"blocked-output", result.stdout)
+            self.assertEqual(
+                blocked.read_text(encoding="utf-8"), "This is a file, not a directory."
+            )
+
+    def test_argument_usage_errors_keep_argparse_status(self):
+        result = subprocess.run(
+            [sys.executable, str(RUNNER.with_name("mcp_handoff.py"))],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=20,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(b"required", result.stdout)
+        self.assertNotIn(b"::error", result.stdout)
 
 
 if __name__ == "__main__":

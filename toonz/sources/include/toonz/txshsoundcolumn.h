@@ -210,9 +210,29 @@ when the user play a single level and hence the audio behind..*/
       int fromFrame = -1, int toFram = -1, double fps = -1,
       TSoundTrackFormat format = TSoundTrackFormat());
 
+  //! The column's sound over [fromFrame, toFrame) built in \b format, without
+  //! adapting the format to an audio output device.
+  TSoundTrackP getOfflineSoundTrack(int fromFrame, int toFrame, double fps,
+                                    TSoundTrackFormat format);
+
   TSoundTrackP mixingTogether(const std::vector<TXshSoundColumn *> &vect,
                               int fromFrame = -1, int toFram = -1,
                               double fps = -1);
+
+  //! mixingTogether() built with getOfflineSoundTrack(): the result does not
+  //! depend on, or require, an audio output device.
+  TSoundTrackP mixingTogetherOffline(const std::vector<TXshSoundColumn*>& vect,
+                                     int fromFrame, int toFrame, double fps);
+
+  //! The column's clips in timeline order. A clip pointer is valid until the
+  //! column's cells change.
+  int getClipCount() const { return m_levels.size(); }
+  const ColumnLevel* getClip(int index) const;
+
+#ifdef BUILD_UI_PORT_TESTS
+  //! Cells allocated by getCell(), so tests can show a caller never uses it.
+  static int allocatedCellCount();
+#endif
 
 protected:
   bool setCell(int row, const TXshCell &cell, bool updateSequence);
@@ -229,6 +249,9 @@ protected:
   ColumnLevel *getColumnLevel(int index);
   int getColumnLevelIndex(ColumnLevel *ss) const;
   void clear();
+
+  TSoundTrackP mixColumns(const std::vector<TXshSoundColumn*>& vect,
+                          int fromFrame, int toFrame, double fps, bool offline);
 
 protected slots:
   void onTimerOut();

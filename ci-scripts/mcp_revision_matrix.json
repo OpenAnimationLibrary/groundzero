@@ -1,0 +1,8565 @@
+{
+ "schema_version": 1,
+ "notes": {
+  "rule": [
+   "The dispatcher advances a document's revision by exactly one when a write handler reports that it began changing native state and the tool declares effects.document writes, creates or discards (advancesRevision in automation_effects.cpp). A write that changes nothing returns the current revision. A write that fails after state changed is reported as partially_applied and still advances the revision. A write that fails before any change leaves the revision alone.",
+   "Every write carries expected_revision, so a stale call fails with revision_conflict before the handler runs (automation_dispatch.cpp:475-486). An exact retry with the same operation_id returns the stored outcome without running the handler again, even after later writes (automation_dispatch.cpp:386-415).",
+   "The revision is reported by the handler, not computed from content, so the table below checks it against reads: a successful call must advance it by one and change a read, and a call that changes no read must not advance it."
+  ],
+  "classes": [
+   {
+    "class": "content",
+    "examples": "Levels, drawings, columns, cells, stage objects, curves, effects, palettes, sound, storyboard panels, hooks, offset layers.",
+    "bumps": "yes, by one per call that changes state",
+    "reference": "applyWrite in automation_dispatch.cpp"
+   },
+   {
+    "class": "selection",
+    "examples": "Editor selection and current frame.",
+    "bumps": "not applicable in the detached profile: no tool reads or writes it, and every write names its targets. The live bridge excludes it from the fingerprint.",
+    "reference": "README, detached tools do not change editor selection"
+   },
+   {
+    "class": "cache",
+    "examples": "Render job results and frozen render snapshots, lip-sync analyses, preset registrations, saved-package registrations.",
+    "bumps": "no; the worker holds them, not the document",
+    "reference": "automation_render.cpp, automation_lipsync.cpp, automation_persistence.cpp"
+   },
+   {
+    "class": "save state",
+    "examples": "scene.save_copy and the files that fx.preset.save, raster.export_png and audio.mixdown publish.",
+    "bumps": "no; declared with effects.document reads. The detached profile has no dirty flag, and the live fingerprint removes the scene dirty flag.",
+    "reference": "automation_live_scene.cpp:703"
+   },
+   {
+    "class": "document lifecycle",
+    "examples": "scene.create, scene.open, scene.discard.",
+    "bumps": "a new document starts at revision 1; a discarded document has no revision",
+    "reference": "automation_scene.cpp, automation_persistence.cpp"
+   },
+   {
+    "class": "external file change",
+    "examples": "An imported PNG or sound file edited on disk after import.",
+    "bumps": "not tracked. Imports copy the bytes into the workspace, so the document does not change and the revision does not move. The README requires that no other process modifies the workspace.",
+    "reference": "README, scene.open section"
+   }
+  ],
+  "live_undo": {
+   "question": "What does a stale edit see when live undo returns content to an earlier fingerprint?",
+   "current": [
+    "The live fingerprint hashes the qualified metadata of the scene, the target and the undo history's change generation (automation_live_scene.cpp, snapshot and fingerprint). Undo, redo and every new history entry advance that generation (tundo.cpp), so the fingerprint after an edit and its undo differs from the one before the edit, although the content is the same.",
+    "An edit that carries an earlier fingerprint is refused with stale_target (automation_live_scene.cpp, requireFresh). Nothing changes and no undo entry is added. The error's details give a reason and the current_fingerprint: content_changed when the qualified metadata differs from what the fingerprint covered (also for a fingerprint the editor did not issue), history_changed when the metadata is the same but the history moved, and target_replaced when the target's native parameter was replaced. The editor keeps a bounded record of the fingerprints it issued to tell these apart.",
+    "A history change also clears the observed state and advances the observation serial (automation_live_scene.cpp, observeHistory). A history reset or a scene switch starts a new scene epoch, and an edit with the old epoch is refused with scene_changed (automation_live_scene.cpp, requireEpoch).",
+    "Native tests in the live fixture (tests/mcp_live_history_test.cpp) cover an edit prepared before an undo and before a redo, the reasons for each, a retry with the reported current fingerprint, a replaced target and a fingerprint the editor never issued.",
+    "The detached worker has no undo, so its revision only moves forward."
+   ],
+   "options": [
+    {
+     "name": "Keep history-bound fingerprints",
+     "effect": "A fingerprint never returns to an earlier value. Every undo or redo forces a new inspection, even when content is identical.",
+     "cost": "An agent loses a pending edit after a human undo that restored the same values."
+    },
+    {
+     "name": "Make the fingerprint content-only",
+     "effect": "An edit built before an edit-and-undo pair is accepted after it.",
+     "cost": "Reuses a former fingerprint, which the revision rule forbids, and cannot tell whether a redo branch was dropped or an owner was recreated under a new identity."
+    },
+    {
+     "name": "Keep history-bound fingerprints and say why",
+     "effect": "Refuse as today, add a reason code and the current fingerprint to the error, and cover undo, redo and a stale edit with native tests.",
+     "cost": "Needs a live contract amendment and tests."
+    }
+   ],
+   "decision": "Keep the history-bound fingerprint and add the reason and the current fingerprint to stale_target. A revision that returned to an earlier value would let an agent act on a state it never saw, and the extra detail removes the cost of re-inspecting. Implemented with the live protocol v2 handshake; the native tests for undo, redo and a stale edit are in tests/mcp_live_history_test.cpp."
+  }
+ },
+ "fixtures": {
+  "scene": {
+   "steps": [
+    {
+     "tool": "scene.create",
+     "args": {
+      "name": "Matrix",
+      "width_px": 32,
+      "height_px": 32,
+      "width_in": 0.26666666666666666,
+      "height_in": 0.26666666666666666,
+      "frame_rate": 24
+     }
+    }
+   ]
+  },
+  "level": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "level.import",
+     "args": {
+      "path": "${fixture}",
+      "name": "Q",
+      "dpi": 120
+     },
+     "save": {
+      "level": "level_id"
+     }
+    }
+   ]
+  },
+  "column": {
+   "extends": "level",
+   "steps": [
+    {
+     "tool": "column.create",
+     "args": {
+      "name": "Col"
+     },
+     "save": {
+      "column": "column_id"
+     }
+    }
+   ]
+  },
+  "exposed": {
+   "extends": "column",
+   "steps": [
+    {
+     "tool": "column.expose",
+     "args": {
+      "column_id": "$column",
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "start_frame": 0,
+      "length": 5
+     }
+    }
+   ]
+  },
+  "peg": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "object.create",
+     "args": {
+      "kind": "pegbar",
+      "name": "Peg"
+     },
+     "save": {
+      "peg": "object_id"
+     }
+    }
+   ]
+  },
+  "pegs": {
+   "extends": "peg",
+   "steps": [
+    {
+     "tool": "object.create",
+     "args": {
+      "kind": "pegbar",
+      "name": "Child"
+     },
+     "save": {
+      "child": "object_id"
+     }
+    }
+   ]
+  },
+  "vector_level": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "level.create",
+     "args": {
+      "name": "V",
+      "format": "vector"
+     },
+     "save": {
+      "vlevel": "level_id"
+     }
+    }
+   ]
+  },
+  "keyed": {
+   "extends": "peg",
+   "steps": [
+    {
+     "tool": "animation.set_keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "keys": [
+       {
+        "frame": 0,
+        "value": 0,
+        "interpolation": "linear"
+       },
+       {
+        "frame": 10,
+        "value": 1,
+        "interpolation": "linear"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "path": {
+   "extends": "peg",
+   "steps": [
+    {
+     "tool": "motion_path.create",
+     "args": {
+      "name": "Arc",
+      "control_points": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 1,
+        "y": 1
+       },
+       {
+        "x": 2,
+        "y": 0
+       }
+      ],
+      "coordinate_policy": "native_roundtrip",
+      "unit": "inch",
+      "max_coordinate_error_inch": 0.01
+     },
+     "save": {
+      "path": "path_id"
+     }
+    }
+   ]
+  },
+  "attached": {
+   "extends": "path",
+   "steps": [
+    {
+     "tool": "object.path.attach",
+     "args": {
+      "object_id": "$peg",
+      "path_id": "$path",
+      "aim": false,
+      "position_policy": "use_path_percentage",
+      "update_position_keys": false
+     }
+    }
+   ]
+  },
+  "fxs": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "STD_blurFx",
+      "name": "Blur"
+     },
+     "save": {
+      "blur": "fx_id"
+     }
+    },
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "colorCardFx",
+      "name": "Card",
+      "frame_count": 5
+     },
+     "save": {
+      "card": "fx_id"
+     }
+    }
+   ]
+  },
+  "fx_linked": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.connect",
+     "args": {
+      "fx_id": "$blur",
+      "port": "Source",
+      "source_fx_id": "$card"
+     }
+    }
+   ]
+  },
+  "fx_terminal": {
+   "extends": "fx_linked",
+   "steps": [
+    {
+     "tool": "fx.terminal.set",
+     "args": {
+      "fx_id": "$blur",
+      "enabled": true
+     }
+    }
+   ]
+  },
+  "fx_outputs": {
+   "extends": "fx_linked",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "output",
+      "name": "Out"
+     },
+     "save": {
+      "out": "fx_id"
+     }
+    }
+   ]
+  },
+  "fx_chain": {
+   "extends": "fx_linked",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "STD_glowFx",
+      "name": "Glow"
+     },
+     "save": {
+      "glow": "fx_id"
+     }
+    },
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "STD_blurFx",
+      "name": "Blur2"
+     },
+     "save": {
+      "blur2": "fx_id"
+     }
+    },
+    {
+     "tool": "fx.connect",
+     "args": {
+      "fx_id": "$blur2",
+      "port": "Source",
+      "source_fx_id": "$blur"
+     }
+    }
+   ]
+  },
+  "fx_macro": {
+   "extends": "fx_chain",
+   "steps": [
+    {
+     "tool": "fx.macro.create",
+     "args": {
+      "fx_ids": [
+       "$blur",
+       "$blur2"
+      ],
+      "name": "Pair"
+     },
+     "save": {
+      "macro": "node.fx_id"
+     }
+    }
+   ]
+  },
+  "vec_empty": {
+   "extends": "vector_level",
+   "steps": [
+    {
+     "tool": "drawing.create",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "format": "vector"
+     }
+    }
+   ]
+  },
+  "vec": {
+   "extends": "vec_empty",
+   "steps": [
+    {
+     "tool": "vector.edit",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "drawing_native",
+      "sharing": "all_exposures",
+      "edits": [
+       {
+        "action": "add",
+        "style_id": 1,
+        "closed": true,
+        "points": [
+         {
+          "x": -5,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 0,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": 0,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": 0,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": -5,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": -5,
+          "y": 0,
+          "thickness": 1
+         },
+         {
+          "x": -5,
+          "y": -5,
+          "thickness": 1
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "vec_two": {
+   "extends": "vec",
+   "steps": [
+    {
+     "tool": "vector.edit",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "drawing_native",
+      "sharing": "all_exposures",
+      "edits": [
+       {
+        "action": "add",
+        "style_id": 1,
+        "closed": true,
+        "points": [
+         {
+          "x": 5,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 10,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 15,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 15,
+          "y": 0,
+          "thickness": 1
+         },
+         {
+          "x": 15,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": 10,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": 0,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": -5,
+          "thickness": 1
+         }
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "vec_exposed": {
+   "extends": "vec",
+   "steps": [
+    {
+     "tool": "column.create",
+     "args": {
+      "name": "Shared"
+     },
+     "save": {
+      "vcolumn": "column_id"
+     }
+    },
+    {
+     "tool": "column.expose",
+     "args": {
+      "column_id": "$vcolumn",
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "start_frame": 0,
+      "length": 2
+     }
+    }
+   ]
+  },
+  "vec_spare": {
+   "extends": "vec",
+   "steps": [
+    {
+     "tool": "drawing.create",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 2,
+       "suffix": ""
+      },
+      "format": "vector"
+     }
+    }
+   ]
+  },
+  "vec_style": {
+   "extends": "vec",
+   "steps": [
+    {
+     "tool": "palette.create_style",
+     "args": {
+      "level_id": "$vlevel",
+      "name": "Red",
+      "color": {
+       "r": 200,
+       "g": 30,
+       "b": 30,
+       "a": 255
+      }
+     },
+     "save": {
+      "style": "style_id"
+     }
+    }
+   ]
+  },
+  "vec_grouped": {
+   "extends": "vec_two",
+   "steps": [
+    {
+     "tool": "vector.group.create",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "sharing": "all_exposures",
+      "first_index": 0,
+      "count": 2
+     }
+    }
+   ]
+  },
+  "pal_style": {
+   "extends": "vector_level",
+   "steps": [
+    {
+     "tool": "palette.create_style",
+     "args": {
+      "level_id": "$vlevel",
+      "name": "Red",
+      "color": {
+       "r": 200,
+       "g": 30,
+       "b": 30,
+       "a": 255
+      }
+     },
+     "save": {
+      "style": "style_id"
+     }
+    }
+   ]
+  },
+  "pal_pages": {
+   "extends": "pal_style",
+   "steps": [
+    {
+     "tool": "palette.page.create",
+     "args": {
+      "level_id": "$vlevel",
+      "name": "Extra"
+     }
+    }
+   ]
+  },
+  "pal_pages2": {
+   "extends": "pal_pages",
+   "steps": [
+    {
+     "tool": "palette.page.create",
+     "args": {
+      "level_id": "$vlevel",
+      "name": "More"
+     }
+    }
+   ]
+  },
+  "text": {
+   "extends": "vector_level",
+   "steps": [
+    {
+     "font": "font"
+    }
+   ]
+  },
+  "rig_column": {
+   "extends": "level",
+   "steps": [
+    {
+     "tool": "column.create",
+     "args": {
+      "name": "Arm"
+     },
+     "save": {
+      "column": "column_id",
+      "colobj": "object_id"
+     }
+    },
+    {
+     "tool": "column.expose",
+     "args": {
+      "column_id": "$column",
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "start_frame": 0,
+      "length": 3
+     }
+    }
+   ]
+  },
+  "rig_hook": {
+   "extends": "rig_column",
+   "steps": [
+    {
+     "tool": "hook.set",
+     "args": {
+      "level_id": "$level",
+      "hook_number": 1,
+      "unit": "inch",
+      "positions": [
+       {
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        },
+        "a": {
+         "x": 0.1,
+         "y": 0.2
+        }
+       }
+      ],
+      "coordinate_policy": "native_roundtrip",
+      "max_coordinate_error_inch": 0.001
+     }
+    }
+   ]
+  },
+  "layer": {
+   "extends": "peg",
+   "steps": [
+    {
+     "tool": "offset_layer.create",
+     "args": {
+      "object_id": "$peg",
+      "name": "Breath"
+     },
+     "save": {
+      "layer": "layer.layer_id"
+     }
+    }
+   ]
+  },
+  "audio_src": {
+   "extends": "scene",
+   "steps": [
+    {
+     "file": "tone.wav",
+     "kind": "wav"
+    },
+    {
+     "tool": "audio.import",
+     "args": {
+      "name": "Tone",
+      "path": "${inputs}/tone.wav"
+     },
+     "save": {
+      "source": "source.level_id"
+     }
+    }
+   ]
+  },
+  "audio_col": {
+   "extends": "audio_src",
+   "steps": [
+    {
+     "tool": "audio.column.create",
+     "args": {
+      "name": "Snd",
+      "volume_permille": 1000
+     },
+     "save": {
+      "scolumn": "column.column_id"
+     }
+    }
+   ]
+  },
+  "audio_clip": {
+   "extends": "audio_col",
+   "steps": [
+    {
+     "tool": "audio.clip.place",
+     "args": {
+      "column_id": "$scolumn",
+      "level_id": "$source",
+      "overlap_policy": "reject",
+      "placement": {
+       "timeline_start_frame": 0,
+       "source_start_frame": 0,
+       "frame_count": 24
+      }
+     }
+    }
+   ]
+  },
+  "audio_file": {
+   "extends": "scene",
+   "steps": [
+    {
+     "file": "tone.wav",
+     "kind": "wav"
+    }
+   ]
+  },
+  "panel": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "storyboard.panel.create",
+     "args": {
+      "panel_frame": 0,
+      "caption": "Open",
+      "notes": "",
+      "color": {
+       "r": 10,
+       "g": 20,
+       "b": 30
+      }
+     }
+    }
+   ]
+  },
+  "dat": {
+   "extends": "scene",
+   "steps": [
+    {
+     "file": "talk.dat",
+     "text": "MohoSwitch1\n1 rest\n3 ai\n6 etc\n"
+    }
+   ]
+  },
+  "lip_ready": {
+   "extends": "column",
+   "steps": [
+    {
+     "file": "talk.dat",
+     "text": "MohoSwitch1\n1 rest\n3 ai\n6 etc\n"
+    },
+    {
+     "tool": "lipsync.import",
+     "args": {
+      "path": "${inputs}/talk.dat",
+      "format": "papagayo_dat",
+      "shape_set": "preston_blair",
+      "frame_rate": 24
+     },
+     "save": {
+      "analysis": "analysis_id"
+     }
+    }
+   ]
+  },
+  "empty": {
+   "steps": []
+  },
+  "scene_pkg": {
+   "extends": "level",
+   "steps": [
+    {
+     "tool": "scene.save_copy",
+     "args": {
+      "directory": "${workspace}/package-for-open"
+     },
+     "save": {
+      "package": "package_directory"
+     }
+    }
+   ]
+  },
+  "preset_blur": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "STD_blurFx",
+      "name": "Blur"
+     },
+     "save": {
+      "blur": "fx_id"
+     }
+    }
+   ]
+  },
+  "preset_ready": {
+   "extends": "preset_blur",
+   "steps": [
+    {
+     "tool": "fx.preset.save",
+     "args": {
+      "fx_id": "$blur",
+      "directory": "${workspace}/preset-applied"
+     }
+    },
+    {
+     "tool": "fx.parameter.set",
+     "args": {
+      "fx_id": "$blur",
+      "parameter": "value",
+      "value": 7
+     }
+    }
+   ]
+  },
+  "audio_clip_long": {
+   "extends": "audio_clip",
+   "steps": []
+  },
+  "shown": {
+   "extends": "level",
+   "steps": [
+    {
+     "tool": "column.create",
+     "args": {
+      "name": "C"
+     },
+     "save": {
+      "column": "column_id"
+     }
+    },
+    {
+     "tool": "column.expose",
+     "args": {
+      "column_id": "$column",
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "start_frame": 0,
+      "length": 5
+     }
+    }
+   ]
+  },
+  "long_job": {
+   "extends": "shown",
+   "steps": [
+    {
+     "tool": "render.submit",
+     "args": {
+      "start_frame": 0,
+      "end_frame": 119,
+      "width": 256,
+      "height": 256
+     },
+     "save": {
+      "job": "job_id"
+     }
+    }
+   ]
+  },
+  "pegs_parented": {
+   "extends": "pegs",
+   "steps": [
+    {
+     "tool": "object.parent",
+     "args": {
+      "object_id": "$child",
+      "parent_id": "$peg",
+      "placement_policy": "preserve_local"
+     }
+    }
+   ]
+  },
+  "pal_filled": {
+   "extends": "pal_pages",
+   "steps": [
+    {
+     "tool": "palette.clone_style",
+     "args": {
+      "level_id": "$vlevel",
+      "style_id": "$style",
+      "name": "Copy",
+      "page_index": 1
+     }
+    }
+   ]
+  },
+  "bad_audio": {
+   "extends": "scene",
+   "steps": [
+    {
+     "file": "garbage.wav",
+     "text": "not a sound file"
+    }
+   ]
+  },
+  "full_worker": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "scene.create",
+     "args": {
+      "name": "Filler",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 0.1,
+      "height_in": 0.1,
+      "frame_rate": 24
+     },
+     "repeat": 31
+    }
+   ]
+  },
+  "package_for_limit": {
+   "extends": "level",
+   "steps": [
+    {
+     "tool": "scene.save_copy",
+     "args": {
+      "directory": "${workspace}/package-for-limit"
+     },
+     "save": {
+      "package": "package_directory"
+     }
+    }
+   ]
+  },
+  "full_with_package": {
+   "extends": "package_for_limit",
+   "steps": [
+    {
+     "tool": "scene.create",
+     "args": {
+      "name": "Filler",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 0.1,
+      "height_in": 0.1,
+      "frame_rate": 24
+     },
+     "repeat": 31
+    }
+   ]
+  },
+  "column_locked": {
+   "extends": "column",
+   "steps": [
+    {
+     "tool": "column.update",
+     "args": {
+      "column_id": "$column",
+      "locked": true
+     }
+    }
+   ]
+  },
+  "exposed_locked": {
+   "extends": "exposed",
+   "steps": [
+    {
+     "tool": "column.update",
+     "args": {
+      "column_id": "$column",
+      "locked": true
+     }
+    }
+   ]
+  },
+  "vec_exposed_locked": {
+   "extends": "vec_exposed",
+   "steps": [
+    {
+     "tool": "column.update",
+     "args": {
+      "column_id": "$vcolumn",
+      "locked": true
+     }
+    }
+   ]
+  },
+  "rig_locked": {
+   "extends": "rig_hook",
+   "steps": [
+    {
+     "tool": "column.update",
+     "args": {
+      "column_id": "$column",
+      "locked": true
+     }
+    }
+   ]
+  },
+  "lip_locked": {
+   "extends": "lip_ready",
+   "steps": [
+    {
+     "tool": "column.update",
+     "args": {
+      "column_id": "$column",
+      "locked": true
+     }
+    }
+   ]
+  },
+  "ro_package": {
+   "extends": "column",
+   "steps": [
+    {
+     "tool": "scene.save_copy",
+     "args": {
+      "directory": "${workspace}/ro-${serial}"
+     }
+    }
+   ]
+  },
+  "ro_open": {
+   "extends": "ro_package",
+   "steps": [
+    {
+     "tool": "scene.open_read_only",
+     "args": {
+      "path": "${workspace}/ro-${serial}/scene.tnz",
+      "project_id": "standalone"
+     },
+     "save": {
+      "ro_document": "document_id"
+     },
+     "select_document": "ro_document"
+    }
+   ]
+  },
+  "full_ro_package": {
+   "extends": "ro_package",
+   "steps": [
+    {
+     "tool": "scene.create",
+     "args": {
+      "name": "Filler",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 0.1,
+      "height_in": 0.1,
+      "frame_rate": 24
+     },
+     "repeat": 31
+    }
+   ]
+  },
+  "exposed_two_levels": {
+   "extends": "exposed",
+   "steps": [
+    {
+     "tool": "level.create",
+     "args": {
+      "name": "R",
+      "format": "vector"
+     },
+     "save": {
+      "rlevel": "level_id"
+     }
+    },
+    {
+     "tool": "drawing.create",
+     "args": {
+      "level_id": "$rlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "format": "vector"
+     }
+    }
+   ]
+  },
+  "two_columns": {
+   "extends": "exposed",
+   "steps": [
+    {
+     "tool": "column.create",
+     "args": {
+      "name": "Second"
+     },
+     "save": {
+      "column2": "column_id"
+     }
+    }
+   ]
+  },
+  "two_cameras": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "camera.create",
+     "args": {
+      "name": "Side",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 1,
+      "height_in": 1
+     },
+     "save": {
+      "camera2": "camera.camera_id"
+     }
+    }
+   ]
+  },
+  "grouped": {
+   "extends": "pegs",
+   "steps": [
+    {
+     "tool": "object.group",
+     "args": {
+      "object_ids": [
+       "$peg",
+       "$child"
+      ],
+      "name": "Pair"
+     },
+     "save": {
+      "group": "group.group_number"
+     }
+    }
+   ]
+  },
+  "project": {
+   "extends": "scene",
+   "steps": [
+    {
+     "tool": "project.create",
+     "args": {
+      "directory": "${workspace}/FixtureShow${serial}"
+     },
+     "save": {
+      "project": "project_id"
+     }
+    }
+   ]
+  },
+  "removable_pkg": {
+   "extends": "level",
+   "steps": [
+    {
+     "tool": "scene.save_copy",
+     "args": {
+      "directory": "${workspace}/package-for-remove"
+     },
+     "save": {
+      "package": "package_directory",
+      "package_id": "package_id"
+     }
+    }
+   ]
+  },
+  "done_job": {
+   "extends": "shown",
+   "steps": [
+    {
+     "tool": "render.preview",
+     "args": {
+      "frame": 0,
+      "width": 16,
+      "height": 16
+     },
+     "save": {
+      "job": "job_id"
+     }
+    },
+    {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "until_terminal": true
+    }
+   ]
+  },
+  "rendered": {
+   "extends": "exposed",
+   "steps": [
+    {
+     "tool": "render.submit",
+     "args": {
+      "start_frame": 0,
+      "end_frame": 1,
+      "width": 8,
+      "height": 8
+     },
+     "save": {
+      "ref_job": "job_id"
+     },
+     "settle": {
+      "tool": "job.status",
+      "args": {
+       "job_id": "$ref_job"
+      }
+     }
+    }
+   ]
+  },
+  "fx_grouped": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.group.create",
+     "args": {
+      "fx_ids": [
+       "$blur",
+       "$card"
+      ],
+      "name": "Pair"
+     },
+     "save": {
+      "group": "group.group_id"
+     }
+    }
+   ]
+  },
+  "fx_blurs": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "STD_blurFx",
+      "name": "Blur2"
+     },
+     "save": {
+      "blur2": "fx_id"
+     }
+    }
+   ]
+  },
+  "fx_linked_blurs": {
+   "extends": "fx_blurs",
+   "steps": [
+    {
+     "tool": "fx.link.add",
+     "args": {
+      "fx_id": "$blur2",
+      "linked_to_fx_id": "$blur"
+     }
+    }
+   ]
+  },
+  "fx_over": {
+   "extends": "fxs",
+   "steps": [
+    {
+     "tool": "fx.create",
+     "args": {
+      "type": "overFx",
+      "name": "Over"
+     },
+     "save": {
+      "over": "fx_id"
+     }
+    }
+   ]
+  }
+ },
+ "tools": {
+  "animation.copy_curve": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "replaces a destination channel with a copy of a source curve",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "y",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "source": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     },
+     "destination": {
+      "object_id": "$peg",
+      "channel": "y",
+      "unit": "inch"
+     },
+     "destination_policy": "replace_all"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "source": {
+       "object_id": "$peg",
+       "channel": "x",
+       "unit": "inch"
+      },
+      "destination": {
+       "object_id": "$peg",
+       "channel": "rotation",
+       "unit": "degree"
+      },
+      "destination_policy": "replace_all"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "animation.delete_keys": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "removes keys from one channel curve",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "frames": [
+      10
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "frames": [
+       77
+      ]
+     },
+     "code": "missing_key"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "missing_key",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "animation.delete_keys/partial-frames": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "a key list where one frame has no key",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "frames": [
+       10,
+       77
+      ]
+     },
+     "code": "missing_key"
+    }
+   ],
+   "tool": "animation.delete_keys"
+  },
+  "animation.duplicate_keys": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "adds copies of existing keys of one channel curve",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "frames": [
+      10
+     ],
+     "frame_offset": 10
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "frames": [
+       10
+      ],
+      "frame_offset": -10
+     },
+     "code": "invalid_argument"
+    }
+   ],
+   "no_noop": "A repeat copies onto the key the first call created, so it is rejected as invalid_argument; the rule applies: a rejected call changes nothing."
+  },
+  "animation.insert_breakdown": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "adds one key inside a segment of one channel curve",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "frame": 5,
+     "favour_percent": 25
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "frame": 0,
+      "favour_percent": 25
+     },
+     "code": "invalid_argument"
+    }
+   ],
+   "no_noop": "A repeat names a frame that is now a key, so it is rejected as invalid_argument; the rule applies: a rejected call changes nothing."
+  },
+  "animation.move_keys": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "moves existing keys of one channel curve by frames and value",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "frames": [
+      10
+     ],
+     "frame_offset": 5,
+     "value_offset": 1
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "frames": [
+       10
+      ],
+      "frame_offset": -10
+     },
+     "code": "invalid_argument"
+    }
+   ],
+   "no_noop": "A repeat shifts the same frames again; the same operation_id replays the recorded result. A zero shift is a no-op that leaves the revision (native domain test moveRefusals)."
+  },
+  "animation.retime_curve": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "frame positions of a whole curve by an exact rational factor and shift",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "origin_frame": 0,
+     "scale": {
+      "numerator": 3,
+      "denominator": 2
+     },
+     "shift_frames": 4,
+     "step_policy": "scale_exact"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "origin_frame": 0,
+      "scale": {
+       "numerator": 1000000,
+       "denominator": 1
+      },
+      "shift_frames": 0,
+      "step_policy": "scale_exact"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "origin_frame": 0,
+     "scale": {
+      "numerator": 1,
+      "denominator": 1
+     },
+     "shift_frames": 0,
+     "step_policy": "scale_exact"
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "animation.set_cycle": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "keyed",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "turns the cycle of one channel curve on or off",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "enabled": true
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "path_position",
+      "unit": "percent",
+      "enabled": true
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Setting the cycle to its current state changes nothing and leaves the revision."
+   }
+  },
+  "animation.set_keys": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "peg",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "keys on one channel curve of a stage object",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "animation.keys",
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "channel": "x",
+     "unit": "inch",
+     "keys": [
+      {
+       "frame": 0,
+       "value": 0,
+       "interpolation": "linear"
+      },
+      {
+       "frame": 10,
+       "value": 1,
+       "interpolation": "linear"
+      }
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "channel": "x",
+      "unit": "inch",
+      "keys": [
+       {
+        "frame": 3,
+        "value": 0,
+        "interpolation": "linear"
+       },
+       {
+        "frame": 3,
+        "value": 1,
+        "interpolation": "linear"
+       }
+      ]
+     },
+     "code": "invalid_argument"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "assistance.neural.preview": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "level",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "renders a Neural Style preview job",
+   "bumps": "none; a job renders a snapshot and never edits the document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "frame": 0,
+      "reference": {
+       "level_id": "level_missing",
+       "drawing_id": {
+        "number": 1,
+        "suffix": ""
+       },
+       "crop": {
+        "x": 0,
+        "y": 0,
+        "width": 1,
+        "height": 1
+       }
+      }
+     },
+     "code": [
+      "unsupported_containment",
+      "invalid_handle"
+     ]
+    }
+   ],
+   "unexercised": "the success path needs the installed Neural Style runtime and the adapter's contained launch"
+  },
+  "audio.clip.place": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "audio_col",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "puts a source range on a sound column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "audio.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_id": "$scolumn",
+     "level_id": "$source",
+     "overlap_policy": "reject",
+     "placement": {
+      "timeline_start_frame": 0,
+      "source_start_frame": 0,
+      "frame_count": 24
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_id": "$scolumn",
+      "level_id": "level_missing",
+      "overlap_policy": "reject",
+      "placement": {
+       "timeline_start_frame": 0,
+       "source_start_frame": 0,
+       "frame_count": 24
+      }
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "audio_overlap",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "audio.clip.remove": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "audio_clip",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "removes a clip and keeps its source",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "audio.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "clip": {
+      "column_id": "$scolumn",
+      "timeline_start_frame": 0
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "clip": {
+       "column_id": "$scolumn",
+       "timeline_start_frame": 99
+      }
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "not_found",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "audio.clip.update": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "audio_clip",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "placement of an existing clip",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "audio.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "clip": {
+      "column_id": "$scolumn",
+      "timeline_start_frame": 0
+     },
+     "overlap_policy": "reject",
+     "placement": {
+      "timeline_start_frame": 0,
+      "source_start_frame": 0,
+      "frame_count": 12
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "clip": {
+       "column_id": "$scolumn",
+       "timeline_start_frame": 99
+      },
+      "overlap_policy": "reject",
+      "placement": {
+       "timeline_start_frame": 0,
+       "source_start_frame": 0,
+       "frame_count": 12
+      }
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "audio.column.create": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "audio_src",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "appends a sound column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "audio.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "name": "Snd",
+     "volume_permille": 1000
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": "Snd",
+      "volume_permille": 5000
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "audio.column.set_volume": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "audio_col",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "volume of a sound column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "audio.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_id": "$scolumn",
+     "volume_permille": 500
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_id": "column_missing",
+      "volume_permille": 500
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "audio.import": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "audio_file",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "adds a sound source to the cast",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "audio.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "name": "Tone",
+     "path": "${inputs}/tone.wav"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": "Tone",
+      "path": "${inputs}/missing.wav"
+     },
+     "code": "invalid_asset"
+    }
+   ],
+   "files": [
+    {
+     "file": "tone.wav",
+     "kind": "wav"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "name_conflict",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "audio.import/damaged-file": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "bad_audio",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "an import of a damaged file",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "audio.inspect"
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "name": "Bad",
+      "path": "${inputs}/garbage.wav"
+     },
+     "code": "unsupported_format"
+    }
+   ],
+   "tool": "audio.import"
+  },
+  "audio.mixdown": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "audio_clip",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes a WAV mix and leaves the document as it was",
+   "bumps": "none; a mixdown is a file, not document content",
+   "reads": [
+    {
+     "tool": "audio.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "start_frame": 0,
+     "end_frame": 10,
+     "output_path": "${workspace}/mix.wav",
+     "format_policy": "native_mix"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "start_frame": 0,
+      "end_frame": 10,
+      "output_path": "/nonexistent-root/mix.wav",
+      "format_policy": "native_mix"
+     },
+     "code": "path_denied"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/mix.wav"
+   }
+  },
+  "camera.create": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "adds a camera",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "name": "Extra",
+     "width_px": 8,
+     "height_px": 8,
+     "width_in": 1,
+     "height_in": 1
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": "Camera9",
+      "width_px": 8,
+      "height_px": 8,
+      "width_in": 1,
+      "height_in": 1
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "every call adds a camera"
+  },
+  "camera.duplicate": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "adds a copied camera",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "name": "Copy",
+     "parent_policy": "none"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "name": "Side",
+      "parent_policy": "none"
+     },
+     "code": "name_conflict"
+    }
+   ],
+   "no_noop": "every call adds a camera"
+  },
+  "camera.remove": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "removes a camera and packs camera numbers",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "children_policy": "refuse"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "children_policy": "refuse",
+      "replacement": {
+       "output": "$camera2"
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "a removed camera cannot be removed again"
+  },
+  "camera.select": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_cameras",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "output and preview camera roles",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "camera_id": "$camera2",
+     "roles": [
+      "output"
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "camera_id": "$camera2",
+      "roles": [
+       "output",
+       "output"
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "camera_id": "$camera2",
+     "roles": [
+      "output"
+     ]
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "camera.update": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "active camera resolution and physical size",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    },
+    {
+     "tool": "camera.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "width_px": 48
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "width_px": 0
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "camera.update/read-only-document": {
+   "tool": "camera.update",
+   "group": "scene",
+   "kind": "document",
+   "fixture": "ro_open",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "the camera of a read-only document",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "width_px": 64
+     },
+     "code": "read_only_document"
+    }
+   ]
+  },
+  "cells.clear": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "cells of an interval become empty; no shift",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 999999,
+      "length": 2
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 5
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.copy": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "destination cells (and cleared source cells for a move)",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "source": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 2
+     },
+     "destination": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 10
+     },
+     "placement": "replace",
+     "source_after": "keep"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "source": {
+       "column_ids": [
+        "$column"
+       ],
+       "start_frame": 0,
+       "length": 2
+      },
+      "destination": {
+       "column_ids": [
+        "$column"
+       ],
+       "start_frame": 10
+      },
+      "placement": "insert",
+      "source_after": "clear"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "source": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 2
+     },
+     "destination": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 10
+     },
+     "placement": "replace",
+     "source_after": "keep"
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.insert": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "blank rows inserted with shift in the target columns",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 999999,
+      "length": 2
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 5
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.remove": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "rows removed with shift in the target columns",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 999999,
+      "length": 2
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 5
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.replace": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed_two_levels",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "level and drawing references of exposures in an interval",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 8,
+     "mapping": {
+      "kind": "level",
+      "from_level_id": "$level",
+      "to_level_id": "$rlevel"
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 8,
+      "mapping": {
+       "kind": "level",
+       "from_level_id": "$level",
+       "to_level_id": "$level"
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 8,
+     "mapping": {
+      "kind": "level",
+      "from_level_id": "$level",
+      "to_level_id": "$rlevel"
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.retime": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "cell timing of the interval in each target column, with shift",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 0,
+     "length": 2,
+     "operation": {
+      "kind": "step",
+      "factor": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column"
+      ],
+      "start_frame": 0,
+      "length": 2,
+      "operation": {
+       "kind": "repeat",
+       "until_frame": 1
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "start_frame": 100,
+     "length": 2,
+     "operation": {
+      "kind": "reverse"
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "cells.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "column",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "cells of up to 64 level columns over explicit intervals",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 16
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "columns": [
+      {
+       "column_id": "$column",
+       "start_frame": 0,
+       "runs": [
+        {
+         "level_id": "$level",
+         "drawing_id": {
+          "number": 1,
+          "suffix": ""
+         },
+         "length": 3
+        }
+       ]
+      }
+     ],
+     "overwrite": false
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "columns": [
+       {
+        "column_id": "$column",
+        "start_frame": 0,
+        "runs": [
+         {
+          "level_id": "$level",
+          "drawing_id": {
+           "number": 9,
+           "suffix": ""
+          },
+          "length": 3
+         }
+        ]
+       }
+      ],
+      "overwrite": false
+     },
+     "code": "missing_drawing"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "columns": [
+      {
+       "column_id": "$column",
+       "start_frame": 0,
+       "runs": [
+        {
+         "level_id": "$level",
+         "drawing_id": {
+          "number": 1,
+          "suffix": ""
+         },
+         "length": 3
+        }
+       ]
+      }
+     ],
+     "overwrite": true
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "column.create": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "appends an empty level column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "name": "Col"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": ""
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "column.create/read-only-document": {
+   "tool": "column.create",
+   "group": "scene",
+   "kind": "document",
+   "fixture": "ro_open",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "a column added to a read-only document",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "name": "Added"
+     },
+     "code": "read_only_document"
+    }
+   ]
+  },
+  "column.delete": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "column",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "removes an unlocked column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_id": "$column"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_id": "column_missing"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "column.delete/locked-column": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed_locked",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "removal of a locked column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 12
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "column_id": "$column"
+     },
+     "code": "locked"
+    }
+   ],
+   "tool": "column.delete"
+  },
+  "column.duplicate": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "adds one column with a copied stage object",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_id": "$column",
+     "name": "Copy",
+     "parent_policy": "table",
+     "fx_policy": "column_only"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_id": "$column",
+      "name": "Copy",
+      "position": 99,
+      "parent_policy": "table",
+      "fx_policy": "column_only"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "every call adds a column"
+  },
+  "column.expose": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "column",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "cells of a level column over a frame range",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 8
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_id": "$column",
+     "level_id": "$level",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "start_frame": 0,
+     "length": 5
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_id": "$column",
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 9,
+       "suffix": ""
+      },
+      "start_frame": 0,
+      "length": 5
+     },
+     "code": "missing_drawing"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_id": "$column",
+     "level_id": "$level",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "start_frame": 0,
+     "length": 5,
+     "overwrite": true
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "column.expose/locked-column": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "column_locked",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "an exposure on a locked column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 12
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "column_id": "$column",
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "start_frame": 0,
+      "length": 5
+     },
+     "code": "locked"
+    }
+   ],
+   "tool": "column.expose"
+  },
+  "column.expose/occupied-cells": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "an exposure over occupied cells without overwrite",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 12
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "column_id": "$column",
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "start_frame": 3,
+      "length": 6
+     },
+     "code": "occupied_cells"
+    }
+   ],
+   "tool": "column.expose"
+  },
+  "column.move": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "two_columns",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "column order",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "before_position": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_ids": [
+       "$column",
+       "$column"
+      ],
+      "before_position": 0
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "column_ids": [
+      "$column"
+     ],
+     "before_position": 2
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "column.update": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "column",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "column name, visibility, lock and opacity",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "column_id": "$column",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "column_id": "column_missing",
+      "name": "X"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "column.update/unknown-property-combo": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "column",
+   "domain": "Timeline and columns",
+   "class": "content",
+   "changes": "an update that names an unknown column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "column_id": "column_missing",
+      "name": "X",
+      "opacity": 0.5,
+      "visible": false
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "tool": "column.update"
+  },
+  "drawing.analysis.submit": {
+   "group": "drawing",
+   "kind": "file",
+   "fixture": "vec",
+   "domain": "Drawings, vector art and palettes",
+   "class": "job",
+   "changes": "starts a bounded analysis job over the drawings of a level; the job reads the document and never edits it",
+   "bumps": "none; the job reads the document at its revision and never edits it",
+   "reads": [
+    {
+     "tool": "vector.inspect",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "limit": 8
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "check": "roles"
+    },
+    "save": {
+     "job": "job_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "check": "regions",
+      "style_ids": [
+       1
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "job_id"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
+   }
+  },
+  "drawing.clone": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "adds a copy of a drawing without exposing it",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "destination_drawing_id": {
+      "number": 2,
+      "suffix": ""
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "destination_drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     },
+     "code": "already_exists"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "already_exists",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "drawing.create": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vector_level",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "adds an empty drawing to a level",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "format": "vector"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "format": "rgba8"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "already_exists",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "drawing.remove": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_spare",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "removes an unexposed drawing",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 2,
+      "suffix": ""
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 9,
+       "suffix": ""
+      }
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "not_found",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "drawing.remove/exposed-drawing": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_exposed",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "removal of a drawing that a column exposes",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     },
+     "code": "in_use"
+    }
+   ],
+   "tool": "drawing.remove"
+  },
+  "drawing.renumber": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_exposed",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "drawing identifiers and the exposures that hold them",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    },
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$vcolumn",
+      "start_frame": 0,
+      "length": 3
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "sharing": "all_exposures",
+     "mapping": [
+      {
+       "drawing_id": {
+        "number": 1,
+        "suffix": ""
+       },
+       "destination_drawing_id": {
+        "number": 5,
+        "suffix": ""
+       }
+      }
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "sharing": "all_exposures",
+      "mapping": [
+       {
+        "drawing_id": {
+         "number": 9,
+         "suffix": ""
+        },
+        "destination_drawing_id": {
+         "number": 5,
+         "suffix": ""
+        }
+       }
+      ]
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$vlevel",
+     "sharing": "all_exposures",
+     "mapping": [
+      {
+       "drawing_id": {
+        "number": 5,
+        "suffix": ""
+       },
+       "destination_drawing_id": {
+        "number": 5,
+        "suffix": ""
+       }
+      }
+     ]
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "drawing.renumber/locked-use": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_exposed_locked",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "renumbering a drawing held by a locked column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "sharing": "all_exposures",
+      "mapping": [
+       {
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        },
+        "destination_drawing_id": {
+         "number": 5,
+         "suffix": ""
+        }
+       }
+      ]
+     },
+     "code": "locked"
+    }
+   ],
+   "tool": "drawing.renumber"
+  },
+  "drawing.renumber/partial-mapping": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_exposed",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "a mapping where one entry cannot apply",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    },
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$vcolumn",
+      "start_frame": 0,
+      "length": 3
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "sharing": "all_exposures",
+      "mapping": [
+       {
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        },
+        "destination_drawing_id": {
+         "number": 5,
+         "suffix": ""
+        }
+       },
+       {
+        "drawing_id": {
+         "number": 9,
+         "suffix": ""
+        },
+        "destination_drawing_id": {
+         "number": 6,
+         "suffix": ""
+        }
+       }
+      ]
+     },
+     "code": "not_found"
+    }
+   ],
+   "tool": "drawing.renumber"
+  },
+  "fx.connect": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fxs",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "connects an input port to another effect",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "port": "Source",
+     "source_fx_id": "$card"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "port": "NoSuchPort",
+      "source_fx_id": "$card"
+     },
+     "code": "UNKNOWN_PORT"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.connect/cycle": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fx_chain",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "a connection that would form a cycle",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "port": "Source",
+      "source_fx_id": "$blur2"
+     },
+     "code": "GRAPH_CYCLE"
+    }
+   ],
+   "tool": "fx.connect"
+  },
+  "fx.create": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "adds a disconnected effect, generator column or output node",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "type": "STD_blurFx",
+     "name": "Blur"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "type": "notAnEffect",
+      "name": "X"
+     },
+     "code": "UNSUPPORTED_FX"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "fx.create/read-only-document": {
+   "tool": "fx.create",
+   "group": "fx",
+   "kind": "document",
+   "fixture": "ro_open",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "an effect added to a read-only document",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "type": "STD_blurFx",
+      "name": "Blur"
+     },
+     "code": "read_only_document"
+    }
+   ]
+  },
+  "fx.delete": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fx_linked",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "removes an effect and disconnects its edges",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$card"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "fx.disconnect": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fx_linked",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "disconnects an input port",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "port": "Source"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "port": "NoSuchPort"
+     },
+     "code": "UNKNOWN_PORT"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.duplicate": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fxs",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "adds a disconnected copy with independent parameters",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "name": "Twin"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing",
+      "name": "Twin"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "fx.enabled.set": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fxs",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "native enable or bypass state",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "enabled": false
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing",
+      "enabled": false
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.macro.create": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fx_chain",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "groups connected effects into a macro",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_ids": [
+      "$blur",
+      "$blur2"
+     ],
+     "name": "Pair"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_ids": [
+       "$blur"
+      ],
+      "name": "Pair"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "fx.macro.create/partial-members": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fx_chain",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "a member list where one effect does not exist",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "fx_ids": [
+       "$blur",
+       "fx_missing"
+      ],
+      "name": "Pair"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "tool": "fx.macro.create"
+  },
+  "fx.macro.expand": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fx_macro",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "expands a macro into independent effects",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$macro"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "fx.output.select": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fx_outputs",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "which output node renders",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$out"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur"
+     },
+     "code": "INVALID_OUTPUT"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.parameter.set": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fxs",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "an unanimated parameter value",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.parameter.get",
+     "args": {
+      "fx_id": "$blur"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "parameter": "value",
+     "value": 3
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "parameter": "value",
+      "value": 9999
+     },
+     "code": "OUT_OF_RANGE"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.parameter.set_key": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fxs",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "a linear key on an animatable parameter",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.parameter.get",
+     "args": {
+      "fx_id": "$blur"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "parameter": "value",
+     "frame": 2,
+     "value": 4
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "parameter": "value",
+      "frame": 2,
+      "value": 9999
+     },
+     "code": "OUT_OF_RANGE"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.preset.apply": {
+   "group": "lifecycle",
+   "kind": "document",
+   "fixture": "preset_ready",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "content",
+   "changes": "parameters of an effect from a preset this worker saved",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.parameter.get",
+     "args": {
+      "fx_id": "$blur"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "directory": "${workspace}/preset-applied"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "directory": "${workspace}/preset-none"
+     },
+     "code": "UNREGISTERED_PRESET"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.preset.save": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "preset_blur",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes a preset package and leaves the document as it was",
+   "bumps": "none; a preset is a file, not document content",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "directory": "${workspace}/preset-saved"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing",
+      "directory": "${workspace}/preset-never"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/preset-saved/effect.preset"
+   }
+  },
+  "fx.rename": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fxs",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "name of an effect",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "name": "Soft"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing",
+      "name": "X"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.terminal.set": {
+   "group": "fx",
+   "kind": "document",
+   "fixture": "fx_linked",
+   "domain": "Effects",
+   "class": "content",
+   "changes": "whether an effect feeds the Xsheet composite",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "success": {
+    "args": {
+     "fx_id": "$blur",
+     "enabled": true
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing",
+      "enabled": true
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "hook.delete": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "rig_hook",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "removes hook keys on drawings or a whole hook",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "hook.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "hook_number": 1,
+     "scope": {
+      "kind": "drawings",
+      "drawing_ids": [
+       {
+        "number": 1,
+        "suffix": ""
+       }
+      ]
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "hook_number": 2,
+      "scope": {
+       "kind": "hook"
+      }
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "not_found",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "hook.set": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "rig_column",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "hook positions on explicit drawings of a level",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "hook.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "hook_number": 1,
+     "unit": "inch",
+     "positions": [
+      {
+       "drawing_id": {
+        "number": 1,
+        "suffix": ""
+       },
+       "a": {
+        "x": 0.1,
+        "y": 0.2
+       }
+      }
+     ],
+     "coordinate_policy": "native_roundtrip",
+     "max_coordinate_error_inch": 0.001
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "hook_number": 1,
+      "unit": "inch",
+      "positions": [
+       {
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        },
+        "a": {
+         "x": 5000,
+         "y": 0
+        }
+       }
+      ],
+      "coordinate_policy": "native_roundtrip",
+      "max_coordinate_error_inch": 0.001
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "hook.set/locked-user": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "rig_locked",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "a hook edit on a level a locked column uses",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "hook.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "hook_number": 1,
+      "unit": "inch",
+      "positions": [
+       {
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        },
+        "a": {
+         "x": 0.3,
+         "y": 0.3
+        }
+       }
+      ],
+      "coordinate_policy": "native_roundtrip",
+      "max_coordinate_error_inch": 0.001
+     },
+     "code": "locked"
+    }
+   ],
+   "tool": "hook.set"
+  },
+  "hook.set/partial-positions": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "rig_column",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "positions where one drawing does not exist",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "hook.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "hook_number": 1,
+      "unit": "inch",
+      "positions": [
+       {
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        },
+        "a": {
+         "x": 0.1,
+         "y": 0.2
+        }
+       },
+       {
+        "drawing_id": {
+         "number": 99,
+         "suffix": ""
+        },
+        "a": {
+         "x": 0.1,
+         "y": 0.2
+        }
+       }
+      ],
+      "coordinate_policy": "native_roundtrip",
+      "max_coordinate_error_inch": 0.001
+     },
+     "code": "missing_drawing"
+    }
+   ],
+   "tool": "hook.set"
+  },
+  "job.cancel": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "long_job",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "requests cancellation of a running job",
+   "bumps": "none; cancellation changes the job, not the document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "job_id": "$job"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "job_id": "job_unknown"
+     },
+     "code": "unknown_job"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "writers_closed"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
+   }
+  },
+  "level.create": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "adds an empty level to the cast",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "name": "Vec",
+     "format": "vector"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": "Q",
+      "format": "vector"
+     },
+     "code": "name_conflict"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "name_conflict",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "level.create/read-only-document": {
+   "tool": "level.create",
+   "group": "scene",
+   "kind": "document",
+   "fixture": "ro_open",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "a level added to a read-only document",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "name": "Added",
+      "format": "vector"
+     },
+     "code": "read_only_document"
+    }
+   ]
+  },
+  "level.duplicate": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "adds an independent copy of a level to the cast",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "name": "Q2"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "name": "Q"
+     },
+     "code": "name_conflict"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "name_conflict",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "level.import": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "adds a level holding one imported PNG drawing",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "path": "${fixture}",
+     "name": "Q",
+     "dpi": 120
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "path": "${inputs}/missing.png",
+      "name": "Z",
+      "dpi": 120
+     },
+     "code": "invalid_asset"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "name_conflict",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "level.import/name-conflict": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "an import whose level name exists",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "path": "${fixture}",
+      "name": "Q",
+      "dpi": 120
+     },
+     "code": "name_conflict"
+    }
+   ],
+   "tool": "level.import"
+  },
+  "level.remove": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "exposed",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "clears or replaces a level's exposures and removes it from the cast",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    },
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 8
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "exposure_policy": "clear"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "exposure_policy": "refuse"
+     },
+     "code": "in_use"
+    },
+    {
+     "args": {
+      "level_id": "$level",
+      "exposure_policy": "replace"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat names a removed level and is rejected, and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "level.rename": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "renames a level, keeping its handle and cast id",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "unknown",
+      "name": "Other"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$level",
+     "name": "Renamed"
+    },
+    "documented": "tools/mcp/README.md: renaming a level to its own name changes nothing and keeps the revision."
+   }
+  },
+  "level.settings.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "changes a level's interpretation settings",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "settings": {
+      "premultiply": true
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "settings": {
+       "color_space_gamma": 2.2
+      }
+     },
+     "code": "unsupported_target"
+    },
+    {
+     "args": {
+      "level_id": "$level",
+      "settings": {
+       "premultiply": true,
+       "white_transparent": true
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$level",
+     "settings": {
+      "premultiply": true
+     }
+    },
+    "documented": "tools/mcp/README.md: setting the values a level has changes nothing and keeps the revision."
+   }
+  },
+  "lipsync.apply": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "lip_ready",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "cells of one level column from an analysis",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 12
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "analysis_id": "$analysis",
+     "column_id": "$column",
+     "level_id": "$level",
+     "start_frame": 2,
+     "expected_frame_rate": 24,
+     "mapping": [
+      {
+       "shape": "rest",
+       "drawing_id": {
+        "number": 1,
+        "suffix": ""
+       }
+      },
+      {
+       "shape": "ai",
+       "drawing_id": {
+        "number": 1,
+        "suffix": ""
+       }
+      },
+      {
+       "shape": "etc",
+       "drawing_id": {
+        "number": 1,
+        "suffix": ""
+       }
+      }
+     ],
+     "end_policy": {
+      "kind": "hold_until_frame",
+      "frame": 10
+     },
+     "unmapped_policy": {
+      "kind": "reject"
+     },
+     "overwrite": "replace_range"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "analysis_id": "$analysis",
+      "column_id": "$column",
+      "level_id": "$level",
+      "start_frame": 2,
+      "expected_frame_rate": 30,
+      "mapping": [
+       {
+        "shape": "rest",
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        }
+       },
+       {
+        "shape": "ai",
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        }
+       },
+       {
+        "shape": "etc",
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        }
+       }
+      ],
+      "end_policy": {
+       "kind": "hold_until_frame",
+       "frame": 10
+      },
+      "unmapped_policy": {
+       "kind": "reject"
+      },
+      "overwrite": "replace_range"
+     },
+     "code": "timing_conflict"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "lipsync.apply/locked-column": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "lip_locked",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "an application onto a locked column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 12
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "analysis_id": "$analysis",
+      "column_id": "$column",
+      "level_id": "$level",
+      "start_frame": 2,
+      "expected_frame_rate": 24,
+      "mapping": [
+       {
+        "shape": "rest",
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        }
+       },
+       {
+        "shape": "ai",
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        }
+       },
+       {
+        "shape": "etc",
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        }
+       }
+      ],
+      "end_policy": {
+       "kind": "hold_until_frame",
+       "frame": 10
+      },
+      "unmapped_policy": {
+       "kind": "reject"
+      },
+      "overwrite": "replace_range"
+     },
+     "code": "locked"
+    }
+   ],
+   "tool": "lipsync.apply"
+  },
+  "lipsync.apply/unmapped-shape": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "lip_ready",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "an application with an unmapped shape",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "column.cells",
+     "args": {
+      "column_id": "$column",
+      "start_frame": 0,
+      "length": 12
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "analysis_id": "$analysis",
+      "column_id": "$column",
+      "level_id": "$level",
+      "start_frame": 2,
+      "expected_frame_rate": 24,
+      "mapping": [
+       {
+        "shape": "rest",
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        }
+       },
+       {
+        "shape": "ai",
+        "drawing_id": {
+         "number": 1,
+         "suffix": ""
+        }
+       }
+      ],
+      "end_policy": {
+       "kind": "hold_until_frame",
+       "frame": 10
+      },
+      "unmapped_policy": {
+       "kind": "reject"
+      },
+      "overwrite": "replace_range"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "tool": "lipsync.apply"
+  },
+  "lipsync.import": {
+   "group": "production",
+   "kind": "worker_state",
+   "fixture": "dat",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "analysis cache",
+   "changes": "stores an immutable lip-sync analysis in the worker",
+   "bumps": "none; the analysis belongs to the worker, not a document",
+   "reads": [],
+   "success": {
+    "args": {
+     "path": "${inputs}/talk.dat",
+     "format": "papagayo_dat",
+     "shape_set": "preston_blair",
+     "frame_rate": 24
+    },
+    "save": {
+     "analysis": "analysis_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "path": "${inputs}/missing.dat",
+      "format": "papagayo_dat",
+      "shape_set": "preston_blair",
+      "frame_rate": 24
+     },
+     "code": "invalid_asset"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "lipsync.inspect",
+     "args": {
+      "analysis_id": "$analysis",
+      "offset": 0,
+      "limit": 4
+     }
+    }
+   }
+  },
+  "motion_path.create": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "adds an open quadratic motion path",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "motion_path.list"
+    }
+   ],
+   "success": {
+    "args": {
+     "name": "Arc",
+     "control_points": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 1,
+       "y": 1
+      },
+      {
+       "x": 2,
+       "y": 0
+      }
+     ],
+     "coordinate_policy": "native_roundtrip",
+     "unit": "inch",
+     "max_coordinate_error_inch": 0.01
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": "Bad",
+      "control_points": [
+       {
+        "x": 0,
+        "y": 0
+       }
+      ],
+      "coordinate_policy": "native_roundtrip",
+      "unit": "inch",
+      "max_coordinate_error_inch": 0.01
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "motion_path.delete": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "path",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "removes an unused motion path",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "motion_path.list"
+    }
+   ],
+   "success": {
+    "args": {
+     "path_id": "$path"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "path_id": "path_missing"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "motion_path.duplicate": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "path",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "adds an independent copy of a motion path",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "motion_path.list"
+    }
+   ],
+   "success": {
+    "args": {
+     "path_id": "$path",
+     "name": "Copy"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "path_id": "path_missing",
+      "name": "Copy"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "motion_path.rename": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "path",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "name of a motion path",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "motion_path.list"
+    }
+   ],
+   "success": {
+    "args": {
+     "path_id": "$path",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "path_id": "path_missing",
+      "name": "X"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "motion_path.update": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "path",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "replaces the geometry shared by every consumer of a path",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "motion_path.inspect",
+     "args": {
+      "path_id": "$path"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "path_id": "$path",
+     "control_points": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 2,
+       "y": 2
+      },
+      {
+       "x": 4,
+       "y": 0
+      }
+     ],
+     "sharing": "all_attached",
+     "coordinate_policy": "native_roundtrip",
+     "unit": "inch",
+     "max_coordinate_error_inch": 0.01
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "path_id": "path_missing",
+      "control_points": [
+       {
+        "x": 0,
+        "y": 0
+       },
+       {
+        "x": 2,
+        "y": 2
+       },
+       {
+        "x": 4,
+        "y": 0
+       }
+      ],
+      "sharing": "all_attached",
+      "coordinate_policy": "native_roundtrip",
+      "unit": "inch",
+      "max_coordinate_error_inch": 0.01
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.create": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "adds a pegbar to the stage",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "kind": "pegbar",
+     "name": "Peg"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "kind": "pegbar",
+      "name": ""
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "object.create/read-only-document": {
+   "tool": "object.create",
+   "group": "scene",
+   "kind": "document",
+   "fixture": "ro_open",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "a peg added to a read-only document",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "kind": "pegbar",
+      "name": "Peg"
+     },
+     "code": "read_only_document"
+    }
+   ]
+  },
+  "object.delete": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "pegs",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "removes a pegbar from the stage",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$child",
+     "children_policy": "refuse",
+     "report_frames": [
+      0
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "children_policy": "refuse",
+      "report_frames": [
+       0
+      ]
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "object.duplicate": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "peg",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "adds a copy of a pegbar with its curves and offset layers",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "name": "Copy"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "name": "Copy"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "no_noop": "Every call adds another pegbar, so there is no value to repeat."
+  },
+  "object.group": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "pegs",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "adds a stage schematic group",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "object.groups"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_ids": [
+      "$peg",
+      "$child"
+     ],
+     "name": "Pair"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_ids": [
+       "$peg",
+       "object_missing"
+      ],
+      "name": "Pair"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "no_noop": "Every call adds another group, so there is no value to repeat."
+  },
+  "object.group.rename": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "grouped",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "name of a stage schematic group",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "object.groups"
+    }
+   ],
+   "success": {
+    "args": {
+     "group_number": "$group",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "group_number": 999,
+      "name": "X"
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.handles.set": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "rig_column",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "an object's own handle and parent handle",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$colobj",
+     "handle": {
+      "kind": "peg_hole",
+      "letter": "C"
+     },
+     "placement_policy": "native_no_compensation",
+     "report_frames": [
+      0
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "handle": {
+       "kind": "peg_hole",
+       "letter": "B"
+      },
+      "placement_policy": "native_no_compensation",
+      "report_frames": [
+       0
+      ]
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.parent": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "pegs",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "parent of a stage object",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$child",
+     "parent_id": "$peg",
+     "placement_policy": "preserve_local"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$child",
+      "parent_id": "$child",
+      "placement_policy": "preserve_local"
+     },
+     "code": "cycle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.parent/cycle-after-parenting": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "pegs_parented",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "a parent change that would form a cycle",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "parent_id": "$child",
+      "placement_policy": "preserve_local"
+     },
+     "code": "cycle"
+    }
+   ],
+   "tool": "object.parent"
+  },
+  "object.path.attach": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "path",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "attaches a stage object to a motion path",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    },
+    {
+     "tool": "motion_path.inspect",
+     "args": {
+      "path_id": "$path"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "path_id": "$path",
+     "aim": false,
+     "position_policy": "use_path_percentage",
+     "update_position_keys": false
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "$peg",
+      "path_id": "path_missing",
+      "aim": false,
+      "position_policy": "use_path_percentage",
+      "update_position_keys": false
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.path.detach": {
+   "group": "animation",
+   "kind": "document",
+   "fixture": "attached",
+   "domain": "Stage and animation",
+   "class": "content",
+   "changes": "detaches a stage object from its motion path",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    },
+    {
+     "tool": "motion_path.inspect",
+     "args": {
+      "path_id": "$path"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "position_policy": "restore_existing_xy"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "position_policy": "restore_existing_xy"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.pivot.set": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "rig_column",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "the stored pivot centre of an object",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$colobj",
+     "unit": "inch",
+     "center": {
+      "x": 0.1,
+      "y": 0.05
+     },
+     "policy": {
+      "kind": "keep_offset"
+     },
+     "report_frames": [
+      0
+     ],
+     "coordinate_policy": "native_roundtrip",
+     "max_coordinate_error_inch": 0.001
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "unit": "inch",
+      "center": {
+       "x": 0.1,
+       "y": 0.05
+      },
+      "policy": {
+       "kind": "keep_offset"
+      },
+      "report_frames": [
+       0
+      ],
+      "coordinate_policy": "native_roundtrip",
+      "max_coordinate_error_inch": 0.001
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.rename": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "peg",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "name of a pegbar or column",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "name": "X"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "object.ungroup": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "grouped",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "removes a stage schematic group",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "object.groups"
+    }
+   ],
+   "success": {
+    "args": {
+     "group_number": "$group"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "group_number": 999
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "not_found",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "offset_layer.create": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "peg",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "adds an additive offset layer to an object",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "object_id": "$peg",
+     "name": "Breath"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "object_id": "object_missing",
+      "name": "Breath"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "name_conflict",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "offset_layer.delete": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "layer",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "removes an offset layer and its curves",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "layer_id": "$layer"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "layer_id": "layer_missing"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_handle",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "offset_layer.update": {
+   "group": "rigging",
+   "kind": "document",
+   "fixture": "layer",
+   "domain": "Rigging",
+   "class": "content",
+   "changes": "name, enabled state and order of an offset layer",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "rig.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "layer_id": "$layer",
+     "name": "Sway"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "layer_id": "layer_missing",
+      "name": "Sway"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "palette.clone_style": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "pal_pages",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "adds an independent copy of a style to a page",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    },
+    {
+     "tool": "palette.pages",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "style_id": "$style",
+     "name": "Copy",
+     "page_index": 1
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "style_id": 4000,
+      "name": "Copy",
+      "page_index": 1
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "palette.create_style": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vector_level",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "adds a solid style to page zero",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "name": "Red",
+     "color": {
+      "r": 200,
+      "g": 30,
+      "b": 30,
+      "a": 255
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "name": "|bad",
+      "color": {
+       "r": 200,
+       "g": 30,
+       "b": 30,
+       "a": 255
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "palette.page.create": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vector_level",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "adds an empty palette page",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.pages",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "name": "Extra"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "name": "bad\u0000name"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "no_noop": "Every call adds another object, so there is no value to repeat."
+  },
+  "palette.page.move": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "pal_pages2",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "the order of palette pages",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.pages",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "page_index": 1,
+     "to_index": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "page_index": 100,
+      "to_index": 2
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$vlevel",
+     "page_index": 2,
+     "to_index": 2
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "palette.page.remove": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "pal_pages",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "removes an empty palette page",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.pages",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "page_index": 1
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "page_index": 100
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "invalid_params",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "palette.page.remove/nonempty-page-filled": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "pal_filled",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "removal of a page that holds a style",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    },
+    {
+     "tool": "palette.pages",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "page_index": 1
+     },
+     "code": "page_not_empty"
+    }
+   ],
+   "tool": "palette.page.remove"
+  },
+  "palette.page.rename": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "pal_pages",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "the name of a palette page",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.pages",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "page_index": 1,
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "page_index": 100,
+      "name": "Renamed"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "palette.rename_style": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "pal_style",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "the name of a style and its key snapshots",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "style_id": "$style",
+     "name": "Crimson"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "style_id": 4000,
+      "name": "Crimson"
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "palette.style.move": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "pal_pages",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "the page and position of a style",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.pages",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "style_id": "$style",
+     "page_index": 1,
+     "position": 0
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "style_id": 4000,
+      "page_index": 1,
+      "position": 0
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "palette.update_style": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "pal_style",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "the colour of a solid style",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "palette.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "style_id": "$style",
+     "color": {
+      "r": 30,
+      "g": 30,
+      "b": 200,
+      "a": 255
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "style_id": 4000,
+      "color": {
+       "r": 30,
+       "g": 30,
+       "b": 200,
+       "a": 255
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "project.create": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "scene",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes a new project definition folder in the workspace",
+   "bumps": "none; a project definition is a file, not document content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "directory": "${workspace}/MatrixShow${serial}"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "directory": "/nonexistent-root/Show"
+     },
+     "code": "path_denied"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/MatrixShow${serial}/MatrixShow${serial}_otprj.xml"
+   }
+  },
+  "project.duplicate": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "project",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes a copy of a project definition in a new workspace folder",
+   "bumps": "none; a project definition is a file, not document content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "project_id": "$project",
+     "directory": "${workspace}/CopyShow${serial}"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "project_id": "project_missing",
+      "directory": "${workspace}/Missing${serial}"
+     },
+     "code": "not_found"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/CopyShow${serial}/CopyShow${serial}_otprj.xml"
+   }
+  },
+  "raster.export_png": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "level",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes a PNG file and leaves the document as it was",
+   "bumps": "none; an export is a file, not document content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "path": "${workspace}/export.png"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "path": "/nonexistent-root/export.png"
+     },
+     "code": "path_denied"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/export.png"
+   }
+  },
+  "raster.import_png": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "adds a drawing from a PNG file to a raster level",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$level"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "drawing_id": {
+      "number": 2,
+      "suffix": ""
+     },
+     "path": "${fixture}",
+     "dpi": 120
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 2,
+       "suffix": ""
+      },
+      "path": "${inputs}/missing.png",
+      "dpi": 120
+     },
+     "code": "asset_unavailable"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "already_exists",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "raster.import_png/vector-level": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_empty",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "a PNG import into a vector level",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 2,
+       "suffix": ""
+      },
+      "path": "${fixture}",
+      "dpi": 120
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "tool": "raster.import_png"
+  },
+  "raster.patch": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "pixels of a raster drawing",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "raster.read_pixels",
+     "args": {
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "raster_pixels_lower_left",
+      "x": 0,
+      "y": 0,
+      "width": 2,
+      "height": 2
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$level",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "coordinate_space": "raster_pixels_lower_left",
+     "sharing": "all_exposures",
+     "x": 0,
+     "y": 0,
+     "width": 2,
+     "height": 2,
+     "pixels": [
+      {
+       "r": 0,
+       "g": 255,
+       "b": 0,
+       "a": 255
+      },
+      {
+       "r": 0,
+       "g": 255,
+       "b": 0,
+       "a": 255
+      },
+      {
+       "r": 0,
+       "g": 255,
+       "b": 0,
+       "a": 255
+      },
+      {
+       "r": 0,
+       "g": 255,
+       "b": 0,
+       "a": 255
+      }
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "raster_pixels_lower_left",
+      "sharing": "all_exposures",
+      "x": 0,
+      "y": 0,
+      "width": 2,
+      "height": 2,
+      "pixels": [
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       }
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "raster.patch/partly-outside": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "level",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "a patch that reaches past the image edge",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "raster.read_pixels",
+     "args": {
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "raster_pixels_lower_left",
+      "x": 28,
+      "y": 28,
+      "width": 4,
+      "height": 4
+     }
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "level_id": "$level",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "raster_pixels_lower_left",
+      "sharing": "all_exposures",
+      "x": 31,
+      "y": 31,
+      "width": 3,
+      "height": 3,
+      "pixels": [
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       },
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       },
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       },
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       },
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       },
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       },
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       },
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       },
+       {
+        "r": 0,
+        "g": 255,
+        "b": 0,
+        "a": 255
+       }
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "tool": "raster.patch"
+  },
+  "render.preview": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "shown",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "starts a one-frame preview job from an immutable snapshot",
+   "bumps": "none; a job renders a snapshot and never edits the document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "frame": 0,
+     "width": 8,
+     "height": 8
+    },
+    "save": {
+     "job": "job_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "frame": 0,
+      "width": 0,
+      "height": 8
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "job_id"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
+   }
+  },
+  "render.submit": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "shown",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "starts a bounded PNG sequence job from an immutable snapshot",
+   "bumps": "none; a job renders a snapshot and never edits the document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "start_frame": 0,
+     "end_frame": 3,
+     "width": 8,
+     "height": 8
+    },
+    "save": {
+     "job": "job_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "start_frame": 5,
+      "end_frame": 1,
+      "width": 8,
+      "height": 8
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "job_id"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
+   }
+  },
+  "scene.check.submit": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "vec_exposed",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "starts an analysis job that scans the document's drawings",
+   "bumps": "none; a scene check reads the document and never edits it",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "check": "unused_styles"
+    },
+    "save": {
+     "job": "job_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "check": "unused_styles",
+      "level_ids": [
+       "level_missing"
+      ]
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "job_id"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
+   }
+  },
+  "scene.create": {
+   "group": "lifecycle",
+   "kind": "new_document",
+   "fixture": "empty",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "document lifecycle",
+   "changes": "adds a detached document at revision 1",
+   "bumps": "starts a new document at revision 1",
+   "reads": [],
+   "success": {
+    "args": {
+     "name": "Matrix",
+     "width_px": 32,
+     "height_px": 32,
+     "width_in": 0.2,
+     "height_in": 0.2,
+     "frame_rate": 24
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "name": "Matrix",
+      "width_px": 32,
+      "height_px": 32,
+      "width_in": 0.2,
+      "height_in": 0.2,
+      "frame_rate": 0
+     },
+     "code": "invalid_params"
+    }
+   ]
+  },
+  "scene.create/document-limit": {
+   "group": "lifecycle",
+   "kind": "new_document",
+   "fixture": "full_worker",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "document lifecycle",
+   "changes": "a creation that would pass the 32-document limit",
+   "bumps": "starts a new document at revision 1",
+   "reads": [],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "name": "One too many",
+      "width_px": 32,
+      "height_px": 32,
+      "width_in": 0.2,
+      "height_in": 0.2,
+      "frame_rate": 24
+     },
+     "code": "resource_limit"
+    }
+   ],
+   "tool": "scene.create"
+  },
+  "scene.discard": {
+   "group": "lifecycle",
+   "kind": "discard",
+   "fixture": "scene",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "document lifecycle",
+   "changes": "removes a document and invalidates its handles",
+   "bumps": "none; the document no longer exists",
+   "reads": [],
+   "success": {
+    "args": {}
+   },
+   "reject": [
+    {
+     "args": {
+      "document_id": "document_missing",
+      "expected_revision": "1"
+     },
+     "code": "document_not_found"
+    }
+   ]
+  },
+  "scene.guides.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "field guide, markers or ruler guides",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.properties.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "markers": {
+      "interval": 8,
+      "start_frame": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "markers": {}
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "markers": {
+      "interval": 8,
+      "start_frame": 2
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "scene.open": {
+   "group": "lifecycle",
+   "kind": "new_document",
+   "fixture": "scene_pkg",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "document lifecycle",
+   "changes": "adds a document opened from a package this worker saved",
+   "bumps": "starts a new document at revision 1",
+   "reads": [],
+   "success": {
+    "args": {
+     "path": "$package"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "path": "${workspace}/not-a-package"
+     },
+     "code": "unregistered_package"
+    }
+   ]
+  },
+  "scene.open/document-limit": {
+   "group": "lifecycle",
+   "kind": "new_document",
+   "fixture": "full_with_package",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "document lifecycle",
+   "changes": "an open that would pass the 32-document limit",
+   "bumps": "starts a new document at revision 1",
+   "reads": [],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "path": "$package"
+     },
+     "code": "resource_limit"
+    }
+   ],
+   "tool": "scene.open"
+  },
+  "scene.open_read_only": {
+   "group": "lifecycle",
+   "kind": "read_only_document",
+   "fixture": "ro_package",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "document lifecycle",
+   "changes": "adds a read-only document opened from a scene file in its own scene host",
+   "bumps": "none; the document is read-only and its revision stays 0",
+   "reads": [],
+   "success": {
+    "args": {
+     "path": "${workspace}/ro-${serial}/scene.tnz",
+     "project_id": "standalone"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "path": "${workspace}/ro-${serial}/missing.tnz",
+      "project_id": "standalone"
+     },
+     "code": "not_found"
+    }
+   ]
+  },
+  "scene.open_read_only/document-limit": {
+   "tool": "scene.open_read_only",
+   "group": "lifecycle",
+   "kind": "read_only_document",
+   "fixture": "full_ro_package",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "document lifecycle",
+   "changes": "an open that would pass the 32-document limit",
+   "bumps": "none; the document is read-only and its revision stays 0",
+   "reads": [],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "path": "${workspace}/ro-${serial}/scene.tnz",
+      "project_id": "standalone"
+     },
+     "code": "resource_limit"
+    }
+   ]
+  },
+  "scene.output.set": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "stored output or preview settings",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.properties.inspect"
+    }
+   ],
+   "success": {
+    "args": {
+     "apply_to": [
+      "preview"
+     ],
+     "settings": {
+      "shrink": 2
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "apply_to": [
+       "output"
+      ],
+      "sync_color_settings": true
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "apply_to": [
+      "preview"
+     ],
+     "settings": {
+      "shrink": 2
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "scene.save_copy": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "level",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "save state",
+   "changes": "writes a verified package directory and leaves the document as it was",
+   "bumps": "none; saving does not change content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "directory": "${workspace}/package-copy"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "directory": "/nonexistent-root/package"
+     },
+     "code": "path_denied"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/package-copy/scene.tnz"
+   }
+  },
+  "scene.save_copy/read-only-document": {
+   "tool": "scene.save_copy",
+   "group": "lifecycle",
+   "kind": "document",
+   "fixture": "ro_open",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "content",
+   "changes": "a package saved from a read-only document",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "directory": "${workspace}/ro-copy-${serial}"
+     },
+     "code": "read_only_document"
+    }
+   ]
+  },
+  "scene.settings": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "frame rate, pixel size and physical size of the scene",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "frame_rate": 25
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "frame_rate": 25,
+      "width_px": 0
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "scene.settings/read-only-document": {
+   "tool": "scene.settings",
+   "group": "scene",
+   "kind": "document",
+   "fixture": "ro_open",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "the settings of a read-only document",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "frame_rate": 25
+     },
+     "code": "read_only_document"
+    }
+   ]
+  },
+  "scene.settings/refused-with-clip": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "audio_clip",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "frame rate and size together, refused while a clip exists",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    },
+    {
+     "tool": "audio.inspect"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "frame_rate": 25,
+      "width_px": 64
+     },
+     "code": "timing_conflict"
+    }
+   ],
+   "tool": "scene.settings"
+  },
+  "storyboard.panel.create": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "adds a storyboard panel",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "storyboard.panels"
+    }
+   ],
+   "success": {
+    "args": {
+     "panel_frame": 0,
+     "caption": "Open",
+     "notes": "",
+     "color": {
+      "r": 10,
+      "g": 20,
+      "b": 30
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "panel_frame": 0,
+      "caption": "bad\tcontrol",
+      "notes": "",
+      "color": {
+       "r": 10,
+       "g": 20,
+       "b": 30
+      }
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "already_exists",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "storyboard.panel.create/frame-taken": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "panel",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "a panel at a frame that already starts one",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "storyboard.panels"
+    }
+   ],
+   "success": null,
+   "reject": [
+    {
+     "args": {
+      "panel_frame": 0,
+      "caption": "Open",
+      "notes": "",
+      "color": {
+       "r": 10,
+       "g": 20,
+       "b": 30
+      }
+     },
+     "code": "already_exists"
+    }
+   ],
+   "tool": "storyboard.panel.create"
+  },
+  "storyboard.panel.delete": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "panel",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "removes a panel boundary",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "storyboard.panels"
+    }
+   ],
+   "success": {
+    "args": {
+     "panel_frame": 0
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "panel_frame": 50
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "not_found",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "storyboard.panel.update": {
+   "group": "production",
+   "kind": "document",
+   "fixture": "panel",
+   "domain": "Audio, storyboard and lip-sync",
+   "class": "content",
+   "changes": "caption, notes, colour or start of a panel",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "storyboard.panels"
+    }
+   ],
+   "success": {
+    "args": {
+     "panel_frame": 0,
+     "caption": "Closed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "panel_frame": 50,
+      "caption": "Closed"
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "vector.edit": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_empty",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "strokes of a vector drawing",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "vector.inspect",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "coordinate_space": "drawing_native",
+     "sharing": "all_exposures",
+     "edits": [
+      {
+       "action": "add",
+       "style_id": 1,
+       "closed": true,
+       "points": [
+        {
+         "x": -5,
+         "y": -5,
+         "thickness": 1
+        },
+        {
+         "x": 0,
+         "y": -5,
+         "thickness": 1
+        },
+        {
+         "x": 5,
+         "y": -5,
+         "thickness": 1
+        },
+        {
+         "x": 5,
+         "y": 0,
+         "thickness": 1
+        },
+        {
+         "x": 5,
+         "y": 5,
+         "thickness": 1
+        },
+        {
+         "x": 0,
+         "y": 5,
+         "thickness": 1
+        },
+        {
+         "x": -5,
+         "y": 5,
+         "thickness": 1
+        },
+        {
+         "x": -5,
+         "y": 0,
+         "thickness": 1
+        },
+        {
+         "x": -5,
+         "y": -5,
+         "thickness": 1
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "drawing_native",
+      "sharing": "all_exposures",
+      "edits": [
+       {
+        "action": "add",
+        "style_id": 1,
+        "closed": true,
+        "points": [
+         {
+          "x": -5,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 0,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": -5,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": 0,
+          "thickness": 1
+         },
+         {
+          "x": 5,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": 0,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": -5,
+          "y": 5,
+          "thickness": 1
+         },
+         {
+          "x": -5,
+          "y": 0,
+          "thickness": 1
+         },
+         {
+          "x": -5,
+          "y": -5,
+          "thickness": 1
+         }
+        ]
+       },
+       {
+        "action": "delete",
+        "index": 99
+       }
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "coordinate_space": "drawing_native",
+     "sharing": "all_exposures",
+     "edits": [
+      {
+       "action": "update",
+       "style_id": 1,
+       "closed": true,
+       "points": [
+        {
+         "x": -5,
+         "y": -5,
+         "thickness": 1
+        },
+        {
+         "x": 0,
+         "y": -5,
+         "thickness": 1
+        },
+        {
+         "x": 5,
+         "y": -5,
+         "thickness": 1
+        },
+        {
+         "x": 5,
+         "y": 0,
+         "thickness": 1
+        },
+        {
+         "x": 5,
+         "y": 5,
+         "thickness": 1
+        },
+        {
+         "x": 0,
+         "y": 5,
+         "thickness": 1
+        },
+        {
+         "x": -5,
+         "y": 5,
+         "thickness": 1
+        },
+        {
+         "x": -5,
+         "y": 0,
+         "thickness": 1
+        },
+        {
+         "x": -5,
+         "y": -5,
+         "thickness": 1
+        }
+       ],
+       "index": 0
+      }
+     ]
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "vector.fill": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_style",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "the style of the closed region containing a point",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "vector.inspect",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     }
+    },
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "coordinate_space": "drawing_native",
+     "sharing": "all_exposures",
+     "x": 0,
+     "y": 0,
+     "style_id": "$style"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "drawing_native",
+      "sharing": "all_exposures",
+      "x": 900,
+      "y": 900,
+      "style_id": "$style"
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "vector.group.create": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_two",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "native stroke group spans",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "vector.structure",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "sharing": "all_exposures",
+     "first_index": 0,
+     "count": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "sharing": "all_exposures",
+      "first_index": 0,
+      "count": 9
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "The tool description says an exactly matching group is a no-op; the README says exact no-ops preserve the revision."
+   }
+  },
+  "vector.group.remove": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_grouped",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "removes a native stroke group",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "vector.structure",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "sharing": "all_exposures",
+     "first_index": 0
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "sharing": "all_exposures",
+      "first_index": 1
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "not_found",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "vector.opacity.profile.set": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "opacity envelope of strokes",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "vector.opacity.inspect",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "stroke_index": 0,
+      "limit": 8,
+      "offset": 0
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "sharing": "all_exposures",
+     "stroke_indices": [
+      0
+     ],
+     "knots": [
+      {
+       "position": 0,
+       "opacity": 0.2
+      },
+      {
+       "position": 1,
+       "opacity": 0.8
+      }
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "sharing": "all_exposures",
+      "stroke_indices": [
+       99
+      ],
+      "knots": [
+       {
+        "position": 0,
+        "opacity": 0.2
+       }
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "vector.opacity.set": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "scalar ink opacity of strokes",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "vector.opacity.inspect",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "stroke_index": 0,
+      "limit": 8,
+      "offset": 0
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "sharing": "all_exposures",
+     "stroke_indices": [
+      0
+     ],
+     "opacity_per_mille": 500
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "sharing": "all_exposures",
+      "stroke_indices": [
+       99
+      ],
+      "opacity_per_mille": 500
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "vector.order.move": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec_two",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "stroke stacking order",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "vector.structure",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     }
+    },
+    {
+     "tool": "vector.inspect",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "sharing": "all_exposures",
+     "first_index": 0,
+     "count": 1,
+     "before_index": 2
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "sharing": "all_exposures",
+      "first_index": 5,
+      "count": 1,
+      "before_index": 0
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "sharing": "all_exposures",
+     "first_index": 0,
+     "count": 1,
+     "before_index": 0
+    },
+    "documented": "The tool description says destinations within the range are no-ops; the README says exact no-ops preserve the revision."
+   }
+  },
+  "vector.text.create": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "text",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "adds a drawing of editable vector outlines from installed text",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "level.inspect",
+     "args": {
+      "level_id": "$vlevel"
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "text": "OB",
+     "font": "$font",
+     "baseline": {
+      "x": 0,
+      "y": 0
+     },
+     "style_id": 1
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "text": "OB",
+      "font": {
+       "family": "No such family",
+       "style": "Regular",
+       "size_points": 32
+      },
+      "baseline": {
+       "x": 0,
+       "y": 0
+      },
+      "style_id": 1
+     },
+     "code": "font_not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "already_exists",
+    "documented": "Not stated; the repeat is rejected and the rule applies: a rejected call changes nothing."
+   }
+  },
+  "vector.transform": {
+   "group": "drawing",
+   "kind": "document",
+   "fixture": "vec",
+   "domain": "Drawings, vector art and palettes",
+   "class": "content",
+   "changes": "geometry of a whole drawing",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "vector.inspect",
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      }
+     }
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "coordinate_space": "drawing_native",
+     "sharing": "all_exposures",
+     "thickness_mode": "preserve",
+     "matrix": {
+      "a11": 1,
+      "a12": 0,
+      "a13": 2,
+      "a21": 0,
+      "a22": 1,
+      "a23": 0
+     }
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "coordinate_space": "drawing_native",
+      "sharing": "all_exposures",
+      "thickness_mode": "preserve",
+      "matrix": {
+       "a11": 0,
+       "a12": 0,
+       "a13": 0,
+       "a21": 0,
+       "a22": 0,
+       "a23": 0
+      }
+     },
+     "code": "unsupported_transform"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "coordinate_space": "drawing_native",
+     "sharing": "all_exposures",
+     "thickness_mode": "preserve",
+     "matrix": {
+      "a11": 1,
+      "a12": 0,
+      "a13": 0,
+      "a21": 0,
+      "a22": 1,
+      "a23": 0
+     }
+    },
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "intake.import": {
+   "group": "scene",
+   "kind": "document",
+   "fixture": "scene",
+   "domain": "Scenes and levels",
+   "class": "content",
+   "changes": "adds a level holding imported PNG drawings and records their provenance",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "source_directory": "${inputs}",
+     "file_names": [
+      "quadrants.png"
+     ],
+     "name": "I",
+     "storage": "copy",
+     "on_existing": "refuse",
+     "dpi_policy": "value",
+     "dpi": 120,
+     "exposure": "none"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "source_directory": "${inputs}",
+      "file_names": [
+       "missing.png"
+      ],
+      "name": "I",
+      "storage": "copy",
+      "on_existing": "refuse",
+      "dpi_policy": "value",
+      "dpi": 120,
+      "exposure": "none"
+     },
+     "code": "not_found"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "name_conflict",
+    "documented": "on_existing refuse: a repeat under a new operation_id is refused and changes nothing; reuse_identical returns the level without a revision change."
+   }
+  },
+  "vector.export_svg": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "vec",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "writes an SVG file and leaves the document as it was",
+   "bumps": "none; an export is a file, not document content",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "level_id": "$vlevel",
+     "drawing_id": {
+      "number": 1,
+      "suffix": ""
+     },
+     "path": "${workspace}/export.svg",
+     "stroke_mode": "outline"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "level_id": "$vlevel",
+      "drawing_id": {
+       "number": 1,
+       "suffix": ""
+      },
+      "path": "/nonexistent-root/export.svg",
+      "stroke_mode": "outline"
+     },
+     "code": "path_denied"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/export.svg"
+   }
+  },
+  "package.remove": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "removable_pkg",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "save state",
+   "changes": "removes a registered package that matches its registered manifest exactly",
+   "bumps": "none; removing a package changes no document",
+   "reads": [],
+   "success": {
+    "args": {
+     "directory": "$package",
+     "expected_package_id": "$package_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "directory": "${workspace}/not-a-package",
+      "expected_package_id": "package:0000000000000000000000000000000000000000000000000000000000000000"
+     },
+     "code": "not_found"
+    }
+   ],
+   "effect": {
+    "file": "${workspace}/package-for-remove/scene.tnz"
+   }
+  },
+  "scene.import_editable": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "scene",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "starts a scene_import job that converts a read-only document into a package in its scene host",
+   "bumps": "none; an import reads the read-only document and never edits it",
+   "reads": [],
+   "success": null,
+   "unexercised": "it imports read-only documents only, which the table's editable fixtures are not; mcp_import_job_cases.py starts, retries and adopts import jobs",
+   "reject": [
+    {
+     "args": {
+      "plan_digest": "plan:0000000000000000000000000000000000000000000000000000000000000000",
+      "accept_losses": []
+     },
+     "code": "unsupported_target"
+    }
+   ]
+  },
+  "job.discard": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "done_job",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "removes a finished job's private files and frees its retention slot",
+   "bumps": "none; a job is not part of a document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "job_id": "$job"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "job_id": "job_unknown"
+     },
+     "code": "unknown_job"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.list",
+     "args": {},
+     "pick": "total"
+    }
+   },
+   "noop": {
+    "policy": "rejects",
+    "code": "job_discarded",
+    "documented": "A second discard of the same job with a new operation_id answers job_discarded and changes nothing."
+   }
+  },
+  "review.compare.submit": {
+   "group": "render",
+   "kind": "file",
+   "fixture": "rendered",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "job",
+   "changes": "starts an image review job that compares frozen render frames; the job reads finished render files and never edits the document",
+   "bumps": "none; a review reads render artifacts and never edits the document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "success": {
+    "args": {
+     "range": {
+      "reference_job_id": "$ref_job",
+      "candidate_job_id": "$ref_job"
+     }
+    },
+    "save": {
+     "job": "job_id"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "range": {
+       "reference_job_id": "$ref_job",
+       "candidate_job_id": "$ref_job"
+      },
+      "mode": "premultiplied",
+      "tolerance": "exact"
+     },
+     "code": "profile_conflict"
+    }
+   ],
+   "effect": {
+    "read": {
+     "tool": "job.status",
+     "args": {
+      "job_id": "$job"
+     },
+     "pick": "job_id"
+    }
+   },
+   "settle": {
+    "tool": "job.status",
+    "args": {
+     "job_id": "$job"
+    }
+   }
+  },
+  "fx.group.create": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fxs",
+   "changes": "a new outermost schematic group",
+   "success": {
+    "args": {
+     "fx_ids": [
+      "$blur",
+      "$card"
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_ids": [
+       "$blur",
+       "$blur"
+      ]
+     },
+     "code": "invalid_group"
+    }
+   ],
+   "no_noop": "Every call adds another group, so there is no value to repeat."
+  },
+  "fx.group.remove": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_grouped",
+   "changes": "removes one schematic group",
+   "success": {
+    "args": {
+     "group_id": "$group"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "group_id": "fxgroup_00000000-0000-0000-0000-000000000000"
+     },
+     "code": "unknown_group"
+    }
+   ],
+   "noop": {
+    "policy": "rejects",
+    "code": "unknown_group",
+    "documented": "The group is gone after the first call, so a repeat is refused."
+   }
+  },
+  "fx.group.rename": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_grouped",
+   "changes": "the name of a schematic group",
+   "success": {
+    "args": {
+     "group_id": "$group",
+     "name": "Renamed"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "group_id": "fxgroup_00000000-0000-0000-0000-000000000000",
+      "name": "X"
+     },
+     "code": "unknown_group"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.layout.set": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fxs",
+   "changes": "schematic positions of effects",
+   "success": {
+    "args": {
+     "positions": [
+      {
+       "fx_id": "$blur",
+       "position": {
+        "x": 10,
+        "y": 20
+       }
+      }
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "positions": [
+       {
+        "fx_id": "$blur",
+        "position": {
+         "x": 10000000.0,
+         "y": 0
+        }
+       }
+      ]
+     },
+     "code": "invalid_params"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Not stated; the rule applies: a call that changes nothing leaves the revision alone."
+   }
+  },
+  "fx.link.add": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_blurs",
+   "changes": "links an effect's parameters to another effect's",
+   "success": {
+    "args": {
+     "fx_id": "$blur2",
+     "linked_to_fx_id": "$blur"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$blur",
+      "linked_to_fx_id": "$card"
+     },
+     "code": "link_incompatible"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "An effect already in the group is a no-op."
+   }
+  },
+  "fx.link.remove": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_linked_blurs",
+   "changes": "gives a linked effect its own parameters",
+   "success": {
+    "args": {
+     "fx_id": "$blur2"
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "fx_missing"
+     },
+     "code": "invalid_handle"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "An unlinked effect is a no-op."
+   }
+  },
+  "fx.port_group.set": {
+   "group": "fx",
+   "kind": "document",
+   "domain": "Effects",
+   "class": "content",
+   "bumps": "document revision",
+   "reads": [
+    {
+     "tool": "fx.graph"
+    }
+   ],
+   "fixture": "fx_over",
+   "changes": "the sources and ports of a dynamic port group",
+   "success": {
+    "args": {
+     "fx_id": "$over",
+     "group": "Source",
+     "sources": [
+      "$card",
+      "$blur",
+      "$card"
+     ]
+    }
+   },
+   "reject": [
+    {
+     "args": {
+      "fx_id": "$over",
+      "group": "Light",
+      "sources": []
+     },
+     "code": "unknown_port_group"
+    }
+   ],
+   "noop": {
+    "policy": "preserves",
+    "documented": "Sources equal to the current ones leave the group alone."
+   }
+  },
+  "delivery.publish": {
+   "group": "lifecycle",
+   "kind": "file",
+   "fixture": "scene",
+   "domain": "Document lifecycle, files and jobs",
+   "class": "published file",
+   "changes": "publishes completed render jobs' files into a new directory below an output root",
+   "bumps": "none; a delivery copies render output and changes no document",
+   "reads": [
+    {
+     "tool": "scene.summary"
+    }
+   ],
+   "reject": [
+    {
+     "args": {
+      "destination": {
+       "root": "deliveries",
+       "path": "take"
+      },
+      "items": [
+       {
+        "job_id": "job_unknown",
+        "folder": "frames"
+       }
+      ]
+     },
+     "code": "root_unavailable"
+    }
+   ],
+   "success": null,
+   "unexercised": "the success path needs a worker started with a granted output root, which the matrix worker is not; mcp_delivery_cases.py publishes"
+  }
+ },
+ "known_violations": []
+}

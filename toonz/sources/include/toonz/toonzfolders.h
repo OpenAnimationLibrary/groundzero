@@ -49,6 +49,9 @@ DVAPI void setTestStorageRoot(const TFilePath &root);
 DVAPI void setSeExprTestStorageRoot(const TFilePath &root);
 #endif
 DVAPI TFilePath getCacheRootFolder();
+// Sets an existing cache directory before this process initializes consumers.
+// An empty override preserves the normal platform cache location.
+DVAPI void setCacheRootFolder(const TFilePath &root);
 DVAPI TFilePath getCrashReportFolder();
 DVAPI TFilePath getProfileFolder();
 };

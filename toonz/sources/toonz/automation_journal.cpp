@@ -1,0 +1,1588 @@
+#include "automation_journal.h"
+
+#include "automation.h"
+#include "automation_files.h"
+#include "automation_ownership.h"
+#include "automation_root_publish.h"
+
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QRegularExpression>
+#include <QUuid>
+
+#include <algorithm>
+#include <chrono>
+#include <thread>
+
+#ifdef _WIN32
+#include <qt_windows.h>
+
+#include <fcntl.h>
+#include <io.h>
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <cerrno>
+#ifdef __linux__
+#include <sys/statfs.h>
+#endif
+#endif
+
+namespace GroundzeroAutomation {
+namespace {
+
+constexpr int FormatVersion       = 1;
+constexpr int RecordVersion       = 1;
+constexpr int MaximumTreeFiles    = 8192;
+constexpr qint64 MaximumTreeBytes = 256 * 1024 * 1024;
+constexpr int MaximumReportRows   = 16;
+constexpr int MaximumWriterRows   = 64;
+const char* const JournalPath     = ".groundzero/journal";
+
+qint64 nowMs() { return QDateTime::currentMSecsSinceEpoch(); }
+
+QByteArray sha256Hex(const QByteArray& bytes) {
+  return QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
+}
+
+QByteArray compact(const QJsonObject& object) {
+  return QJsonDocument(object).toJson(QJsonDocument::Compact);
+}
+
+qint64 integer(const QJsonObject& record, const char* key) {
+  return qint64(record.value(QLatin1String(key)).toDouble());
+}
+
+QJsonValue optional(const QString& text) {
+  return text.isEmpty() ? QJsonValue() : QJsonValue(text);
+}
+
+QString segmentName(qint64 firstSeq) {
+  return QString("seg-%1.jsonl").arg(firstSeq, 20, 10, QChar('0'));
+}
+
+qint64 segmentFirstSeq(const QString& name) {
+  return name.mid(4, 20).toLongLong();
+}
+
+bool fullyWritten(int descriptor, const QByteArray& bytes) {
+  qint64 written = 0;
+  while (written < bytes.size()) {
+#ifdef _WIN32
+    const int count = _write(descriptor, bytes.constData() + written,
+                             unsigned(bytes.size() - written));
+#else
+    const ssize_t count = ::write(descriptor, bytes.constData() + written,
+                                  size_t(bytes.size() - written));
+    if (count < 0 && errno == EINTR) continue;
+#endif
+    if (count <= 0) return false;
+    written += count;
+  }
+  return true;
+}
+
+// Data to the device and, on macOS, out of the drive's cache.
+bool flushDescriptor(int descriptor) {
+#ifdef _WIN32
+  return FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(descriptor)));
+#elif defined(__APPLE__)
+  return fcntl(descriptor, F_FULLFSYNC) == 0 || fsync(descriptor) == 0;
+#else
+  return fdatasync(descriptor) == 0;
+#endif
+}
+
+int openFile(const QString& path, int flags) {
+#ifdef _WIN32
+  return _wopen(reinterpret_cast<const wchar_t*>(path.utf16()),
+                flags | _O_BINARY | _O_NOINHERIT, _S_IREAD | _S_IWRITE);
+#else
+  return ::open(QFile::encodeName(path).constData(),
+                flags | O_CLOEXEC | O_NOFOLLOW, 0600);
+#endif
+}
+
+void closeFile(int descriptor) {
+#ifdef _WIN32
+  _close(descriptor);
+#else
+  ::close(descriptor);
+#endif
+}
+
+// Renames over an existing file in one step, so a reader finds the old or the
+// new content and never neither.
+bool replaceFile(const QString& from, const QString& to) {
+#ifdef _WIN32
+  return MoveFileExW(reinterpret_cast<LPCWSTR>(from.utf16()),
+                     reinterpret_cast<LPCWSTR>(to.utf16()),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+  return ::rename(QFile::encodeName(from).constData(),
+                  QFile::encodeName(to).constData()) == 0;
+#endif
+}
+
+void truncateFile(int descriptor, qint64 size) {
+#ifdef _WIN32
+  _chsize_s(descriptor, size);
+#else
+  if (::ftruncate(descriptor, off_t(size)) != 0) return;
+#endif
+}
+
+bool lockNow(int descriptor) {
+#ifdef _WIN32
+  OVERLAPPED overlapped{};
+  return LockFileEx(reinterpret_cast<HANDLE>(_get_osfhandle(descriptor)),
+                    LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1,
+                    0, &overlapped);
+#else
+  return ::flock(descriptor, LOCK_EX | LOCK_NB) == 0;
+#endif
+}
+
+void unlock(int descriptor) {
+#ifdef _WIN32
+  OVERLAPPED overlapped{};
+  UnlockFileEx(reinterpret_cast<HANDLE>(_get_osfhandle(descriptor)), 0, 1, 0,
+               &overlapped);
+#else
+  ::flock(descriptor, LOCK_UN);
+#endif
+}
+
+// Why a volume cannot hold the journal, or empty. The journal needs advisory
+// locks that the kernel of this machine releases when their holder dies, so a
+// network file system is refused; every local one qualifies (probe P-DR-2:
+// on macOS an flock is exclusive and released within a millisecond of
+// SIGKILL on APFS, HFS+, exFAT and FAT alike).
+QString volumeProblem(const QString& path) {
+#ifdef _WIN32
+  const QString root =
+      QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath().left(3));
+  const UINT type = GetDriveTypeW(reinterpret_cast<LPCWSTR>(root.utf16()));
+  if (type == DRIVE_REMOTE || type == DRIVE_UNKNOWN ||
+      type == DRIVE_NO_ROOT_DIR)
+    return "unsupported_volume";
+  return {};
+#else
+  struct statfs info{};
+  if (::statfs(QFile::encodeName(path).constData(), &info) != 0)
+    return "io_error";
+#ifdef __APPLE__
+  if (!(info.f_flags & MNT_LOCAL)) return "unsupported_volume";
+#else
+  // NFS, SMB, CIFS, SMB2, Coda, AFS, Ceph, FUSE and 9P.
+  static const std::vector<unsigned long> network{
+      0x6969UL,     0x517BUL,     0xFF534D42UL, 0xFE534D42UL, 0x73757245UL,
+      0x5346414FUL, 0x00C36400UL, 0x65735546UL, 0x01021997UL};
+  if (std::find(network.begin(), network.end(), (unsigned long)info.f_type) !=
+      network.end())
+    return "unsupported_volume";
+#endif
+  return {};
+#endif
+}
+
+QString contentDigest(const QString& path) {
+  const QFileInfo root(path);
+  if (root.isSymLink()) return {};
+  const auto fileDigest = [](const QString& file) -> QByteArray {
+    QFile input(file);
+    if (!input.open(QIODevice::ReadOnly)) return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&input)) return {};
+    return hash.result().toHex();
+  };
+  if (root.isFile()) return QString::fromLatin1(fileDigest(path));
+  if (!root.isDir()) return {};
+  QStringList lines;
+  qint64 bytes = 0;
+  QDirIterator entries(path, QDir::Files | QDir::Hidden | QDir::System,
+                       QDirIterator::Subdirectories);
+  while (entries.hasNext()) {
+    const QFileInfo entry(entries.next());
+    bytes += entry.size();
+    if (entry.isSymLink() || lines.size() >= MaximumTreeFiles ||
+        bytes > MaximumTreeBytes)
+      return {};
+    const QByteArray digest = fileDigest(entry.filePath());
+    if (digest.isEmpty()) return {};
+    lines.append(QDir(path).relativeFilePath(entry.filePath()) + '\0' +
+                 QString::number(entry.size()) + '\0' +
+                 QString::fromLatin1(digest));
+  }
+  lines.sort();
+  return QString::fromLatin1(sha256Hex(lines.join('\n').toUtf8()));
+}
+
+bool validRuntimeName(const QString& name) {
+  static const QRegularExpression pattern(
+      "^runtime_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+  return pattern.match(name).hasMatch();
+}
+
+bool faultFires(const Context* context, const char* point) {
+  return context && writeFaultFires(*context, point);
+}
+
+bool faultArmed(const Context* context, const char* point) {
+  return context && context->writeFaultArmed(point);
+}
+
+[[noreturn]] void unavailable(const QString& reason) {
+  throw Error("journal_unavailable",
+              "The workspace journal cannot be written, so no write is "
+              "admitted; inspect journal.status.",
+              {{"reason", reason}});
+}
+
+}  // namespace
+
+JournalLimits JournalLimits::small() {
+  JournalLimits limits;
+  limits.segmentBytes = 64 * 1024;
+  limits.fullReceipts = 16;
+  limits.receiptStubs = 64;
+  limits.memoryReceipts = 4;
+  limits.packages     = 4;
+  limits.jobs         = 8;
+  return limits;
+}
+
+QJsonObject JournalLimits::report() const {
+  return {{"segment_bytes", double(segmentBytes)},
+          {"record_line_bytes", lineBytes},
+          {"blob_bytes", double(blobBytes)},
+          {"journal_bytes", double(journalBytes)},
+          {"full_receipts", fullReceipts},
+          {"receipt_stubs", receiptStubs},
+          {"packages", packages},
+          {"package_manifest_bytes", double(packageBytes)},
+          {"jobs", jobs},
+          {"lock_wait_ms", lockWaitMs},
+          {"outcome_lock_wait_ms", outcomeLockWaitMs}};
+}
+
+struct Journal::Segment final {
+  QString name;
+  qint64 firstSeq = 0;
+  // Bytes read so far and the highest sequence applied from this segment.
+  qint64 offset  = 0;
+  qint64 lastSeq = 0;
+  qint64 size    = 0;
+};
+
+// The append lock, held for one append or for the whole recovery; an append
+// inside the recovery uses the lock the recovery holds.
+struct Journal::Lock final {
+  Lock(Journal& journal, int waitMs, bool refuse) : m_journal(journal) {
+    if (journal.m_locked) {
+      m_held = true;
+      return;
+    }
+    if (refuse || journal.m_lockDescriptor < 0) return;
+    const auto deadline =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMs);
+    for (int pause = 1;; pause = std::min(pause * 2, 20)) {
+      if (lockNow(journal.m_lockDescriptor)) {
+        m_held = m_owner = journal.m_locked = true;
+        return;
+      }
+      if (std::chrono::steady_clock::now() >= deadline) return;
+      std::this_thread::sleep_for(std::chrono::milliseconds(pause));
+    }
+  }
+  ~Lock() {
+    if (!m_owner) return;
+    m_journal.m_locked = false;
+    unlock(m_journal.m_lockDescriptor);
+  }
+  Lock(const Lock&)            = delete;
+  Lock& operator=(const Lock&) = delete;
+  bool held() const { return m_held; }
+
+private:
+  Journal& m_journal;
+  bool m_held  = false;
+  bool m_owner = false;
+};
+
+Journal::Journal(Start start) : m_start(std::move(start)) {
+  m_root = QDir(m_start.workspace).filePath(JournalPath);
+}
+
+Journal::~Journal() {
+  if (m_lockDescriptor >= 0) closeFile(m_lockDescriptor);
+}
+
+QString Journal::path(const QString& name) const {
+  return QDir(m_root).filePath(name);
+}
+
+void Journal::fail(const QString& reason) {
+  if (m_reason.isEmpty()) m_reason = reason;
+}
+
+QString Journal::state() const {
+  if (!available()) return "unavailable";
+  return m_damage.isEmpty() && m_runtimeBad == 0 ? "ok" : "damaged";
+}
+
+namespace {
+
+// Creates the FORMAT file once, or reads it; returns the failure reason.
+QString checkFormat(const QString& path) {
+  const QByteArray format =
+      compact({{"format", "groundzero-journal"}, {"version", FormatVersion}});
+  const int created = openFile(path, O_WRONLY | O_CREAT | O_EXCL);
+  if (created >= 0) {
+    const bool written =
+        fullyWritten(created, format + '\n') && flushDescriptor(created);
+    closeFile(created);
+    if (!written) return "io_error";
+  }
+  // Another worker starting in the same workspace may have created the file
+  // a moment ago and not written its line yet: wait for the line, briefly.
+  QJsonObject read;
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  for (;;) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return "io_error";
+    const QByteArray line = file.read(4096);
+    if (line.endsWith('\n')) {
+      read = QJsonDocument::fromJson(line.trimmed()).object();
+      break;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) return "io_error";
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+  if (read.value("format") != "groundzero-journal") return "io_error";
+  return read.value("version").toInt() > FormatVersion ? "newer_format"
+                                                       : QString();
+}
+
+}  // namespace
+
+std::shared_ptr<Journal> Journal::open(const Start& start) {
+  std::shared_ptr<Journal> journal(new Journal(start));
+  journal->recover();
+  return journal;
+}
+
+void Journal::listSegments() {
+  const QStringList names =
+      QDir(m_root).entryList({"seg-*.jsonl"}, QDir::Files, QDir::Name);
+  for (const QString& name : names) {
+    if (name.size() != 30) continue;
+    const auto known =
+        std::find_if(m_segments.begin(), m_segments.end(),
+                     [&name](const std::unique_ptr<Segment>& segment) {
+                       return segment->name == name;
+                     });
+    if (known != m_segments.end()) continue;
+    auto segment      = std::make_unique<Segment>();
+    segment->name     = name;
+    segment->firstSeq = segmentFirstSeq(name);
+    m_segments.push_back(std::move(segment));
+  }
+  std::sort(
+      m_segments.begin(), m_segments.end(),
+      [](const std::unique_ptr<Segment>& a, const std::unique_ptr<Segment>& b) {
+        return a->firstSeq < b->firstSeq;
+      });
+}
+
+void Journal::recover() {
+  if (!QDir().mkpath(path("blobs")) || !QDir().mkpath(path("quarantine")))
+    return fail("io_error");
+  const QString problem = faultFires(m_start.faults, "journal:volume")
+                              ? QString("unsupported_volume")
+                              : volumeProblem(m_root);
+  if (!problem.isEmpty()) return fail(problem);
+  const QString format = checkFormat(path("FORMAT"));
+  m_lockDescriptor     = openFile(path("lock"), O_RDWR | O_CREAT);
+  if (m_lockDescriptor < 0) return fail("lock_unavailable");
+  const Lock lock(*this, m_start.limits.lockWaitMs, false);
+  if (!lock.held()) return fail("lock_unavailable");
+  m_recovering = true;
+  listSegments();
+  qint64 truncated = 0;
+  for (std::size_t index = 0; index < m_segments.size(); ++index) {
+    Segment& segment = *m_segments[index];
+    if (index + 1 == m_segments.size() && format.isEmpty())
+      truncated = repairTail(segment, true);
+    scanSegment(segment, format.isEmpty());
+  }
+  // A newer format is still read, but nothing is ever written to it.
+  if (!format.isEmpty()) {
+    m_recovering = false;
+    return fail(format);
+  }
+  QList<QJsonObject> damage;
+  for (const QJsonValue& row : m_quarantined) {
+    QJsonObject record = row.toObject();
+    record.insert("type", "damage");
+    damage.append(record);
+  }
+  if (!damage.isEmpty()) append(damage, 0, true);
+  m_lastRecovery = {
+      {"by_worker", m_start.instance},
+      {"truncated_tail_bytes", double(std::max<qint64>(0, truncated))},
+      {"quarantined_segments", m_quarantined}};
+  reconcileDead();
+  compactSegments();
+  append({QJsonObject{{"type", "worker_start"},
+                      {"runtime", m_start.runtimeName},
+                      {"build_digest", optional(m_start.buildDigest)},
+                      {"authority_digest", m_start.authorityDigest}}},
+         0, true);
+  m_lastRecovery.insert("at_seq", double(m_lastSeq));
+  m_recovering = false;
+}
+
+qint64 Journal::repairTail(Segment& segment, bool verifyLast) {
+  QFile file(path(segment.name));
+  if (!file.open(QIODevice::ReadWrite)) return -1;
+  const qint64 size = file.size();
+  if (size == 0) return 0;
+  const qint64 from = std::max<qint64>(0, size - 2 * m_start.limits.lineBytes);
+  if (!file.seek(from)) return -1;
+  const QByteArray bytes = file.readAll();
+  const bool complete    = bytes.endsWith('\n');
+  if (complete && !verifyLast) return 0;
+  const int end         = complete ? bytes.size() - 1 : bytes.size();
+  const int start       = bytes.lastIndexOf('\n', end - 1) + 1;
+  const QByteArray last = bytes.mid(start, end - start);
+  if (complete && last.size() >= 66 && last.at(64) == ' ' &&
+      sha256Hex(last.mid(65)) == last.left(64))
+    return 0;
+  // Bytes before the window would mean a line longer than any record.
+  if (start == 0 && from > 0) return -1;
+  QFile tail(
+      path("quarantine/tail-" + QString::number(nowMs()) + "-" + segment.name));
+  if (!tail.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
+      tail.write(bytes.mid(start)) != bytes.size() - start)
+    return -1;
+  tail.close();
+  if (!file.resize(from + start)) return -1;
+  file.flush();
+  flushDescriptor(file.handle());
+  if (segment.offset > from + start) segment.offset = from + start;
+  segment.size = from + start;
+  return bytes.size() - start;
+}
+
+void Journal::scanSegment(Segment& segment, bool recovery) {
+  QFile file(path(segment.name));
+  if (!file.open(QIODevice::ReadOnly)) return;
+  if (file.size() < segment.offset) segment.offset = 0;
+  if (!file.seek(segment.offset)) return;
+  const QByteArray bytes = file.readAll();
+  std::vector<QByteArray> good;
+  qint64 first = 0;
+  qint64 last  = 0;
+  bool bad     = false;
+  int position = 0;
+  for (int end; (end = bytes.indexOf('\n', position)) >= 0;
+       position = end + 1) {
+    const QByteArray text = bytes.mid(position, end - position);
+    const QByteArray json = text.mid(65);
+    if (text.size() < 66 || text.at(64) != ' ' ||
+        sha256Hex(json) != text.left(64)) {
+      bad = true;
+      continue;
+    }
+    good.push_back(text);
+    const QJsonObject record = QJsonDocument::fromJson(json).object();
+    m_applyingSegment        = segment.name;
+    m_applyingOffset         = segment.offset + position;
+    const qint64 seq         = integer(record, "seq");
+    if (seq > 0 && first == 0) first = seq;
+    last = std::max(last, seq);
+    applyRecord(record, segment);
+  }
+  segment.offset += position;
+  segment.size = segment.offset;
+  if (!bad) return;
+  if (!recovery) {
+    ++m_runtimeBad;
+    return;
+  }
+  quarantineSegment(segment, good, first ? first : segment.firstSeq,
+                    last ? last : segment.firstSeq);
+}
+
+void Journal::applyRecord(const QJsonObject& record, Segment& segment) {
+  const qint64 seq = integer(record, "seq");
+  if (record.value("type") == "segment") return;
+  if (seq <= segment.lastSeq) return;
+  segment.lastSeq = seq;
+  m_lastSeq       = std::max(m_lastSeq, seq);
+  if (record.value("v").toInt() > RecordVersion) {
+    fail("newer_format");
+    return;
+  }
+  apply(record);
+}
+
+void Journal::quarantineSegment(Segment& segment,
+                                const std::vector<QByteArray>& good,
+                                qint64 firstSeq, qint64 lastSeq) {
+  const QString source = path(segment.name);
+  const QString copy =
+      path("quarantine/" + QString::number(nowMs()) + "-" + segment.name);
+  const QString rewritten = source + ".rewrite";
+  QFile output(rewritten);
+  if (!QFile::copy(source, copy) ||
+      !output.open(QIODevice::WriteOnly | QIODevice::NewOnly))
+    return fail("io_error");
+  for (const QByteArray& text : good) output.write(text + '\n');
+  output.flush();
+  flushDescriptor(output.handle());
+  output.close();
+  if (!replaceFile(rewritten, source)) return fail("io_error");
+  flushDirectory(m_root);
+  segment.offset = QFileInfo(source).size();
+  segment.size   = segment.offset;
+  const QJsonObject damage{{"segment", segment.name},
+                           {"first_seq", double(firstSeq)},
+                           {"last_seq", double(lastSeq)},
+                           {"bytes", double(QFileInfo(copy).size())}};
+  m_damage.append(damage);
+  m_quarantined.append(damage);
+}
+
+namespace {
+
+// An outcome as the index keeps it: without its inline response, which stays
+// on disk in the line that starts at `offset` of `segment`.
+void keepOutcome(JournalOperation& operation, QJsonObject record,
+                 const QString& segment, qint64 offset) {
+  if (record.contains("response") && offset >= 0) {
+    record.remove("response");
+    operation.responseSegment = segment;
+    operation.responseOffset  = offset;
+  }
+  operation.outcome = record;
+}
+
+}  // namespace
+
+void Journal::apply(const QJsonObject& record) {
+  const QString type = record.value("type").toString();
+  const QString id   = record.value("operation_id").toString();
+  const QString w    = record.value("w").toString();
+  if (type == "worker_start") {
+    m_writers.insert(w, record);
+    m_writerOrder.removeAll(w);
+    m_writerOrder.append(w);
+  } else if (type == "admit" || type == "stub") {
+    JournalOperation operation;
+    operation.operationId     = id;
+    operation.method          = record.value("method").toString();
+    operation.argumentsSha256 = record.value("arguments_sha256").toString();
+    operation.authorityDigest = record.value("authority_digest").toString();
+    operation.documentId      = record.value("document_id").toString();
+    operation.effectClass     = record.value("effect_class").toString();
+    operation.writer          = w;
+    operation.admittedSeq     = integer(record, "seq");
+    operation.admittedAtMs    = integer(record, "t");
+    if (type == "stub") operation.stubState = record.value("state").toString();
+    m_operations.insert(id, operation);
+  } else if (type == "release" || type == "stage" || type == "intent" ||
+             type == "pin" || type == "outcome" || type == "reconcile") {
+    const auto found = m_operations.find(id);
+    if (found == m_operations.end()) return;
+    if (type == "release" && found->writer == w && found->outcome.isEmpty())
+      m_operations.erase(found);
+    else if (type == "stage" && found->writer == w)
+      found->stage = record;
+    else if (type == "pin" && found->writer == w)
+      found->pin = record;
+    else if (type == "intent" && found->writer == w)
+      found->intent = record;
+    else if (type == "outcome" && found->writer == w)
+      keepOutcome(*found, record, m_applyingSegment, m_applyingOffset);
+    else if (type == "reconcile" && found->reconcile.isEmpty())
+      found->reconcile = record;
+  } else if (type == "job") {
+    m_jobs.insert(record.value("job_id").toString(), record);
+  } else if (type == "package") {
+    m_packages.insert(record.value("package_id").toString(), record);
+  } else if (type == "damage") {
+    bool known = false;
+    for (const QJsonValue& row : m_damage)
+      known =
+          known || row.toObject().value("segment") == record.value("segment");
+    if (!known)
+      m_damage.append(QJsonObject{{"segment", record.value("segment")},
+                                  {"first_seq", record.value("first_seq")},
+                                  {"last_seq", record.value("last_seq")},
+                                  {"bytes", record.value("bytes")}});
+  }
+}
+
+void Journal::refresh() {
+  if (m_lockDescriptor < 0) return;
+  listSegments();
+  for (const auto& segment : m_segments) {
+    if (QFileInfo(path(segment->name)).size() == segment->offset) continue;
+    scanSegment(*segment, false);
+  }
+}
+
+QByteArray Journal::line(QJsonObject& record, qint64 seq) const {
+  record.insert("v", RecordVersion);
+  record.insert("seq", double(seq));
+  record.insert("t", double(nowMs()));
+  record.insert("w", m_start.instance);
+  const QByteArray json = compact(record);
+  return sha256Hex(json) + ' ' + json + '\n';
+}
+
+Journal::Segment& Journal::writableSegment(qint64 nextSeq, qint64 bytes) {
+  if (!m_segments.empty() &&
+      m_segments.back()->size + bytes <= m_start.limits.segmentBytes)
+    return *m_segments.back();
+  auto segment      = std::make_unique<Segment>();
+  segment->name     = segmentName(nextSeq);
+  segment->firstSeq = nextSeq;
+  m_segments.push_back(std::move(segment));
+  return *m_segments.back();
+}
+
+bool Journal::append(QList<QJsonObject> records, int waitMs, bool flush,
+                     const std::function<bool()>& check) {
+  if (!available()) return false;
+  const bool test = !m_recovering;
+  const Lock lock(*this, waitMs,
+                  test && faultFires(m_start.faults, "journal:lock"));
+  if (!lock.held()) {
+    if (waitMs != m_start.limits.lockWaitMs) fail("lock_unavailable");
+    return false;
+  }
+  // A worker killed mid-append leaves a torn line; it is cut off before
+  // anything is appended after it.
+  listSegments();
+  if (!m_recovering && !m_segments.empty() &&
+      repairTail(*m_segments.back(), false) < 0) {
+    fail("io_error");
+    return false;
+  }
+  refresh();
+  if (check && !check()) return true;
+  QByteArray bytes;
+  for (int index = 0; index < records.size(); ++index)
+    bytes += line(records[index], m_lastSeq + 1 + index);
+  // A record over the line limit is refused alone; the journal stays usable.
+  if (bytes.size() > qint64(m_start.limits.lineBytes) * records.size())
+    return false;
+  Segment& segment = writableSegment(m_lastSeq + 1, bytes.size());
+  const bool fresh = segment.size == 0;
+  if (fresh) {
+    const QByteArray header =
+        compact({{"type", "segment"},
+                 {"generation", 1},
+                 {"first_seq", double(segment.firstSeq)}});
+    bytes.prepend(sha256Hex(header) + ' ' + header + '\n');
+  }
+  const int descriptor =
+      openFile(path(segment.name), O_WRONLY | O_CREAT | O_APPEND);
+  if (descriptor < 0) {
+    fail("io_error");
+    return false;
+  }
+  if (test && faultArmed(m_start.faults, "journal:torn")) {
+    fullyWritten(descriptor, bytes.left(bytes.size() - 20));
+    std::_Exit(WriteFaultCrashExitCode);
+  }
+  const bool written = fullyWritten(descriptor, bytes);
+  // A failed flush may lose what was written; the test fault, on an outcome,
+  // loses it all.
+  const bool lost = test && records.front().value("type") == "outcome" &&
+                    faultFires(m_start.faults, "journal:flush");
+  if (lost) truncateFile(descriptor, segment.size);
+  const bool flushed =
+      written && (!flush || (!lost && flushDescriptor(descriptor)));
+  closeFile(descriptor);
+  if (fresh && flushed) flushDirectory(m_root);
+  if (!written || !flushed) {
+    fail(written ? "flush_failed" : "io_error");
+    return false;
+  }
+  scanSegment(segment, false);
+  return true;
+}
+
+bool Journal::admit(const QJsonObject& fields) {
+  if (!available()) unavailable(m_reason);
+  const QString id   = fields.value("operation_id").toString();
+  QJsonObject record = fields;
+  record.insert("type", "admit");
+  bool admitted = false;
+  const bool appended =
+      append({record}, m_start.limits.lockWaitMs, true, [this, &id, &admitted] {
+        admitted = !m_operations.contains(id);
+        return admitted;
+      });
+  if (appended) return admitted;
+  if (!available()) unavailable(m_reason);
+  throw Error("journal_busy",
+              "Another worker held the workspace journal for 5 s; nothing "
+              "was admitted. Retry with the same operation_id.",
+              {{"wait_ms", m_start.limits.lockWaitMs}});
+}
+
+void Journal::release(const QString& operationId) {
+  append({QJsonObject{{"type", "release"}, {"operation_id", operationId}}},
+         m_start.limits.outcomeLockWaitMs, false);
+}
+
+void Journal::intent(const QJsonObject& fields) {
+  QJsonObject record = fields;
+  record.insert("type", "intent");
+  if (!append({record}, m_start.limits.outcomeLockWaitMs, true))
+    unavailable(m_reason.isEmpty() ? "lock_unavailable" : m_reason);
+}
+
+void Journal::pin(const QJsonObject& fields) {
+  QJsonObject record = fields;
+  record.insert("type", "pin");
+  if (!append({record}, m_start.limits.outcomeLockWaitMs, true))
+    unavailable(m_reason.isEmpty() ? "lock_unavailable" : m_reason);
+}
+
+const JournalOperation* Journal::pinning(const QJsonObject& location,
+                                         const QString& except) const {
+  for (const JournalOperation& operation : m_operations) {
+    if (operation.operationId == except || !operation.outcome.isEmpty() ||
+        !operation.reconcile.isEmpty() || !writerAlive(operation.writer))
+      continue;
+    for (const QJsonObject* record :
+         {&operation.stage, &operation.intent, &operation.pin})
+      if (sameLocation(record->value("location").toObject(), location))
+        return &operation;
+  }
+  return nullptr;
+}
+
+void Journal::stage(const QJsonObject& fields) {
+  QJsonObject record = fields;
+  record.insert("type", "stage");
+  if (!append({record}, m_start.limits.outcomeLockWaitMs, true))
+    unavailable(m_reason.isEmpty() ? "lock_unavailable" : m_reason);
+}
+
+bool Journal::outcome(const QString& operationId, const QJsonObject& response,
+                      const QJsonObject& summary) {
+  const QByteArray bytes = compact(response);
+  QJsonObject record     = summary;
+  record.insert("type", "outcome");
+  record.insert("operation_id", operationId);
+  record.insert("state", response.contains("error") ? "failed" : "completed");
+  record.insert("bytes", double(bytes.size()));
+  if (bytes.size() <= m_start.limits.inlineResponseBytes) {
+    record.insert("response", response);
+  } else {
+    const QString blob = storeBlob(bytes);
+    if (blob.isEmpty()) {
+      fail("io_error");
+      return false;
+    }
+    record.insert("blob", blob);
+  }
+  return append({record}, m_start.limits.outcomeLockWaitMs, true);
+}
+
+QString Journal::storeBlob(const QByteArray& bytes) {
+  if (bytes.size() > m_start.limits.blobBytes) return {};
+  const QString digest = QString::fromLatin1(sha256Hex(bytes));
+  const QString target = path("blobs/" + digest);
+  if (readBlob(digest, bytes.size()) == bytes) return digest;
+  const QString staged =
+      path("blobs/." + QUuid::createUuid().toString(QUuid::WithoutBraces));
+  const int descriptor = openFile(staged, O_WRONLY | O_CREAT | O_EXCL);
+  if (descriptor < 0) return {};
+  const bool written =
+      fullyWritten(descriptor, bytes) && flushDescriptor(descriptor);
+  closeFile(descriptor);
+  // Blobs are named by their content, so replacing one replaces equal bytes.
+  if (!written || !replaceFile(staged, target)) {
+    QFile::remove(staged);
+    return {};
+  }
+  flushDirectory(path("blobs"));
+  return digest;
+}
+
+QByteArray Journal::readBlob(const QString& digest, qint64 bytes) const {
+  QFile file(path("blobs/" + digest));
+  if (QFileInfo(file.fileName()).size() != bytes ||
+      !file.open(QIODevice::ReadOnly))
+    return {};
+  const QByteArray content = file.readAll();
+  return QString::fromLatin1(sha256Hex(content)) == digest ? content
+                                                           : QByteArray();
+}
+
+QJsonObject Journal::outcomeLine(const JournalOperation& operation) const {
+  QFile file(path(operation.responseSegment));
+  if (!file.open(QIODevice::ReadOnly)) return {};
+  const auto matching = [&operation](const QByteArray& text) {
+    const QByteArray json = text.mid(65);
+    if (text.size() < 66 || sha256Hex(json) != text.left(64)) return false;
+    const QJsonObject record = QJsonDocument::fromJson(json).object();
+    return record.value("type") == "outcome" &&
+           record.value("operation_id") == operation.operationId &&
+           record.value("seq") == operation.outcome.value("seq");
+  };
+  if (file.seek(operation.responseOffset)) {
+    const QByteArray text =
+        file.readLine(m_start.limits.lineBytes + 2).trimmed();
+    if (matching(text)) return QJsonDocument::fromJson(text.mid(65)).object();
+  }
+  // Compaction rewrote the segment, so the line moved; it keeps its content.
+  file.seek(0);
+  for (const QByteArray& text : file.readAll().split('\n'))
+    if (matching(text)) return QJsonDocument::fromJson(text.mid(65)).object();
+  return {};
+}
+
+QJsonObject Journal::response(const JournalOperation& operation) const {
+  const QJsonObject& record = operation.outcome;
+  if (!operation.responseSegment.isEmpty()) {
+    const QJsonObject line = outcomeLine(operation);
+    if (line.contains("response")) return line.value("response").toObject();
+  }
+  const QByteArray bytes =
+      readBlob(record.value("blob").toString(), integer(record, "bytes"));
+  if (bytes.isEmpty())
+    throw Error("journal_unavailable",
+                "The recorded result of this operation is missing or "
+                "altered in the workspace journal.",
+                {{"reason", "io_error"}});
+  return QJsonDocument::fromJson(bytes).object();
+}
+
+const JournalOperation* Journal::find(const QString& operationId) const {
+  const auto found = m_operations.constFind(operationId);
+  return found == m_operations.constEnd() ? nullptr : &found.value();
+}
+
+bool Journal::writerAlive(const QString& instance) const {
+  if (instance == m_start.instance) return true;
+  const auto found = m_writers.constFind(instance);
+  if (found == m_writers.constEnd()) return false;
+  const QString runtime = found->value("runtime").toString();
+  if (!validRuntimeName(runtime)) return false;
+  const QString directory = QDir(m_start.workspace).filePath(runtime);
+  return QFileInfo(directory).isDir() && !OwnershipClaim::abandoned(directory);
+}
+
+QString Journal::writerWithPrefix(const QString& prefix) const {
+  for (const QString& writer : m_writerOrder)
+    if (writer.startsWith(prefix)) return writer;
+  return {};
+}
+
+JournalVerdict Journal::verdict(const JournalOperation& operation) const {
+  if (!operation.reconcile.isEmpty()) {
+    QJsonObject verdict = operation.reconcile.value("verdict").toObject();
+    verdict.insert("reconciled", true);
+    return verdict;
+  }
+  QJsonObject evidence{{"location", QJsonValue()},
+                       {"expected_sha256", QJsonValue()},
+                       {"found", "not_applicable"},
+                       {"job_id", QJsonValue()},
+                       {"outputs_present", QJsonValue()}};
+  QString kind = "lost_with_worker";
+  if (operation.effectClass == "job") {
+    kind = "job_unknown";
+  } else if (operation.effectClass == "publication") {
+    kind = "not_published";
+    // Staged but never intended: nothing can be at the target, but only a
+    // worker holding the root may remove the container.
+    if (operation.intent.isEmpty() && !operation.stage.isEmpty()) {
+      const QJsonObject location = operation.stage.value("location").toObject();
+      evidence.insert("location", location);
+      if (locatedPath(location).isEmpty()) {
+        evidence.insert("found", "root_not_granted");
+        return {{"kind", kind}, {"reconciled", false}, {"evidence", evidence}};
+      }
+      evidence.insert("found", "absent");
+    }
+    if (!operation.intent.isEmpty()) {
+      const QJsonObject location =
+          operation.intent.value("location").toObject();
+      const QString absolute = locatedPath(location);
+      evidence.insert("location", location);
+      evidence.insert("expected_sha256",
+                      operation.intent.value("expected_sha256"));
+      // A location in a root this worker does not hold is not judged here:
+      // a worker that holds it reconciles the operation.
+      if (absolute.isEmpty()) {
+        evidence.insert("found", "root_not_granted");
+        return {{"kind", kind}, {"reconciled", false}, {"evidence", evidence}};
+      }
+      const QFileInfo info(absolute);
+      const bool present = info.exists() || info.isSymLink();
+      // A removal took effect once its package left the location.
+      if (operation.intent.contains("trash")) {
+        evidence.insert("found", present ? "matches" : "absent");
+        return {{"kind", present ? "not_published" : "published"},
+                {"reconciled", false},
+                {"evidence", evidence}};
+      }
+      // A delivery is judged by its manifest, which lists every file's
+      // digest: it may exceed the bound of a whole-tree digest.
+      const QString manifest =
+          operation.intent.value("manifest_name").toString();
+      const bool matches =
+          present &&
+          (manifest.isEmpty()
+               ? contentDigest(absolute) ==
+                     operation.intent.value("content_sha256").toString()
+               : contentDigest(absolute + '/' + manifest) ==
+                     operation.intent.value("manifest_sha256").toString());
+      evidence.insert("found", !present  ? "absent"
+                               : matches ? "matches"
+                                         : "differs");
+      if (present) kind = matches ? "published" : "published_changed";
+    }
+  }
+  return {{"kind", kind}, {"reconciled", false}, {"evidence", evidence}};
+}
+
+JournalVerdict Journal::reconcile(const JournalOperation& operation) {
+  JournalVerdict computed = verdict(operation);
+  if (computed.value("reconciled").toBool() || !available() ||
+      computed.value("evidence").toObject().value("found") ==
+          "root_not_granted")
+    return computed;
+  // A package that reached its target is this operation's: registered, so
+  // scene.open admits it like any other this workspace published.
+  const QJsonObject package = operation.intent.value("package").toObject();
+  if (computed.value("kind") == "published" && !package.isEmpty() &&
+      !m_packages.contains(package.value("package_id").toString())) {
+    QJsonObject fields = package;
+    fields.insert("operation_id", operation.operationId);
+    fields.insert("location", operation.intent.value("location"));
+    fields.insert("published_by", operation.writer);
+    registerPackage(fields);
+    ++m_registeredByRecovery;
+  }
+  removeStaging(operation);
+  finishRemoval(operation);
+  const QString id   = operation.operationId;
+  QJsonObject stored = computed;
+  stored.remove("reconciled");
+  append({QJsonObject{{"type", "reconcile"},
+                      {"operation_id", id},
+                      {"writer", operation.writer},
+                      {"verdict", stored}}},
+         m_start.limits.outcomeLockWaitMs, true, [this, &id] {
+           const JournalOperation* current = find(id);
+           return current && current->outcome.isEmpty() &&
+                  current->reconcile.isEmpty();
+         });
+  const JournalOperation* current = find(id);
+  return current && !current->reconcile.isEmpty() ? verdict(*current)
+                                                  : computed;
+}
+
+void Journal::reconcileDead() {
+  std::vector<JournalOperation> interrupted;
+  for (const JournalOperation& operation : m_operations)
+    if (operation.outcome.isEmpty() && operation.reconcile.isEmpty() &&
+        operation.stubState.isEmpty() && !writerAlive(operation.writer))
+      interrupted.push_back(operation);
+  for (const JournalOperation& operation : interrupted) reconcile(operation);
+  const int operations = int(interrupted.size());
+  std::vector<QJsonObject> lost;
+  for (const QJsonObject& record : m_jobs)
+    if (!record.value("record").toObject().value("terminal").toBool() &&
+        !writerAlive(record.value("w").toString()))
+      lost.push_back(record);
+  for (const QJsonObject& record : lost) recordJob(jobLoss(record));
+  const int jobs = int(lost.size());
+  m_lastRecovery.insert("reconciled_operations", operations);
+  m_lastRecovery.insert("reconciled_jobs", jobs);
+  m_lastRecovery.insert("registered_packages", m_registeredByRecovery);
+  m_lastRecovery.insert("removed_containers", m_removedContainers);
+  m_lastRecovery.insert("staging_residue", m_stagingResidue);
+}
+
+QString Journal::heldRoot(const QJsonObject& location, bool modify) const {
+  const QString name = location.value("root").toString();
+  if (name == "workspace") return m_start.workspace;
+  if (locatedPath(location).isEmpty() || !m_start.outputRoots.contains(name) ||
+      (modify && !m_start.outputModify.contains(name)))
+    return {};
+  return m_start.outputRoots.value(name);
+}
+
+void Journal::finishRemoval(const JournalOperation& operation) {
+  const QJsonObject& intent = operation.intent;
+  if (!intent.contains("trash")) return;
+  const QJsonObject location = intent.value("location").toObject();
+  const QString root         = heldRoot(location, true);
+  if (root.isEmpty()) return;
+  const QByteArray identities =
+      readBlob(intent.value("identities_blob").toString(),
+               integer(intent, "identities_bytes"));
+  const QString relative = location.value("path").toString();
+  const int slash        = relative.lastIndexOf('/');
+  const TrashCleanup cleanup =
+      finishTrash(root, slash < 0 ? QString() : relative.left(slash),
+                  intent.value("trash").toString(),
+                  QJsonDocument::fromJson(identities).object(), nullptr);
+  if (!cleanup.residue.isEmpty() && m_stagingResidue.size() < 16)
+    m_stagingResidue.append(
+        QJsonObject{{"location", location},
+                    {"container", intent.value("trash")},
+                    {"entries", QJsonArray::fromStringList(cleanup.residue)}});
+}
+
+void Journal::removeStaging(const JournalOperation& operation) {
+  const QJsonObject& stage = operation.stage;
+  if (stage.isEmpty()) return;
+  const QJsonObject location = stage.value("location").toObject();
+  if (locatedPath(location).isEmpty()) return;
+  QSet<QString> listed{stage.value("manifest_name").toString("manifest.json")};
+  const QByteArray manifest = readBlob(stage.value("manifest_blob").toString(),
+                                       integer(stage, "manifest_bytes"));
+  for (const QJsonValue& entry :
+       QJsonDocument::fromJson(manifest).object().value("files").toArray())
+    listed.insert(entry.toObject().value("path").toString());
+  const QString relative         = location.value("path").toString();
+  const int slash                = relative.lastIndexOf('/');
+  const ContainerCleanup cleanup = removeAbandonedContainer(
+      m_start.outputRoots.value(location.value("root").toString()),
+      slash < 0 ? QString() : relative.left(slash),
+      stage.value("container").toString(), relative.mid(slash + 1), listed);
+  if (cleanup.removed) ++m_removedContainers;
+  if (!cleanup.residue.isEmpty() && m_stagingResidue.size() < 16)
+    m_stagingResidue.append(QJsonObject{
+        {"location", location},
+        {"container", stage.value("container")},
+        {"entries", QJsonArray::fromStringList(cleanup.residue.mid(0, 64))}});
+}
+
+QJsonObject Journal::jobLoss(const QJsonObject& record) const {
+  QJsonObject job = record.value("record").toObject();
+  const QString directory =
+      job.value("outputs").toObject().value("directory").toString();
+  const bool present =
+      !directory.isEmpty() &&
+      QFileInfo(QDir(m_start.workspace).filePath(directory)).isDir();
+  job.insert("status", "unknown");
+  job.insert("terminal", true);
+  job.insert("worker_loss",
+             QJsonObject{{"cause", "worker_exit_unobserved"},
+                         {"outputs_present", present},
+                         {"worker_instance_id", record.value("w")}});
+  return {{"job_id", record.value("job_id")},
+          {"operation_id", record.value("operation_id")},
+          {"writer", record.value("w")},
+          {"record", job}};
+}
+
+void Journal::recordJob(const QJsonObject& fields) {
+  QJsonObject record = fields;
+  record.insert("type", "job");
+  const QByteArray json = compact(record);
+  if (json.size() > m_start.limits.lineBytes - 200) {
+    QJsonObject job = record.value("record").toObject();
+    job.remove("inputs");
+    job.remove("effective");
+    record.insert("record", job);
+  }
+  append({record}, m_start.limits.outcomeLockWaitMs, true);
+}
+
+QJsonObject Journal::jobView(const QJsonObject& stored) const {
+  QJsonObject view = stored.value("record").toObject();
+  if (!view.value("terminal").toBool() &&
+      !writerAlive(stored.value("w").toString()))
+    view = jobLoss(stored).value("record").toObject();
+  view.insert("observed_by", "journal");
+  return view;
+}
+
+const QJsonObject* Journal::job(const QString& jobId) const {
+  const auto found = m_jobs.constFind(jobId);
+  return found == m_jobs.constEnd() ? nullptr : &found.value();
+}
+
+QStringList Journal::jobIds() const {
+  QStringList ids = m_jobs.keys();
+  std::sort(ids.begin(), ids.end(), [this](const QString& a, const QString& b) {
+    return integer(m_jobs.value(a), "seq") > integer(m_jobs.value(b), "seq");
+  });
+  return ids;
+}
+
+const QJsonObject* Journal::package(const QString& packageId) const {
+  const auto found = m_packages.constFind(packageId);
+  return found == m_packages.constEnd() ? nullptr : &found.value();
+}
+
+void Journal::registerPackage(const QJsonObject& fields) {
+  QJsonObject record = fields;
+  record.insert("type", "package");
+  append({record}, m_start.limits.outcomeLockWaitMs, true);
+}
+
+QStringList Journal::packageIds() const {
+  QStringList ids = m_packages.keys();
+  std::sort(ids.begin(), ids.end(), [this](const QString& a, const QString& b) {
+    return integer(m_packages.value(a), "seq") >
+           integer(m_packages.value(b), "seq");
+  });
+  return ids;
+}
+
+qint64 Journal::blobBytes() const {
+  qint64 bytes = 0;
+  if (readable())
+    for (const QFileInfo& blob :
+         QDir(path("blobs")).entryInfoList(QDir::Files | QDir::NoDotAndDotDot))
+      bytes += blob.size();
+  return bytes;
+}
+
+std::vector<const JournalOperation*> Journal::operationsNewestFirst() const {
+  std::vector<const JournalOperation*> result;
+  for (const JournalOperation& operation : m_operations)
+    result.push_back(&operation);
+  std::sort(result.begin(), result.end(),
+            [](const JournalOperation* a, const JournalOperation* b) {
+              return a->admittedSeq > b->admittedSeq;
+            });
+  return result;
+}
+
+qint64 Journal::horizonSeq() const {
+  qint64 oldest = 0;
+  for (const JournalOperation& operation : m_operations)
+    if (oldest == 0 || operation.admittedSeq < oldest)
+      oldest = operation.admittedSeq;
+  if (oldest > 0) return oldest;
+  return m_segments.empty() ? 0
+                            : std::max<qint64>(1, m_segments.front()->firstSeq);
+}
+
+namespace {
+
+QByteArray hashedLine(const QJsonObject& record) {
+  const QByteArray json = compact(record);
+  return sha256Hex(json) + ' ' + json + '\n';
+}
+
+// The stub an old, settled operation is compacted to: enough to refuse a
+// retry with receipt_expired, nothing of its result.
+QJsonObject stubRecord(const QJsonObject& admit,
+                       const JournalOperation& operation) {
+  QString state = operation.stubState;
+  if (state.isEmpty())
+    state = operation.outcome.isEmpty()
+                ? QString("interrupted")
+                : operation.outcome.value("state").toString();
+  QJsonObject stub;
+  for (const char* key :
+       {"v", "seq", "t", "w", "operation_id", "arguments_sha256",
+        "authority_digest", "method", "document_id", "effect_class"})
+    stub.insert(key, admit.value(QLatin1String(key)));
+  stub.insert("type", "stub");
+  stub.insert("state", state);
+  return stub;
+}
+
+}  // namespace
+
+// What compaction keeps of the journal: operations beyond the newest
+// fullReceipts that are settled become stubs and stubs beyond the newest
+// receiptStubs are forgotten; jobs beyond the newest `jobs` and package
+// registrations beyond the newest `packages` (or their manifest budget) are
+// dropped, a dropped registration leaving an expired mark. Over the journal
+// size limit every settled operation of the oldest sealed segment goes.
+Journal::Retention Journal::retention() const {
+  Retention plan;
+  int full  = 0;
+  int stubs = 0;
+  for (const JournalOperation* operation : operationsNewestFirst()) {
+    const bool settled =
+        !operation->outcome.isEmpty() || !operation->reconcile.isEmpty();
+    if (operation->stubState.isEmpty() &&
+        (++full <= m_start.limits.fullReceipts || !settled))
+      continue;
+    plan.operations.insert(
+        operation->operationId,
+        ++stubs <= m_start.limits.receiptStubs ? "stub" : "forget");
+  }
+  const QStringList jobs = jobIds();
+  for (int index = m_start.limits.jobs; index < jobs.size(); ++index)
+    plan.jobs.insert(jobs.at(index));
+  qint64 manifestBytes       = 0;
+  const QStringList packages = packageIds();
+  for (int index = 0; index < packages.size(); ++index) {
+    const QJsonObject record = m_packages.value(packages.at(index));
+    if (record.value("expired").toBool()) continue;
+    manifestBytes += integer(record, "manifest_bytes");
+    if (index >= m_start.limits.packages ||
+        manifestBytes > m_start.limits.packageBytes)
+      plan.packages.insert(packages.at(index));
+  }
+  if (journalBytes() > m_start.limits.journalBytes && m_segments.size() > 1)
+    for (const JournalOperation& operation : m_operations)
+      if (operation.admittedSeq <= m_segments.front()->lastSeq &&
+          (!operation.outcome.isEmpty() || !operation.reconcile.isEmpty() ||
+           !operation.stubState.isEmpty()))
+        plan.operations.insert(operation.operationId, "forget");
+  return plan;
+}
+
+bool Journal::Retention::empty() const {
+  return operations.isEmpty() && jobs.isEmpty() && packages.isEmpty();
+}
+
+qint64 Journal::journalBytes() const {
+  qint64 bytes = 0;
+  for (const auto& segment : m_segments) bytes += segment->size;
+  return bytes + m_blobBytes;
+}
+
+void Journal::compactSegments() {
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
+  for (std::size_t index = 0; index + 1 < m_segments.size(); ++index) {
+    if (std::chrono::steady_clock::now() >= deadline) return;
+    const Retention plan = retention();
+    if (plan.empty()) return;
+    compactSegment(*m_segments[index], plan);
+  }
+}
+
+// One bounded step between requests: at most one sealed segment rewritten.
+void Journal::maintain() {
+  if (!available() || m_recovering) return;
+  if (++m_maintenance % 8 == 1) m_blobBytes = blobBytes();
+  // Plans only after something was appended since the last one.
+  refresh();
+  if (m_lastSeq == m_plannedSeq) return;
+  m_plannedSeq = m_lastSeq;
+  if (retention().empty()) return;
+  const Lock lock(*this, m_start.limits.lockWaitMs, false);
+  if (!lock.held()) return;
+  refresh();
+  const Retention plan = retention();
+  for (std::size_t index = 0; index + 1 < m_segments.size(); ++index)
+    if (compactSegment(*m_segments[index], plan)) return;
+}
+
+namespace {
+
+// The lines a segment keeps under a retention plan, and whether any changed.
+struct Rewrite final {
+  QByteArray bytes;
+  bool changed = false;
+};
+
+}  // namespace
+
+bool Journal::compactSegment(Segment& segment, const Retention& plan) {
+  QFile file(path(segment.name));
+  if (!file.open(QIODevice::ReadOnly)) return false;
+  const QList<QByteArray> lines = file.readAll().split('\n');
+  file.close();
+  Rewrite rewrite;
+  for (const QByteArray& text : lines) {
+    if (text.isEmpty()) continue;
+    const QJsonObject record = QJsonDocument::fromJson(text.mid(65)).object();
+    const QByteArray kept    = keptLine(text + '\n', record, plan);
+    rewrite.changed          = rewrite.changed || kept != text + '\n';
+    rewrite.bytes += kept;
+  }
+  if (!rewrite.changed) return false;
+  const QString staged = path(segment.name + ".compact");
+  const int descriptor = openFile(staged, O_WRONLY | O_CREAT | O_TRUNC);
+  if (descriptor < 0) return false;
+  const bool written =
+      fullyWritten(descriptor, rewrite.bytes) && flushDescriptor(descriptor);
+  closeFile(descriptor);
+  faultFires(m_start.faults, "journal:compaction");
+  if (!written || !replaceFile(staged, path(segment.name))) {
+    QFile::remove(staged);
+    fail("io_error");
+    return false;
+  }
+  flushDirectory(m_root);
+  segment.offset = segment.size = rewrite.bytes.size();
+  forgetCompacted(segment, plan);
+  return true;
+}
+
+// What one record becomes under the plan: itself, a stub, an expired mark,
+// or nothing.
+QByteArray Journal::keptLine(const QByteArray& same, const QJsonObject& record,
+                             const Retention& plan) const {
+  const QString type = record.value("type").toString();
+  if (type == "job")
+    return plan.jobs.contains(record.value("job_id").toString()) ? QByteArray()
+                                                                 : same;
+  if (type == "package") {
+    const QString id = record.value("package_id").toString();
+    if (!plan.packages.contains(id) || record.value("expired").toBool())
+      return same;
+    QJsonObject mark;
+    for (const char* key : {"v", "seq", "t", "w", "type", "package_id"})
+      mark.insert(key, record.value(QLatin1String(key)));
+    mark.insert("expired", true);
+    return hashedLine(mark);
+  }
+  const QString id   = record.value("operation_id").toString();
+  const QString fate = plan.operations.value(id);
+  if (id.isEmpty() || fate.isEmpty() || (fate == "stub" && type == "stub"))
+    return same;
+  if (fate == "stub" && type == "admit")
+    return hashedLine(stubRecord(record, *find(id)));
+  return {};
+}
+
+void Journal::forgetCompacted(const Segment& segment, const Retention& plan) {
+  for (auto it = plan.operations.constBegin(); it != plan.operations.constEnd();
+       ++it) {
+    const auto found = m_operations.find(it.key());
+    if (found == m_operations.end() || found->admittedSeq > segment.lastSeq)
+      continue;
+    if (it.value() == "forget") {
+      m_operations.erase(found);
+      continue;
+    }
+    found->stubState =
+        stubRecord(QJsonObject{}, *found).value("state").toString();
+    found->outcome = found->intent = found->reconcile = QJsonObject();
+    found->responseSegment.clear();
+    found->responseOffset = -1;
+  }
+  for (const QString& id : plan.jobs)
+    if (integer(m_jobs.value(id), "seq") <= segment.lastSeq) m_jobs.remove(id);
+  for (const QString& id : plan.packages) {
+    const auto found = m_packages.find(id);
+    if (found != m_packages.end() && integer(*found, "seq") <= segment.lastSeq)
+      found->insert("expired", true);
+  }
+}
+
+QJsonObject Journal::status() const {
+  qint64 segmentBytes = 0;
+  for (const auto& segment : m_segments) segmentBytes += segment->size;
+  const qint64 blobs = blobBytes();
+  int full           = 0;
+  int stubs          = 0;
+  for (const JournalOperation& operation : m_operations)
+    ++(operation.stubState.isEmpty() ? full : stubs);
+  int packages = 0;
+  for (const QJsonObject& record : m_packages)
+    packages += record.value("expired").toBool() ? 0 : 1;
+  QJsonArray writers;
+  for (int index = m_writerOrder.size() - 1;
+       index >= 0 && writers.size() < MaximumWriterRows; --index) {
+    const QString writer = m_writerOrder.at(index);
+    writers.append(QJsonObject{
+        {"worker_instance_id", writer},
+        {"current", writer == m_start.instance},
+        {"alive", writerAlive(writer)},
+        {"started_at_ms", double(integer(m_writers.value(writer), "t"))}});
+  }
+  QJsonArray damage;
+  for (int row = 0; row < m_damage.size() && row < MaximumReportRows; ++row) {
+    QJsonObject entry = m_damage.at(row).toObject();
+    entry.remove("bytes");
+    damage.append(entry);
+  }
+  const qint64 horizon = horizonSeq();
+  QJsonObject recovery = m_lastRecovery;
+  if (recovery.contains("at_seq")) {
+    QJsonArray segments;
+    for (const QJsonValue& row :
+         recovery.value("quarantined_segments").toArray()) {
+      QJsonObject entry = row.toObject();
+      entry.insert("name", entry.take("segment"));
+      if (segments.size() < MaximumReportRows) segments.append(entry);
+    }
+    recovery.insert("quarantined_segments", segments);
+  }
+  return {{"available", available()},
+          {"state", state()},
+          {"unavailable_reason", optional(m_reason)},
+          {"format_version", FormatVersion},
+          {"path", JournalPath},
+          {"segments", int(m_segments.size())},
+          {"segment_bytes", double(segmentBytes)},
+          {"blob_bytes", double(blobs)},
+          {"limits", m_start.limits.report()},
+          {"retained", QJsonObject{{"full_receipts", full},
+                                   {"receipt_stubs", stubs},
+                                   {"packages", packages},
+                                   {"jobs", m_jobs.size()}}},
+          {"horizon", QJsonObject{{"seq", horizon ? QJsonValue(double(horizon))
+                                                  : QJsonValue()},
+                                  {"recorded_at_ms", QJsonValue()}}},
+          {"writers", writers},
+          {"writers_total", m_writerOrder.size()},
+          {"last_recovery",
+           recovery.contains("at_seq") ? QJsonValue(recovery) : QJsonValue()},
+          {"damage", damage}};
+}
+
+Journal* workspaceJournal(Context& context) { return context.journal.get(); }
+
+QJsonObject journalCapability(Context& context) {
+  const Journal* journal = workspaceJournal(context);
+  return {{"available", journal && journal->available()},
+          {"state", journal ? journal->state() : QString("unavailable")},
+          {"format_version", FormatVersion},
+          {"path", JournalPath}};
+}
+
+QString journalContentDigest(const QString& path) {
+  return contentDigest(path);
+}
+
+void recordPublicationIntent(Context& context, const QString& staged,
+                             const QString& target, const QJsonObject& extra) {
+  recordPublicationIntentAt(context, staged, packageLocation(context, target),
+                            extra);
+}
+
+void recordPublicationStage(Context& context, const QJsonObject& location,
+                            const QString& container,
+                            const QJsonObject& extra) {
+  Journal* journal = workspaceJournal(context);
+  if (!journal || context.writeOperation.isEmpty()) return;
+  QJsonObject fields = extra;
+  fields.insert("operation_id", context.writeOperation);
+  fields.insert("location", location);
+  fields.insert("container", container);
+  journal->stage(fields);
+}
+
+void recordPublicationIntentAt(Context& context, const QString& staged,
+                               const QJsonObject& location,
+                               const QJsonObject& extra) {
+  Journal* journal = workspaceJournal(context);
+  if (!journal || context.writeOperation.isEmpty()) return;
+  // A caller that copies from several places names the tree's digest, which
+  // it computed from the verified files, and its manifest's name.
+  const QString content = extra.contains("content_sha256")
+                              ? extra.value("content_sha256").toString()
+                              : contentDigest(staged);
+  const QString manifestName =
+      extra.value("manifest_name").toString("manifest.json");
+  const QString manifest = QFileInfo(staged).isDir()
+                               ? contentDigest(staged + '/' + manifestName)
+                               : QString();
+  QJsonObject fields     = extra;
+  fields.insert("operation_id", context.writeOperation);
+  fields.insert("location", location);
+  fields.insert("expected_sha256", manifest.isEmpty() ? content : manifest);
+  fields.insert("content_sha256", content);
+  fields.insert("manifest_sha256", optional(manifest));
+  journal->intent(fields);
+  writeFaultFires(context, "journal:intent");
+}
+
+namespace {
+
+QString rootDigest(const QString& root) {
+  return QString::fromLatin1(sha256Hex(root.toUtf8()));
+}
+
+QJsonObject location(const QString& root, const QString& path,
+                     const QJsonValue& index, const QJsonValue& digest) {
+  return {{"root", root},
+          {"path", path},
+          {"input_index", index},
+          {"root_sha256", digest}};
+}
+
+QString beneath(const QString& path, const QString& root) {
+  return path.startsWith(root + '/') ? path.mid(root.size() + 1) : QString();
+}
+
+}  // namespace
+
+QJsonObject packageLocation(const Context& context, const QString& absolute) {
+  const QString inWorkspace = beneath(absolute, context.workspace());
+  if (!inWorkspace.isEmpty())
+    return location("workspace", inWorkspace, QJsonValue(), QJsonValue());
+  const QStringList inputs = context.inputRoots();
+  for (int index = 0; index < inputs.size(); ++index) {
+    const QString inInput = beneath(absolute, inputs.at(index));
+    if (!inInput.isEmpty())
+      return location("input", inInput, index, rootDigest(inputs.at(index)));
+  }
+  for (auto it = context.outputRoots.constBegin();
+       it != context.outputRoots.constEnd(); ++it) {
+    const QString inOutput = beneath(absolute, it.value().path);
+    if (!inOutput.isEmpty())
+      return location(it.key(), inOutput, QJsonValue(),
+                      rootDigest(it.value().path));
+  }
+  throw Error("internal_error",
+              "A package path lies outside every root of this worker.");
+}
+
+QJsonObject outputLocation(const Context& context, const QString& name,
+                           const QString& relative) {
+  return location(name, relative, QJsonValue(),
+                  rootDigest(context.outputRoots.value(name).path));
+}
+
+bool sameLocation(const QJsonObject& first, const QJsonObject& second) {
+  return first.value("root") == second.value("root") &&
+         first.value("path") == second.value("path") &&
+         first.value("root_sha256") == second.value("root_sha256");
+}
+
+QString Journal::locatedPath(const QJsonObject& where) const {
+  const QString path = where.value("path").toString();
+  if (path.isEmpty() || path.startsWith('/') || path.contains("..")) return {};
+  if (where.value("root") == "workspace")
+    return QDir(m_start.workspace).filePath(path);
+  const QString name = where.value("root").toString();
+  if (m_start.outputRoots.contains(name)) {
+    const QString root = m_start.outputRoots.value(name);
+    return rootDigest(root) == where.value("root_sha256").toString()
+               ? QDir(root).filePath(path)
+               : QString();
+  }
+  if (name != "input") return {};
+  for (const QString& root : m_start.inputRoots)
+    if (rootDigest(root) == where.value("root_sha256").toString())
+      return QDir(root).filePath(path);
+  return {};
+}
+
+QJsonObject Journal::absentStatus() {
+  Journal absent(Start{});
+  absent.fail("io_error");
+  return absent.status();
+}
+
+}  // namespace GroundzeroAutomation

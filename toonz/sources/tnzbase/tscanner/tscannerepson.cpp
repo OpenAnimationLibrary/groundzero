@@ -30,7 +30,7 @@ static int scsi_maxlen() {
 #define SWAPIT
 #endif
 
-#ifdef i386
+#if defined(i386) || (defined(MACOSX) && TNZ_LITTLE_ENDIAN)
 #undef SWAPIT
 #endif
 /*

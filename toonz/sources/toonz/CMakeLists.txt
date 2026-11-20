@@ -196,6 +196,54 @@ if(WITH_PYTHON)
 endif()
 
 set(HEADERS
+    automation.h
+    automation_animation.h
+    automation_animation_targets.h
+    automation_build_identity.h
+    automation_jobs.h
+    automation_journal.h
+    automation_fx_profile.h
+    automation_fx_journal.h
+    automation_path.h
+    automation_audio.h
+    automation_rig.h
+    automation_object.h
+    automation_hook.h
+    automation_storyboard.h
+    automation_lipsync.h
+    automation_drawing_analysis.h
+    automation_drawing_inspection.h
+    automation_vector_opacity.h
+    automation_dispatch.h
+    automation_effects.h
+    automation_grants.h
+    automation_containment.h
+    automation_ownership.h
+    automation_files.h
+    automation_package.h
+    automation_import.h
+    automation_production.h
+    automation_root_publish.h
+    automation_delivery.h
+    automation_scene_check.h
+    automation_assistance.h
+    automation_neural.h
+    automation_macro.h
+    automation_text.h
+    automation_shared.h
+    automation_shared_parse.h
+    automation_media_decode.h
+    automation_projects.h
+    automation_activity.h
+    automation_shutdown.h
+    automation_scene_host.h
+    automation_scene_shared.h
+    automation_cells.h
+    automation_cell_retime.h
+    automation_intake.h
+    automation_level_lifecycle.h
+    automation_sheet_record.h
+    automation_runtime.h
     activechecks.h
     batchtaskexecution.h
     cadmiumtypes.h
@@ -269,6 +317,95 @@ set(HEADERS
 )
 
 set(SOURCES
+    automation.cpp
+    automation_context.cpp
+    automation_containment.cpp
+    automation_ownership.cpp
+    automation_files.cpp
+    automation_error.cpp
+    automation_dispatch.cpp
+    automation_effects.cpp
+    automation_grants.cpp
+    automation_animation.cpp
+    automation_animation_targets.cpp
+    automation_path.cpp
+    automation_audio.cpp
+    automation_audio_format.cpp
+    automation_rig.cpp
+    automation_object.cpp
+    automation_world.cpp
+    automation_hook.cpp
+    automation_storyboard.cpp
+    automation_lipsync.cpp
+    automation_drawing_analysis.cpp
+    automation_drawing_inspection.cpp
+    automation_vector_opacity.cpp
+    automation_scene.cpp
+    automation_scene_shared.cpp
+    automation_sheet_record.cpp
+    automation_camera.cpp
+    automation_levels.cpp
+    automation_level_lifecycle.cpp
+    automation_columns.cpp
+    automation_cells.cpp
+    automation_cell_tools.cpp
+    automation_cell_retime.cpp
+    automation_intake.cpp
+    automation_intake_formats.cpp
+    automation_output.cpp
+    automation_fx.cpp
+    automation_fx_journal.cpp
+    automation_fx_groups.cpp
+    automation_fx_link.cpp
+    automation_fx_preflight.cpp
+    automation_fx_profile.cpp
+    automation_fx_recipes.cpp
+    automation_drawing.cpp
+    automation_render.cpp
+    automation_render_profile.cpp
+    automation_compare.cpp
+    automation_media.cpp
+    automation_runtime.cpp
+    automation_shutdown.cpp
+    automation_persistence.cpp
+    automation_preflight.cpp
+    automation_import.cpp
+    automation_import_job.cpp
+    automation_root_publish.cpp
+    automation_delivery.cpp
+    automation_production.cpp
+    automation_scene_check.cpp
+    automation_assistance.cpp
+    automation_neural.cpp
+    automation_macro.cpp
+    automation_macro_validation.cpp
+    automation_macro_persistence.cpp
+    automation_text.cpp
+    automation_shared.cpp
+    automation_shared_parse.cpp
+    automation_media_decode.cpp
+    automation_projects.cpp
+    automation_studio_palette.cpp
+    automation_library.cpp
+    automation_scene_source.cpp
+    automation_scene_access.cpp
+    automation_scene_host.cpp
+    automation_scene_content.cpp
+    automation_scene_inventory.cpp
+    automation_build_identity.cpp
+    automation_jobs.cpp
+    automation_journal.cpp
+    automation_journal_tools.cpp
+    automation_live.cpp
+    automation_live_protocol.cpp
+    automation_live_state.cpp
+    automation_live_transport.cpp
+    automation_live_scene.cpp
+    automation_live_security.cpp
+    automation_live_security_posix.cpp
+    automation_live_security_windows.cpp
+    automation_live_connector.cpp
+    automation_live_startup.cpp
     activechecks.cpp
     languagemanager.cpp
     commandpalette.cpp
@@ -565,10 +702,10 @@ if(WITH_PYTHON)
 endif()
 
 
-set(OBJCSOURCES filebrowsermodel.cpp)
+set(OBJCSOURCES filebrowsermodel.cpp automation_activity.cpp)
 
 # Resource file(s)
-set(RESOURCES toonz.qrc)
+set(RESOURCES toonz.qrc automation_schemas.qrc)
 
 if(BUILD_ENV_MSVC)
     set(RC_FILE toonz.rc)
@@ -1103,9 +1240,182 @@ target_sources(OpenToonz PRIVATE mediacachepopup.cpp mediacachepopup.h)
 target_link_libraries(OpenToonz spdlog::spdlog_header_only Threads::Threads)
 if(WIN32)
     target_compile_definitions(OpenToonz PRIVATE SPDLOG_WCHAR_FILENAMES)
+    target_link_libraries(OpenToonz shell32 bcrypt advapi32)
 endif()
 
 if(BUILD_UI_PORT_TESTS)
+    add_executable(mcp_path_test
+        automation_context.cpp automation_error.cpp automation_path.cpp
+        automation_journal.cpp automation_files.cpp automation_ownership.cpp
+        automation_root_publish.cpp automation_animation.cpp
+        tests/automation_path_test.cpp)
+    target_include_directories(mcp_path_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(mcp_path_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+    target_link_libraries(mcp_path_test PRIVATE
+        toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
+    if(APPLE)
+        add_test(NAME mcp_path_authority COMMAND ${CMAKE_COMMAND} -E env
+            "DYLD_LIBRARY_PATH=$<TARGET_FILE_DIR:OpenToonz>"
+            "$<TARGET_FILE:mcp_path_test>")
+    elseif(WIN32)
+        set(mcp_path_runtime_path
+            "$<TARGET_FILE_DIR:OpenToonz>;$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>")
+        string(APPEND mcp_path_runtime_path ";$ENV{PATH}")
+        add_test(NAME mcp_path_authority COMMAND ${CMAKE_COMMAND} -E env
+            "PATH=${mcp_path_runtime_path}" "$<TARGET_FILE:mcp_path_test>")
+    else()
+        add_test(NAME mcp_path_authority COMMAND mcp_path_test)
+    endif()
+    set_tests_properties(mcp_path_authority PROPERTIES TIMEOUT 30)
+    add_dependencies(OpenToonz mcp_path_test)
+    add_executable(mcp_live_protocol_test
+        automation_build_identity.cpp
+        automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
+        tests/automation_live_protocol_test.cpp)
+    target_compile_definitions(mcp_live_protocol_test PRIVATE
+        AUTOMATION_LIVE_PROTOCOL_STANDALONE AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
+    target_include_directories(mcp_live_protocol_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(mcp_live_protocol_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+    target_link_libraries(mcp_live_protocol_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Threads::Threads)
+    add_test(NAME mcp_live_protocol COMMAND mcp_live_protocol_test)
+    set_tests_properties(mcp_live_protocol PROPERTIES TIMEOUT 30)
+    add_dependencies(OpenToonz mcp_live_protocol_test)
+    add_executable(mcp_live_race_test
+        automation_build_identity.cpp
+        automation_error.cpp automation_live_protocol.cpp automation_live_state.cpp
+        tests/automation_live_race_test.cpp)
+    target_compile_definitions(mcp_live_race_test PRIVATE
+        AUTOMATION_LIVE_RACE_STANDALONE AUTOMATION_IDENTITY_EXECUTABLE_ONLY)
+    target_include_directories(mcp_live_race_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(mcp_live_race_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+    target_link_libraries(mcp_live_race_test PRIVATE
+        Qt${QT_VERSION_MAJOR}::Core Threads::Threads)
+    add_test(NAME mcp_live_race COMMAND mcp_live_race_test)
+    set_tests_properties(mcp_live_race PROPERTIES TIMEOUT 30)
+    add_dependencies(OpenToonz mcp_live_race_test)
+    if(WIN32)
+        add_executable(windows_ci_live_test tests/windows_ci_live_test.cpp)
+        target_include_directories(windows_ci_live_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        set_target_properties(windows_ci_live_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+        target_link_libraries(windows_ci_live_test PRIVATE Qt${QT_VERSION_MAJOR}::Core advapi32)
+        add_dependencies(OpenToonz windows_ci_live_test)
+        add_executable(windows_ci_live_launcher
+            tests/windows_ci_live_launcher.cpp tests/windows_ci_live_broker.cpp)
+        target_include_directories(windows_ci_live_launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        set_target_properties(windows_ci_live_launcher PROPERTIES
+            WIN32_EXECUTABLE FALSE
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+        target_link_libraries(windows_ci_live_launcher PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core advapi32 bcrypt netapi32 userenv user32)
+        add_dependencies(OpenToonz windows_ci_live_launcher)
+    endif()
+    if(UNIX)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        add_executable(mcp_containment_test
+            automation_containment.cpp automation_error.cpp
+            tests/automation_containment_test.cpp)
+        target_compile_definitions(mcp_containment_test PRIVATE AUTOMATION_CONTAINMENT_TESTING)
+        target_include_directories(mcp_containment_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        set_target_properties(mcp_containment_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+        target_link_libraries(mcp_containment_test PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core Threads::Threads)
+        add_test(NAME mcp_containment COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../../../ci-scripts/mcp_containment_acceptance.py"
+            --executable "$<TARGET_FILE:mcp_containment_test>")
+        set_tests_properties(mcp_containment PROPERTIES TIMEOUT 90)
+        add_dependencies(OpenToonz mcp_containment_test)
+        add_executable(mcp_live_security_test
+            automation_build_identity.cpp
+            automation_error.cpp automation_live_protocol.cpp
+            automation_live_security.cpp automation_live_security_posix.cpp
+            automation_live_connector.cpp automation_live_state.cpp
+            automation_live_transport.cpp tests/automation_live_security_test.cpp)
+        target_include_directories(mcp_live_security_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+        target_compile_definitions(mcp_live_security_test PRIVATE
+            AUTOMATION_IDENTITY_EXECUTABLE_ONLY AUTOMATION_SECURITY_TEST_USER)
+        set_target_properties(mcp_live_security_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-tests")
+        target_link_libraries(mcp_live_security_test PRIVATE
+            Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Network)
+        add_test(NAME mcp_live_security COMMAND mcp_live_security_test)
+        set_tests_properties(mcp_live_security PROPERTIES TIMEOUT 60)
+        add_dependencies(OpenToonz mcp_live_security_test)
+    endif()
+    add_executable(mcp_ffprobe_fixture tests/mcp_ffprobe_fixture.cpp)
+    target_compile_features(mcp_ffprobe_fixture PRIVATE cxx_std_17)
+    target_link_libraries(mcp_ffprobe_fixture PRIVATE Threads::Threads)
+    if(WIN32)
+        target_link_libraries(mcp_ffprobe_fixture PRIVATE shell32)
+    endif()
+    set_target_properties(mcp_ffprobe_fixture PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mcp-fixtures")
+    foreach(configuration IN LISTS CMAKE_CONFIGURATION_TYPES)
+        string(TOUPPER "${configuration}" configuration_upper)
+        set_target_properties(mcp_ffprobe_fixture PROPERTIES
+            "RUNTIME_OUTPUT_DIRECTORY_${configuration_upper}"
+            "${CMAKE_CURRENT_BINARY_DIR}/mcp-fixtures/${configuration}")
+    endforeach()
+    add_dependencies(OpenToonz mcp_ffprobe_fixture)
+    add_custom_command(TARGET OpenToonz POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:mcp_ffprobe_fixture>"
+            "$<TARGET_FILE_DIR:OpenToonz>/$<TARGET_FILE_NAME:mcp_ffprobe_fixture>"
+        VERBATIM)
+    target_sources(OpenToonz PRIVATE tests/automation_media_process_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_runtime_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_render_profile_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_compare_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_jobs_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_journal_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_drawing_analysis_test.cpp)
+    target_sources(OpenToonz PRIVATE mcphandoffintegrationtest.cpp mcphandoffintegrationtest.h)
+    target_sources(OpenToonz PRIVATE tests/automation_fx_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_fx_authoring_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_color_composite_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_fx_finishing_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_fx_preflight_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_fx_admission_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_group_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_production_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_scene_check_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_sheet_record_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_cells_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_level_lifecycle_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_intake_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_motion_path_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_audio_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_rig_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_shared_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_files_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_scene_host_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_import_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_storyboard_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_lipsync_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_vector_opacity_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_assistance_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_macro_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_text_test.cpp)
+    target_sources(OpenToonz PRIVATE
+        tests/automation_animation_test.cpp tests/automation_animation_test.h
+        tests/automation_animation_targets_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_dispatch_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_live_protocol_test.cpp)
+    target_sources(OpenToonz PRIVATE tests/automation_live_race_test.cpp)
+    target_sources(OpenToonz PRIVATE
+        tests/mcp_live_generation_test.cpp tests/mcp_live_generation_test.h)
+    target_sources(OpenToonz PRIVATE
+        tests/mcp_live_history_test.cpp tests/mcp_live_history_test.h
+        tests/mcp_live_lifecycle_test.cpp tests/mcp_live_lifecycle_test.h
+        tests/mcp_live_disabled_test.cpp tests/mcp_live_disabled_test.h)
+    target_sources(OpenToonz PRIVATE
+        mcpliveintegrationtest.cpp mcpliveintegrationtest.h
+        tests/mcp_live_security_fixture.cpp tests/mcp_live_security_fixture.h)
     target_sources(OpenToonz PRIVATE nativeuiintegrationtest.cpp nativeuiintegrationtest.h
         animationworkflowintegrationtest.cpp animationworkflowintegrationtest.h)
     target_sources(OpenToonz PRIVATE batchtaskintegrationtest.cpp batchtaskintegrationtest.h)

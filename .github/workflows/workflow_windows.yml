@@ -21,6 +21,10 @@ on:
       - '.github/ot-dev/**'                       # Include Groundzero build branding assets
   workflow_dispatch:
     inputs:
+      baseline_only:
+        description: Run the build and core application checks without extended qualification
+        type: boolean
+        default: true
       benchmark_bundle:
         description: Prepare an immutable scene benchmark bundle after validation
         type: boolean
@@ -236,7 +240,13 @@ jobs:
         run: python ci-scripts/run_harness_tests.py --pattern test_windows_process.py --report native-process-contracts-output.txt
 
       - name: Verify early harness failure reporting
-        run: python -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+        shell: pwsh
+        run: |
+          python -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python ci-scripts/run_harness_tests.py --pattern test_mcp_stage_media.py `
+            --report mcp-media-staging-contracts.txt
+          exit $LASTEXITCODE
 
       - name: Verify failure-only native binary retention
         timeout-minutes: 3
@@ -344,12 +354,25 @@ jobs:
 
       # Build Opentoonz using MSBuild
       - name: Build Opentoonz
+        id: native_build
         run: |
           @echo on
           cd toonz\build || exit /b 1
           msbuild /p:Configuration=RelWithDebInfo /m /verbosity:minimal "/flp:logfile=msbuild-errors.log;verbosity=minimal" ALL_BUILD.vcxproj
         # Preserve cmd logging and exit handling; fixed paths and environment only.
         shell: cmd # zizmor: ignore[misfeature]
+
+      - name: Test native MCP path authority
+        if: ${{ !cancelled() && steps.native_build.outcome == 'success' }}
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:GITHUB_WORKSPACE "toonz/build/mcp-acceptance"
+          New-Item -ItemType Directory -Force -ErrorAction Stop -Path $evidence | Out-Null
+          ctest --test-dir toonz/build -C RelWithDebInfo --output-on-failure --no-tests=error `
+            --output-junit "$evidence/path-authority.xml" -R '^mcp_path_authority$' `
+            2>&1 | Tee-Object -FilePath "$evidence/path-authority.txt"
+          exit $LASTEXITCODE
 
       - name: Verify benchmark harness contracts
         if: ${{ !inputs.baseline_only }}
@@ -503,6 +526,58 @@ jobs:
           set "CADMIUM_TEST_EXIT=%ERRORLEVEL%"
           type cadmium-tests-output.txt
           exit /b %CADMIUM_TEST_EXIT%
+
+      - name: Prepare native MCP qualification runtime
+        id: mcp_runtime
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.8'
+          enable-cache: false
+
+      - name: Stage installed media tools for native MCP qualification
+        id: mcp_media_tools
+        if: ${{ !cancelled() && steps.mcp_runtime.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -ErrorAction Stop `
+            -Path "toonz/build/mcp-acceptance" | Out-Null
+          Copy-Item -LiteralPath "mcp-media-staging-contracts.txt" `
+            -Destination "toonz/build/mcp-acceptance/media-staging-contracts.txt" -ErrorAction Stop
+          $environment = Join-Path $env:RUNNER_TEMP "mcp-python"
+          uv venv --python 3.13 "$environment"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $python = Join-Path $environment "Scripts/python.exe"
+          $media = Join-Path $env:RUNNER_TEMP "mcp-media-tools"
+          & $python ci-scripts/mcp_stage_media.py --output "$media" `
+            --report toonz/build/mcp-acceptance/media-tools.json --github-env "$env:GITHUB_ENV"
+          exit $LASTEXITCODE
+
+      - name: Qualify the packaged native MCP worker
+        if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          $python = Join-Path $env:RUNNER_TEMP "mcp-python/Scripts/python.exe"
+          $package = (Resolve-Path "toonz/build/Opentoonz").Path
+          $executable = Join-Path $package "OpenToonz.exe"
+          $env:QT_QPA_PLATFORM = "windows"
+          $env:QT_PLUGIN_PATH = $package
+          $env:QT_QPA_PLATFORM_PLUGIN_PATH = Join-Path $package "platforms"
+          & $python ci-scripts/run_windows_gl_test.py `
+            --runtime "$env:NATIVE_UI_MESA_RUNTIME" --renderer-executable "$executable" `
+            --timeout 840 -- $python ci-scripts/mcp_acceptance.py `
+            --executable "$executable" --output toonz/build/mcp-acceptance `
+            --media-tools "$env:MCP_MEDIA_TOOLS"
+          exit $LASTEXITCODE
+
+      - name: Retain native MCP acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: MCP-native-acceptance-windows-${{ github.sha }}
+          path: toonz/build/mcp-acceptance
+          if-no-files-found: ignore
 
       - name: Test native UI features
         id: ui_tests
@@ -770,6 +845,7 @@ jobs:
         run: |
           $package = "toonz/build/Opentoonz"
           $drivers = @("seexpr_plugin_test", "seexpr_animation_test", "seexpr_fx_test", "seexpr_fx_ui_test", "seexpr_surface_fx_test", "seexpr_native_animcurve_test", "glbsurface_test", "seexpr_editor_test", "seexpr_controls_test", "seexpr_range_test", "seexpr_batch_fixture", "ui_shellthumbnail_test", "neuralstyle_host_test", "neuralstyle_test", "neuralstyle_editor_test")
+          $drivers += "mcp_ffprobe_fixture"
           $suffixes = @(".exe", ".lib", ".exp", ".pdb", ".ilk", ".ipdb", ".iobj", ".exe.manifest")
           foreach ($driver in $drivers) {
             foreach ($suffix in $suffixes) {

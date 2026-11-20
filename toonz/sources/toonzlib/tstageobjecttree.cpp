@@ -1,6 +1,7 @@
 
 
 #include "toonz/tstageobjecttree.h"
+#include "tmutationgeneration.h"
 #include "toonz/tstageobjectspline.h"
 #include "toonz/tstageobject.h"
 #include "tgrammar.h"
@@ -11,6 +12,9 @@
 
 #include "toonz/txsheet.h"
 #include "toonz/txshcell.h"
+
+#include <algorithm>
+#include <vector>
 
 #include "toonz/txsheetexpr.h"
 #include "toonz/columnfan.h"
@@ -27,6 +31,7 @@ struct TStageObjectTree::TStageObjectTreeImp {
 
   //! The map contains generic pegbar of pegbar tree.
   std::map<TStageObjectId, TStageObject *> m_pegbarTable;
+  std::uint64_t m_membershipGeneration = 0;
 
   //! Define pegbar tree current camera .
   TStageObjectId m_currentCameraId;
@@ -108,6 +113,10 @@ TStageObjectTree::TStageObjectTree() : m_imp(new TStageObjectTreeImp) {
 
 TStageObjectTree::~TStageObjectTree() {}
 
+std::uint64_t TStageObjectTree::membershipGeneration() const noexcept {
+  return m_imp->m_membershipGeneration;
+}
+
 //-----------------------------------------------------------------------------
 
 void TStageObjectTree::checkIntegrity() {
@@ -188,6 +197,7 @@ TStageObject *TStageObjectTree::getStageObject(const TStageObjectId &id,
       pegbar->setParent(TStageObjectId::TableId);
     } else if (id.isCamera())
       m_imp->m_cameraCount++;
+    TMutation::advanceGeneration(m_imp->m_membershipGeneration);
     pegbars[id] = pegbar;
     pegbar->addRef();
 
@@ -215,6 +225,7 @@ void TStageObjectTree::insertColumn(int index, TStageObject *object) {
   checkIntegrity();
 #endif
 
+  TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   TStageObjectId id       = TStageObjectId::ColumnId(index);
   TStageObject *pegbar    = object ? object : new TStageObject(this, id);
   pegbar->setId(id);
@@ -264,6 +275,7 @@ void TStageObjectTree::removeColumn(int index) {
   if (pit != pegbars.end()) imp = pit->second;
 
   if (imp) {
+    TMutation::advanceGeneration(m_imp->m_membershipGeneration);
     // i figli della colonna rimossa si attaccano al "nonno"
     TStageObjectId parentId = imp->getParent();
     imp->detachFromParent();
@@ -284,6 +296,7 @@ son->setParent(parentId);
   for (it = tmp.begin(); it != tmp.end(); ++it) {
     TStageObjectId j = it->first;
     if (j.isColumn() && j.getIndex() > index) {
+      TMutation::advanceGeneration(m_imp->m_membershipGeneration);
       it->first = TStageObjectId::ColumnId(j.getIndex() - 1);
       it->second->setId(it->first);
     }
@@ -303,6 +316,7 @@ void TStageObjectTree::removeStageObject(const TStageObjectId &id) {
   std::map<TStageObjectId, TStageObject *> &pegbars = m_imp->m_pegbarTable;
   assert(pegbars.count(id) > 0);
   TStageObject *obj = pegbars[id];
+  TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   obj->attachChildrenToParent(obj->getParent());
   obj->detachFromParent();
   obj->release();
@@ -315,12 +329,48 @@ void TStageObjectTree::removeStageObject(const TStageObjectId &id) {
 
 //-----------------------------------------------------------------------------
 
+int TStageObjectTree::compactCameraIds() {
+  std::map<TStageObjectId, TStageObject*>& pegbars = m_imp->m_pegbarTable;
+  std::vector<std::pair<TStageObjectId, TStageObject*>> cameras;
+  for (const auto& entry : pegbars)
+    if (entry.first.isCamera()) cameras.push_back(entry);
+  std::sort(cameras.begin(), cameras.end(),
+            [](const std::pair<TStageObjectId, TStageObject*>& left,
+               const std::pair<TStageObjectId, TStageObject*>& right) {
+              return left.first.getIndex() < right.first.getIndex();
+            });
+  int renumbered = 0;
+  for (int index = 0; index < (int)cameras.size(); ++index) {
+    const TStageObjectId from = cameras[index].first;
+    const TStageObjectId to   = TStageObjectId::CameraId(index);
+    if (from == to) continue;
+    TStageObject* camera   = cameras[index].second;
+    const std::string name = camera->getName();
+    pegbars.erase(from);
+    pegbars[to] = camera;
+    camera->setId(to);
+    camera->setName(name);
+    if (m_imp->m_currentCameraId == from) m_imp->m_currentCameraId = to;
+    if (m_imp->m_currentPreviewCameraId == from)
+      m_imp->m_currentPreviewCameraId = to;
+    ++renumbered;
+  }
+  if (renumbered) TMutation::advanceGeneration(m_imp->m_membershipGeneration);
+#ifndef NDEBUG
+  checkIntegrity();
+#endif
+  return renumbered;
+}
+
+//-----------------------------------------------------------------------------
+
 void TStageObjectTree::insertStageObject(TStageObject *pegbar) {
   TStageObject *imp = dynamic_cast<TStageObject *>(pegbar);
   assert(imp);
   TStageObjectId id = imp->getId();
   std::map<TStageObjectId, TStageObject *> &pegbars = m_imp->m_pegbarTable;
   assert(pegbars.count(id) == 0);
+  TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   pegbars[id] = imp;
   imp->addRef();
   imp->setParent(imp->getParent());
@@ -354,6 +404,8 @@ void TStageObjectTree::swapColumns(int i, int j) {
 
   iti = pegbars.find(idi);
   itj = pegbars.find(idj);
+  if (iti != end || itj != end)
+    TMutation::advanceGeneration(m_imp->m_membershipGeneration);
 
   if (iti == end && itj == end) {
   } else if (iti != end && itj != end) {
@@ -406,11 +458,13 @@ void TStageObjectTree::loadData(TIStream &is, TXsheet *xsh) {
       }
       TStageObjectId id = toStageObjectId(idStr);
       if (id.isCamera() && is.getTagAttribute("active") == "yes")
-        m_imp->m_currentCameraId = id;
+        setCurrentCameraId(id);
       else if (id.isCamera() && is.getTagAttribute("activepreview") == "yes")
-        m_imp->m_currentPreviewCameraId = id;
-      else if (id.isCamera() && is.getTagAttribute("activeboth") == "yes")
-        m_imp->m_currentPreviewCameraId = m_imp->m_currentCameraId = id;
+        setCurrentPreviewCameraId(id);
+      else if (id.isCamera() && is.getTagAttribute("activeboth") == "yes") {
+        setCurrentCameraId(id);
+        setCurrentPreviewCameraId(id);
+      }
 
       if (id.isCamera()) {
         if (is.getTagAttribute("columnLocked") == "yes")
@@ -423,6 +477,7 @@ void TStageObjectTree::loadData(TIStream &is, TXsheet *xsh) {
           dynamic_cast<TStageObject *>(getStageObject(id, true));
       if (!pegbar)
         throw TException("TStageObjectTree::loadData. can't create the pegbar");
+      TMutation::advanceGeneration(m_imp->m_membershipGeneration);
       pegbar->loadData(is);
       if (pegbar->isGrouped() && m_imp->m_groupIdCount < pegbar->getGroupId())
         m_imp->m_groupIdCount = pegbar->getGroupId();
@@ -532,6 +587,8 @@ TStageObjectId TStageObjectTree::getCurrentPreviewCameraId() const {
 
 void TStageObjectTree::setCurrentCameraId(const TStageObjectId &id) {
   assert(id.isCamera());
+  if (m_imp->m_currentCameraId != id)
+    TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   m_imp->m_currentCameraId = id;
 }
 
@@ -539,6 +596,8 @@ void TStageObjectTree::setCurrentCameraId(const TStageObjectId &id) {
 
 void TStageObjectTree::setCurrentPreviewCameraId(const TStageObjectId &id) {
   assert(id.isCamera());
+  if (m_imp->m_currentPreviewCameraId != id)
+    TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   m_imp->m_currentPreviewCameraId = id;
 }
 
@@ -606,6 +665,7 @@ TStageObjectSpline *TStageObjectTree::getSplineById(int splineId) const {
 TStageObjectSpline *TStageObjectTree::createSpline() {
   TStageObjectSpline *spline = new TStageObjectSpline();
   spline->setId(m_imp->m_splineCount++);
+  TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   m_imp->m_splines[spline->getId()] = spline;
   spline->addRef();
   return spline;
@@ -615,6 +675,8 @@ TStageObjectSpline *TStageObjectTree::createSpline() {
 
 void TStageObjectTree::assignUniqueSplineId(TStageObjectSpline *spline) {
   if (!spline) return;
+  if (spline->getId() >= 0 && containsSpline(spline))
+    TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   spline->setId(m_imp->m_splineCount++);
 }
 
@@ -626,6 +688,7 @@ void TStageObjectTree::removeSpline(TStageObjectSpline *spline) {
   std::map<int, TStageObjectSpline *>::iterator it;
   it = splines.find(spline->getId());
   if (it == splines.end()) return;
+  TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   splines.erase(it);
   assert(!containsSpline(spline));
   spline->release();
@@ -646,6 +709,7 @@ void TStageObjectTree::insertSpline(TStageObjectSpline *s) {
   assert(s->getId() >= 0);
   std::map<int, TStageObjectSpline *> &splines = m_imp->m_splines;
   if (containsSpline(s)) return;
+  TMutation::advanceGeneration(m_imp->m_membershipGeneration);
   splines[s->getId()]  = s;
   m_imp->m_splineCount = std::max(m_imp->m_splineCount, s->getId() + 1);
   s->addRef();

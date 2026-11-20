@@ -1,0 +1,40 @@
+{
+  "name": "groundzero-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "groundzero-mcp": "./dist/cli.js"
+  },
+  "type": "module",
+  "imports": {
+    "#fixtures/*": "./fixtures/*.mjs",
+    "#mcp/*": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings src fixtures vitest.config.ts",
+    "format:check": "oxfmt --check src fixtures vitest.config.ts *.json",
+    "test": "vitest run --exclude src/native.test.ts",
+    "test:native": "vitest run src/native.test.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "22.20.5",
+    "oxfmt": "0.78.0",
+    "oxlint": "1.93.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@12.21.0"
+}

@@ -4,6 +4,7 @@
 #define T_STAGE_OBJECT_TREE_INCLUDED
 
 #include <memory>
+#include <cstdint>
 
 #include "toonz/tstageobject.h"
 #include "toonz/txsheet.h"
@@ -106,6 +107,9 @@ public:
   TStageObjectTree();
   ~TStageObjectTree();
 
+  //! Changes when owned stage objects or splines are inserted, removed or rebound.
+  std::uint64_t membershipGeneration() const noexcept;
+
   /*!
           The method retrieves a stage object with the passed TStageObjectId \b
      \e id, if the
@@ -140,6 +144,15 @@ TStageObjectId \b \e id.
 \sa insertStageObject() and removeColumn()
 */
   void removeStageObject(const TStageObjectId &id);
+  /*!
+    Re-keys the cameras so their indices run 0..n-1 in their present order,
+    keeping each TStageObject, its children, curves and layers. The current
+    and preview camera ids follow their cameras, and a renumbered camera with
+    no stored name keeps the name it showed. Scenes store cameras as a packed
+    list, so a gap left by removing a camera would otherwise reload as a
+    phantom camera. Returns the number of cameras renumbered.
+  */
+  int compactCameraIds();
   /*!
           Inserts in current stage object tree the object \b \e object.
           The \b \e object must exist.

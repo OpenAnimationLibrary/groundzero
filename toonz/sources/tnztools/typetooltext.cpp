@@ -171,6 +171,11 @@ bool sameTextEntry(const TypeToolTextEntry &first,
 
 OutlineLayout buildOutlineLayout(const TypeToolTextEntry &entry,
                                  bool vertical) {
+  return buildOutlineLayout(entry, vertical, {});
+}
+
+OutlineLayout buildOutlineLayout(const TypeToolTextEntry &entry, bool vertical,
+                                 const LayoutInspection &inspection) {
   OutlineLayout result;
   TextDocument document;
   bool validSize = false;
@@ -225,6 +230,7 @@ OutlineLayout buildOutlineLayout(const TypeToolTextEntry &entry,
   painter.setRenderHint(QPainter::TextAntialiasing);
   document.drawContents(&painter);
   painter.end();
+  if (inspection) inspection(document);
   QTransform transform;
   if (vertical) transform.rotate(90);
   transform.translate(0, -baseline);

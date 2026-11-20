@@ -1,0 +1,946 @@
+"""Representative successful and refused arguments for every read tool.
+
+Add an entry to READ_CALLS when the catalog gains a read tool: a function from the fixture
+to its calls, with at least one successful call, and one refused call unless the tool takes
+no arguments. Every read tool is also called once with an unknown argument, which the
+harness adds itself.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from typing import Any
+
+from mcp_readonly_fixture import VECTOR_DRAWING, Fixture
+
+SCHEMA = "schema"
+EITHER = "either"
+ZERO = "00000000-0000-0000-0000-000000000000"
+MISSING_DRAWING = {"number": 99, "suffix": ""}
+SECTIONS = ("sheets", "columns", "stage_objects")
+DRAWING_TOOLS = frozenset(
+    {
+        "drawing.inspect",
+        "vector.inspect",
+        "vector.structure",
+        "vector.opacity.inspect",
+        "raster.read_pixels",
+    }
+)
+RECTANGLE = {
+    "coordinate_space": "raster_pixels_lower_left",
+    "x": 0,
+    "y": 0,
+    "width": 2,
+    "height": 1,
+}
+
+
+@dataclass(frozen=True)
+class Call:
+    """One call of a read tool.
+
+    Attributes:
+        label: Short name used in reports and known-violation entries.
+        params: The arguments.
+        refusal: The error code the call must be refused with, SCHEMA for a violation of
+            the advertised input schema, EITHER for a call whose outcome depends on the
+            scene's content (it must succeed or be refused with a structured error), or
+            None for a call that must succeed.
+        reason: The `details.reason` a refusal must carry, when it names one.
+        hint: What to do when a call that should be refused is not.
+    """
+
+    label: str
+    params: dict[str, Any]
+    refusal: str | None = None
+    reason: str | None = None
+    hint: str = ""
+
+
+def _string(schema: dict[str, Any]) -> str:
+    pattern = schema.get("pattern", ".*")
+    for candidate in ("x", "0", "", "package:" + "0" * 64, "plan:" + "0" * 64, f"fxgroup_{ZERO}"):
+        if len(candidate) >= schema.get("minLength", 0) and re.fullmatch(pattern, candidate):
+            return candidate
+    raise ValueError(f"No sample string for {schema}")
+
+
+def _number(schema: dict[str, Any]) -> float:
+    if "exclusiveMinimum" in schema:
+        return schema.get("maximum", 1)
+    return schema.get("minimum", 0)
+
+
+def sample(schema: dict[str, Any]) -> Any:
+    """Return the smallest simple value that satisfies a tool's input schema."""
+    if "const" in schema:
+        return schema["const"]
+    if "enum" in schema:
+        return schema["enum"][0]
+    if "oneOf" in schema and ("type" not in schema or "type" in schema["oneOf"][0]):
+        return sample(schema["oneOf"][0])
+    kind = schema.get("type")
+    if kind == "object":
+        names = [*schema.get("required", []), *schema.get("oneOf", [{}])[0].get("required", [])]
+        properties = schema.get("properties", {})
+        return {name: sample(properties[name]) for name in names if name in properties}
+    if kind == "array":
+        return [sample(schema["items"]) for _ in range(schema.get("minItems", 0))]
+    if kind == "string":
+        return _string(schema)
+    if kind in {"integer", "number"}:
+        return _number(schema)
+    return False if kind == "boolean" else 0
+
+
+def minimal_arguments(tool: dict[str, Any], document: str) -> dict[str, Any]:
+    """Return arguments that satisfy a tool's schema, aimed at one document."""
+    arguments = sample(tool["inputSchema"])
+    arguments.update(document_id=document)
+    properties = tool["inputSchema"]["properties"]
+    if "expected_revision" in properties:
+        arguments["expected_revision"] = "0"
+    if "operation_id" in properties:
+        arguments["operation_id"] = f"refused-{tool['name']}"
+    return arguments
+
+
+def _missing(kind: str) -> str:
+    return f"{kind}_{ZERO}"
+
+
+def _doc(f: Fixture, **extra: Any) -> dict[str, Any]:
+    return {"document_id": f.document, **extra}
+
+
+def _pinned(f: Fixture, document: str | None = None, **extra: Any) -> dict[str, Any]:
+    document = document or f.document
+    return {"document_id": document, "expected_revision": f.revision(document), **extra}
+
+
+def _stale(f: Fixture, **extra: Any) -> dict[str, Any]:
+    return {"document_id": f.document, "expected_revision": "0", **extra}
+
+
+def _drawing(f: Fixture, level: str, **extra: Any) -> dict[str, Any]:
+    return _doc(f, level_id=f.ids[level], drawing_id=VECTOR_DRAWING, **extra)
+
+
+def _project_inspect(f: Fixture) -> list[Call]:
+    return [
+        Call("no arguments", {}),
+        Call("project", {"project_id": f.ids["project_a"]}),
+        Call("without a scenes folder", {"project_id": f.ids["project_shot"]}),
+        Call("unknown project", {"project_id": "nonsense"}, "not_found"),
+        Call("standalone", {"project_id": "standalone"}, "invalid_params"),
+    ]
+
+
+def _project_scenes(f: Fixture) -> list[Call]:
+    project = {"project_id": f.ids["project_a"]}
+    return [
+        Call("project", project),
+        Call("one at a time", {**project, "limit": 1}),
+        Call("without a scenes folder", {"project_id": f.ids["project_shot"]}),
+        Call("unknown project", {"project_id": "nonsense"}, "not_found"),
+        Call("standalone", {"project_id": "standalone"}, "invalid_params"),
+    ]
+
+
+def _editable_inventory(f: Fixture) -> list[Call]:
+    calls = []
+    for name, document in (("main", f.document), ("reopened", f.reopened), ("bare", f.bare)):
+        calls.extend(
+            replace(call, label=f"{name}: {call.label}") for call in _inventory(f, document)
+        )
+    return calls
+
+
+def _editable_source_status(f: Fixture) -> list[Call]:
+    return [Call("editable", _pinned(f), "unsupported_target")]
+
+
+def _editable_import_plan(f: Fixture) -> list[Call]:
+    return [
+        Call(
+            "editable",
+            {"document_id": f.document},
+            "unsupported_target",
+            "editable_document",
+            "plan imports of read-only documents only",
+        ),
+        Call("unknown document", {"document_id": "document_" + ZERO}, "document_not_found"),
+    ]
+
+
+def _ro_import_plan(_f: Fixture, document: str) -> list[Call]:
+    return [
+        Call("default samples", {"document_id": document}),
+        Call("one sample", {"document_id": document, "sample_limit": 1}),
+        Call("too many samples", {"document_id": document, "sample_limit": 17}, SCHEMA),
+    ]
+
+
+def _no_arguments(_f: Fixture) -> list[Call]:
+    return [Call("no arguments", {})]
+
+
+def _capabilities(_f: Fixture) -> list[Call]:
+    return [
+        Call("default page", {}),
+        Call("second page", {"limit": 2, "offset": 2}),
+        Call("zero limit", {"limit": 0}, SCHEMA),
+        Call("offset past the catalog", {"offset": 4000}, "invalid_params"),
+    ]
+
+
+def _projects(_f: Fixture) -> list[Call]:
+    return [
+        Call("roots", {}),
+        Call("two levels", {"depth": 2, "limit": 1}),
+        Call("outside every root", {"folder": "/etc"}, "path_denied"),
+        Call("stale listing", {"expected_listing_revision": "listing:stale"}, "revision_conflict"),
+    ]
+
+
+def _describe(_f: Fixture) -> list[Call]:
+    return [
+        Call("two tools", {"names": ["scene.summary", "tool.describe"]}),
+        Call("unknown tool", {"names": ["no.such.tool"]}, "unknown_tool"),
+    ]
+
+
+def _per_document(f: Fixture) -> list[Call]:
+    return [
+        Call("main", {"document_id": f.document}),
+        Call("reopened", {"document_id": f.reopened}),
+        Call("without content", {"document_id": f.bare}),
+        Call("unknown", {"document_id": _missing("document")}, "document_not_found"),
+    ]
+
+
+def _level(f: Fixture) -> list[Call]:
+    calls = [Call(name, _doc(f, level_id=f.ids[name])) for name in LEVELS]
+    return [*calls, Call("unknown", _doc(f, level_id=_missing("level")), "invalid_handle")]
+
+
+LEVELS = ("arm_level", "rgba_level", "toonz_level")
+
+
+def _intake_preflight(f: Fixture) -> list[Call]:
+    inputs = str(f.case.inputs)
+    source = {"source_directory": inputs, "file_names": ["quadrants.png"]}
+    absent = {"source_directory": inputs, "sequence_prefix": "absent", "sequence_extension": "png"}
+    outside = {"source_directory": "/etc", "file_names": ["hosts"]}
+    return [
+        Call("one file", _doc(f, **source, name="Arm")),
+        Call("no sequence member", _doc(f, **absent), "not_found"),
+        Call("outside every root", _doc(f, **outside), "path_denied"),
+        Call("stale", _doc(f, **source, expected_revision="stale"), "stale_revision"),
+    ]
+
+
+def _cells(f: Fixture) -> list[Call]:
+    window = {"start_frame": 0, "length": 8}
+    return [
+        Call("level column", _doc(f, column_id=f.ids["arm_column"], **window)),
+        Call("unknown", _doc(f, column_id=_missing("column"), **window), "invalid_handle"),
+    ]
+
+
+def _channels(f: Fixture) -> list[Call]:
+    return [
+        Call("pegbar", _doc(f, object_id=f.ids["peg"])),
+        Call("column", _doc(f, object_id=f.ids["arm_object"])),
+        Call("camera", _doc(f, object_id=f.ids["camera"])),
+        Call("unknown", _doc(f, object_id=_missing("object")), "invalid_handle"),
+    ]
+
+
+def _channel(f: Fixture, **extra: Any) -> dict[str, Any]:
+    return _doc(f, object_id=f.ids["peg"], channel="x", unit="inch", **extra)
+
+
+def _keys(f: Fixture) -> list[Call]:
+    missing = {**_channel(f), "object_id": _missing("object")}
+    return [Call("pegbar x", _channel(f)), Call("unknown", missing, "invalid_handle")]
+
+
+def _sample(f: Fixture) -> list[Call]:
+    missing = {**_channel(f, frames=[0]), "object_id": _missing("object")}
+    return [
+        Call("fractional frames", _channel(f, frames=[0, 1.5, 9])),
+        Call("unknown", missing, "invalid_handle"),
+    ]
+
+
+def _parameter(f: Fixture) -> list[Call]:
+    return [
+        Call("keyed", _doc(f, fx_id=f.ids["fx"], frame=2)),
+        Call("unknown", _doc(f, fx_id=_missing("fx")), "invalid_handle"),
+    ]
+
+
+def _delta(f: Fixture) -> list[Call]:
+    current = f.revision(f.document)
+    future = str(int(current) + 1)
+    return [
+        Call("from current", _doc(f, from_revision=current)),
+        Call("future", _doc(f, from_revision=future), "invalid_params", "future_revision"),
+        Call(
+            "unknown",
+            {"document_id": _missing("document"), "from_revision": "0"},
+            "document_not_found",
+        ),
+    ]
+
+
+def _recipes(_f: Fixture) -> list[Call]:
+    return [
+        Call("all", {}),
+        Call("light", {"category": "light"}),
+        Call("unknown category", {"category": "no_such_category"}, SCHEMA),
+    ]
+
+
+def _drawings(f: Fixture) -> list[Call]:
+    calls = [Call(name, _drawing(f, name)) for name in LEVELS]
+    missing = _doc(f, level_id=f.ids["arm_level"], drawing_id=MISSING_DRAWING)
+    return [*calls, Call("missing drawing", missing, "not_found")]
+
+
+def _vector(f: Fixture) -> list[Call]:
+    current = f.revision(f.document)
+    return [
+        Call("vector", _drawing(f, "arm_level", limit=8)),
+        Call("current revision", _drawing(f, "arm_level", limit=8, expected_revision=current)),
+        Call("stale revision", _drawing(f, "arm_level", expected_revision="0"), "stale_revision"),
+        Call("raster", _drawing(f, "rgba_level"), "unsupported_type"),
+    ]
+
+
+def _select(f: Fixture) -> list[Call]:
+    query = {"mode": "nearest_centerline", "x": 8, "y": -5, "max_distance": 100}
+    params = _drawing(f, "arm_level", coordinate_space="drawing_native", query=query)
+    current = {**params, "expected_revision": f.revision(f.document)}
+    square = [{"x": -500, "y": -500}, {"x": 500, "y": -500}, {"x": 500, "y": 500}]
+    lasso = {"mode": "lasso", "relation": "intersects", "points": square}
+    crossed = [{"x": 0, "y": 0}, {"x": 9, "y": 9}, {"x": 9, "y": 0}, {"x": 0, "y": 9}]
+    return [
+        Call("nearest", current),
+        Call("lasso", {**current, "query": lasso}),
+        Call("roles", {**current, "query": lasso, "roles": ["line_art", "overlay"]}),
+        Call("stale", {**params, "expected_revision": "0"}, "revision_conflict"),
+        Call(
+            "self intersecting",
+            {**current, "query": {**lasso, "points": crossed}},
+            "invalid_params",
+            "self_intersecting",
+        ),
+        Call("empty roles", {**current, "roles": []}, SCHEMA),
+    ]
+
+
+def _opacity(f: Fixture) -> list[Call]:
+    page = {"stroke_index": 0, "offset": 0, "limit": 8}
+    params = _drawing(f, "arm_level", expected_revision=f.revision(f.document), **page)
+    return [
+        Call("first stroke", params),
+        Call("stale", {**params, "expected_revision": "0"}, "revision_conflict"),
+    ]
+
+
+def _structure(f: Fixture) -> list[Call]:
+    return [
+        Call("vector", _drawing(f, "arm_level")),
+        Call("raster", _drawing(f, "toonz_level"), "unsupported_type"),
+    ]
+
+
+def _palette_pages(f: Fixture, **page: Any) -> list[Call]:
+    return [
+        Call("vector", _doc(f, level_id=f.ids["arm_level"], **page)),
+        Call("toonz raster", _doc(f, level_id=f.ids["toonz_level"])),
+        Call("rgba", _doc(f, level_id=f.ids["rgba_level"]), "unsupported_type"),
+        Call("unknown", _doc(f, level_id=_missing("level")), "invalid_handle"),
+    ]
+
+
+def _palette(f: Fixture) -> list[Call]:
+    return _palette_pages(f, limit=2)
+
+
+def _pages(f: Fixture) -> list[Call]:
+    return _palette_pages(f)
+
+
+def _pixels(f: Fixture) -> list[Call]:
+    return [
+        Call("toonz raster", _drawing(f, "toonz_level", **RECTANGLE)),
+        Call("rgba", _drawing(f, "rgba_level", **RECTANGLE)),
+        Call("vector", _drawing(f, "arm_level", **RECTANGLE), "invalid_params"),
+    ]
+
+
+def _job(f: Fixture) -> list[Call]:
+    return [
+        Call("completed", {"job_id": f.ids["job"]}),
+        Call("of a read-only document", {"job_id": f.ids["read_only_job"]}),
+        Call("unknown", {"job_id": _missing("job")}, "unknown_job"),
+    ]
+
+
+def _jobs(f: Fixture) -> list[Call]:
+    return [
+        Call("every job", {}),
+        Call("main document, terminal", {"document_id": f.document, "state": "terminal"}),
+        Call("render previews, second page", {"kind": "render_preview", "offset": 1, "limit": 1}),
+        Call("unknown document", {"document_id": _missing("document")}, "document_not_found"),
+    ]
+
+
+def _operation(_f: Fixture) -> list[Call]:
+    return [
+        Call("recorded write", {"operation_id": "operation-1"}),
+        Call("never used", {"operation_id": "operation-never-used"}),
+        Call("empty id", {"operation_id": ""}, SCHEMA),
+    ]
+
+
+def _journal(_f: Fixture) -> list[Call]:
+    return [
+        Call("status", {}),
+        Call("unknown field", {"segment": 1}, SCHEMA),
+    ]
+
+
+def _operations(_f: Fixture) -> list[Call]:
+    return [
+        Call("unresolved", {}),
+        Call("every state, two rows", {"state": "any", "limit": 2}),
+        Call("admitted before the second record", {"state": "any", "before_seq": 2}),
+        Call("zero limit", {"limit": 0}, SCHEMA),
+    ]
+
+
+def _artifact(f: Fixture) -> list[Call]:
+    return [
+        Call("preview", {"artifact_id": f.ids["artifact"]}),
+        Call("of a read-only document", {"artifact_id": f.ids["read_only_artifact"]}),
+        Call("unknown", {"artifact_id": _missing("artifact")}, "unknown_artifact"),
+    ]
+
+
+def _package(f: Fixture) -> list[Call]:
+    return [
+        Call("saved package", {"path": str(f.package)}),
+        # Admitted by registered content wherever it lies in a read root.
+        Call("copy under an input root", {"path": str(f.input_package)}),
+        Call("in an output root", {"path": "saved", "root": "renders"}),
+        Call("root not granted", {"path": "saved", "root": "archive"}, "root_unavailable"),
+        Call("outside every root", {"path": "/etc"}, "path_denied"),
+    ]
+
+
+def _save_preflight(f: Fixture) -> list[Call]:
+    planned = str(f.case.workspace / "planned")
+    return [
+        Call("new package", _pinned(f, directory=planned)),
+        Call("existing destination", _pinned(f, directory=str(f.package))),
+        Call("reopened", _pinned(f, f.reopened, directory=planned, offset=1, limit=1)),
+        Call("without content", _pinned(f, f.bare, directory=planned)),
+        Call("output root", _pinned(f, directory="planned", root="renders")),
+        Call("stale", _stale(f, directory=planned), "stale_revision"),
+        Call("outside every root", _pinned(f, directory="/etc/planned"), "path_denied"),
+        Call("root not granted", _pinned(f, directory="x", root="archive"), "root_unavailable"),
+        Call(
+            "reserved name",
+            _pinned(f, directory=".groundzero-x", root="renders"),
+            "invalid_path",
+            "reserved",
+        ),
+        Call("past the items", _pinned(f, directory=planned, offset=4096), "invalid_params"),
+    ]
+
+
+def _delivery_preflight(f: Fixture) -> list[Call]:
+    def request(path: str, job: str, root: str = "renders", **extra: Any) -> dict[str, Any]:
+        items = [{"job_id": job, "folder": "frames"}]
+        return {"destination": {"root": root, "path": path}, "items": items, **extra}
+
+    job = f.ids["job"]
+    return [
+        Call("one preview", request("planned", job)),
+        Call("last page", request("planned", job, offset=1, limit=1)),
+        Call("existing destination", request("saved", job)),
+        Call("read-only document's job", request("planned", f.ids["read_only_job"])),
+        Call("unknown job", request("planned", _missing("job"))),
+        Call("root not granted", request("planned", job, root="archive"), "root_unavailable"),
+        Call("reserved name", request(".groundzero-x", job), "invalid_path", "reserved"),
+        Call("past the files", request("planned", job, offset=2), "invalid_params"),
+    ]
+
+
+def _ro_save_preflight(_f: Fixture, document: str) -> list[Call]:
+    params = {"document_id": document, "expected_revision": "0", "directory": "planned"}
+    return [
+        Call(
+            "refused",
+            params,
+            "unsupported_target",
+            "read_only_document",
+            "save a read-only document after scene.import_plan",
+        )
+    ]
+
+
+def _pinned_with(stale_code: str) -> Callable[[Fixture], list[Call]]:
+    def calls(f: Fixture) -> list[Call]:
+        return [
+            Call("main", _pinned(f)),
+            Call("reopened", _pinned(f, f.reopened)),
+            Call("without content", _pinned(f, f.bare)),
+            Call("stale", _stale(f), stale_code),
+        ]
+
+    return calls
+
+
+def _fonts(_f: Fixture) -> list[Call]:
+    return [
+        Call("prefix", {"family_prefix": "Arial", "offset": 0, "limit": 4}),
+        Call(
+            "beyond the end",
+            {"family_prefix": "Arial", "offset": 4096, "limit": 4},
+            "invalid_params",
+        ),
+        Call("empty page", {"family_prefix": "Arial", "offset": 0, "limit": 0}, SCHEMA),
+    ]
+
+
+def _path(f: Fixture) -> list[Call]:
+    missing = _pinned(f, path_id=_missing("path"))
+    return [
+        Call("attached", _pinned(f, path_id=f.ids["motion_path"])),
+        Call("unknown", missing, "invalid_handle"),
+    ]
+
+
+def _evaluate(f: Fixture) -> list[Call]:
+    objects = [f.ids["arm_object"], f.ids["peg"]]
+    missing = _pinned(f, object_ids=[_missing("object")], frames=[0])
+    return [
+        Call("column and pegbar", _pinned(f, object_ids=objects, frames=[0, 2])),
+        Call("unknown", missing, "invalid_handle"),
+    ]
+
+
+def _dependents(f: Fixture) -> list[Call]:
+    def target(**value: Any) -> dict[str, Any]:
+        return _pinned(f, target=value)
+
+    return [
+        Call("pegbar", target(kind="object", object_id=f.ids["peg"])),
+        Call("column", target(kind="object", object_id=f.ids["arm_object"])),
+        Call("hook", target(kind="hook", level_id=f.ids["arm_level"], hook_number=1)),
+        Call("unknown", target(kind="object", object_id=_missing("object")), "invalid_handle"),
+        Call("control", target(kind="control", control_id=_missing("control")), "invalid_handle"),
+        Call(
+            "stale",
+            _stale(f, target={"kind": "object", "object_id": f.ids["peg"]}),
+            "revision_conflict",
+        ),
+    ]
+
+
+def _hooks(f: Fixture) -> list[Call]:
+    return [
+        Call("level with hooks", _pinned(f, level_id=f.ids["arm_level"])),
+        Call("level without hooks", _pinned(f, level_id=f.ids["rgba_level"])),
+        Call("unknown", _pinned(f, level_id=_missing("level")), "invalid_handle"),
+    ]
+
+
+def _roots(_f: Fixture) -> list[Call]:
+    return [Call("no arguments", {})]
+
+
+def _studio_list(_f: Fixture) -> list[Call]:
+    folder = {"root": "studio_palettes", "folder": "Global Palettes"}
+    return [
+        Call("studio", folder),
+        Call("nested", {**folder, "folder": "Global Palettes/Warm"}),
+        Call("project", {"root": "project_palettes", "folder": ""}),
+        Call("missing", {**folder, "folder": "Absent"}, "not_found"),
+    ]
+
+
+def _studio_inspect(_f: Fixture) -> list[Call]:
+    warm = {"root": "studio_palettes", "path": "Global Palettes/Warm.tpl"}
+    return [
+        Call("warm", {**warm, "limit": 2}),
+        Call("read-only file", {**warm, "path": "Global Palettes/Warm/Deep/Frozen.tpl"}),
+        Call("missing", {**warm, "path": "Global Palettes/Absent.tpl"}, "not_found"),
+    ]
+
+
+def _studio_find(_f: Fixture) -> list[Call]:
+    return [
+        Call("two roots", {"palette_id": "1700000000_1234567890123456789"}),
+        Call("no match", {"palette_id": "nothing_1"}),
+        Call("malformed id", {"palette_id": ""}, SCHEMA),
+    ]
+
+
+def _library_list(_f: Fixture) -> list[Call]:
+    return [
+        Call("templates", {"kind": "template"}),
+        Call("poses", {"kind": "pose_set", "name_contains": "al"}),
+        Call("stale listing", {"kind": "template", "expected_listing_revision": "x"}, SCHEMA),
+    ]
+
+
+def _library_inspect(_f: Fixture) -> list[Call]:
+    return [
+        Call("template", {"kind": "template", "name": "Rig"}),
+        Call("template without level", {"kind": "template", "name": "Legacy"}),
+        Call("pose set", {"kind": "pose_set", "name": "Walk"}),
+        Call("missing", {"kind": "template", "name": "Absent"}, "not_found"),
+    ]
+
+
+def _library_thumbnail(_f: Fixture) -> list[Call]:
+    return [
+        Call("template", {"kind": "template", "name": "Rig"}),
+        Call("pose", {"kind": "pose_set", "name": "Walk", "pose_index": 0}),
+        Call("no pose", {"kind": "pose_set", "name": "Walk", "pose_index": 9}, "not_found"),
+        Call("no icon", {"kind": "template", "name": "Legacy"}, "asset_unavailable"),
+    ]
+
+
+def _analysis(f: Fixture) -> list[Call]:
+    page = {"offset": 0, "limit": 3}
+    return [
+        Call("first page", {"analysis_id": f.ids["analysis"], **page}),
+        Call("unknown", {"analysis_id": _missing("analysis"), **page}, "invalid_handle"),
+    ]
+
+
+def _assistance(_f: Fixture) -> list[Call]:
+    return [
+        Call("all", {}),
+        Call("cadmium", {"component": "cadmium"}),
+        Call("unknown component", {"component": "other"}, SCHEMA),
+    ]
+
+
+def _ro_document(_f: Fixture, document: str) -> list[Call]:
+    return [Call("document", {"document_id": document})]
+
+
+def _ro_delta(f: Fixture, document: str) -> list[Call]:
+    return [Call("current", {"document_id": document, "from_revision": f.revision(document)})]
+
+
+def _ro_jobs(_f: Fixture, document: str) -> list[Call]:
+    return [Call("document's jobs", {"document_id": document})]
+
+
+def _ro_summary(f: Fixture, document: str) -> list[Call]:
+    return [
+        *_ro_document(f, document),
+        Call("without drawings", {"document_id": document, "include_drawings": False}),
+    ]
+
+
+def _ro_levels(f: Fixture, document: str) -> list[Call]:
+    levels = f.case.success("scene.summary", {"document_id": document})["levels"]
+    calls = [
+        Call(row["name"], {"document_id": document, "level_id": row["level_id"]}) for row in levels
+    ]
+    missing = {"document_id": document, "level_id": _missing("level")}
+    return [*calls, Call("unknown", missing, "invalid_handle")]
+
+
+def _ro_pinned(_f: Fixture, document: str) -> list[Call]:
+    pinned = {"document_id": document, "expected_revision": "0"}
+    return [
+        Call("document", pinned),
+        Call("stale", {**pinned, "expected_revision": "1"}, "stale_revision"),
+    ]
+
+
+def _ro_summary_of(f: Fixture, document: str) -> dict[str, Any]:
+    return f.case.success("scene.summary", {"document_id": document})
+
+
+def _ro_per_level(tool: str, f: Fixture, document: str, **extra: Any) -> list[Call]:
+    calls = []
+    for level in _ro_summary_of(f, document)["levels"]:
+        drawing = level["drawings"][0] if level["drawings"] else VECTOR_DRAWING
+        params = {"document_id": document, "level_id": level["level_id"], **extra}
+        if tool in DRAWING_TOOLS:
+            params["drawing_id"] = drawing
+        calls.append(Call(level["name"], params, EITHER))
+    return calls
+
+
+def _ro_levels_with_drawings(f: Fixture, document: str) -> list[Call]:
+    return _ro_per_level("drawing.inspect", f, document)
+
+
+def _ro_palettes(f: Fixture, document: str) -> list[Call]:
+    return _ro_per_level("palette.inspect", f, document)
+
+
+def _ro_vectors(f: Fixture, document: str) -> list[Call]:
+    return _ro_per_level("vector.inspect", f, document)
+
+
+def _ro_inspect(f: Fixture, document: str) -> list[Call]:
+    pinned = _ro_per_level("vector.inspect", f, document, expected_revision="0")
+    return [*_ro_vectors(f, document), *pinned]
+
+
+def _ro_opacity(f: Fixture, document: str) -> list[Call]:
+    extra = {"expected_revision": "0", "stroke_index": 0, "offset": 0, "limit": 8}
+    return _ro_per_level("vector.opacity.inspect", f, document, **extra)
+
+
+def _ro_pixels(f: Fixture, document: str) -> list[Call]:
+    return _ro_per_level("raster.read_pixels", f, document, **RECTANGLE)
+
+
+def _ro_cells(f: Fixture, document: str) -> list[Call]:
+    columns = _ro_summary_of(f, document)["columns"]
+    window = {"document_id": document, "start_frame": 0, "length": 2}
+    return [
+        Call("first column", {**window, "column_id": columns[0]["column_id"]}),
+        Call("unknown", {**window, "column_id": _missing("column")}, "invalid_handle"),
+    ]
+
+
+def _ro_object(f: Fixture, document: str) -> dict[str, str]:
+    """The first column's stage object, or nothing where the scene file has no entry for it."""
+    object_id = _ro_summary_of(f, document)["columns"][0]["object_id"]
+    return {"document_id": document, "object_id": object_id} if object_id else {}
+
+
+def _ro_channels(f: Fixture, document: str) -> list[Call]:
+    given = _ro_object(f, document)
+    missing = {"document_id": document, "object_id": _missing("object")}
+    first = [Call("first column", given)] if given else []
+    return [*first, Call("unknown", missing, "invalid_handle")]
+
+
+def _ro_keys(f: Fixture, document: str) -> list[Call]:
+    given = _ro_object(f, document)
+    return [Call("x", {**given, "channel": "x", "unit": "inch"})] if given else []
+
+
+def _ro_samples(f: Fixture, document: str) -> list[Call]:
+    given = _ro_object(f, document)
+    sample = {**given, "channel": "x", "unit": "inch", "frames": [0, 1.5]}
+    return [Call("x", sample)] if given else []
+
+
+def _ro_parameters(f: Fixture, document: str) -> list[Call]:
+    effects = f.case.success("fx.graph", {"document_id": document})["effects"]
+    calls = [
+        Call(f"{row['type']} {index}", {"document_id": document, "fx_id": row["fx_id"]}, EITHER)
+        for index, row in enumerate(effects)
+    ]
+    missing = {"document_id": document, "fx_id": _missing("fx")}
+    return [*calls, Call("unknown", missing, "invalid_handle")]
+
+
+def _inventory(f: Fixture, document: str) -> list[Call]:
+    revision = f.revision(document)
+    pinned = {"document_id": document, "expected_revision": revision}
+    calls = [Call(section, {**pinned, "section": section}) for section in SECTIONS]
+    stale = {**pinned, "expected_revision": "stale", "section": "sheets"}
+    return [*calls, Call("stale", stale, "stale_revision")]
+
+
+def _ro_source_status(_f: Fixture, document: str) -> list[Call]:
+    pinned = {"document_id": document, "expected_revision": "0"}
+    return [
+        Call("unchanged", pinned),
+        Call("stale", {**pinned, "expected_revision": "1"}, "stale_revision"),
+    ]
+
+
+def _runtime(_f: Fixture) -> list[Call]:
+    return [
+        Call("cached", {}),
+        Call("graphics probe", {"probes": ["graphics"]}),
+        Call("media probe without media tools", {"probes": ["media"]}),
+        Call("both probes", {"probes": ["graphics", "media"]}),
+        Call("no probe named", {"probes": []}, SCHEMA),
+        Call("unknown probe", {"probes": ["disk"]}, SCHEMA),
+    ]
+
+
+def _preflight_request(**extra: Any) -> dict[str, Any]:
+    return {"kind": "preview", "frame": 0, **extra}
+
+
+def _preflight(f: Fixture) -> list[Call]:
+    sequence: dict[str, Any] = {"kind": "sequence", "start_frame": 0, "end_frame": 2}
+    failing: dict[str, Any] = {
+        **sequence,
+        "start_frame": 5,
+        "end_frame": 1,
+        "profile": "opaque8-mp4",
+    }
+    return [
+        Call("preview", _pinned(f, **_preflight_request())),
+        Call("sequence", _pinned(f, None, **sequence)),
+        Call("every check failing", _pinned(f, None, **failing, width=33, height=32)),
+        Call("reopened", _pinned(f, f.reopened, **_preflight_request())),
+        Call("without content", _pinned(f, f.bare, **_preflight_request())),
+        Call("stale", _stale(f, **_preflight_request()), "stale_revision"),
+        Call(
+            "preview with a range",
+            _pinned(f, **_preflight_request(start_frame=0)),
+            "invalid_params",
+        ),
+        Call(
+            "unknown",
+            {"document_id": _missing("document"), "expected_revision": "0", **_preflight_request()},
+            "document_not_found",
+        ),
+    ]
+
+
+def _ro_preflight(_f: Fixture, document: str) -> list[Call]:
+    pinned = {"document_id": document, "expected_revision": "0"}
+    sequence = {"kind": "sequence", "start_frame": 0, "end_frame": 1}
+    return [
+        Call("preview", {**pinned, **_preflight_request()}),
+        Call("sequence", {**pinned, **sequence}),
+        Call("mp4", {**pinned, **sequence, "profile": "opaque8-mp4"}),
+        Call(
+            "stale", {**pinned, **_preflight_request(), "expected_revision": "1"}, "stale_revision"
+        ),
+    ]
+
+
+READ_ONLY_CALLS: dict[str, Callable[[Fixture, str], list[Call]]] = {
+    "scene.summary": _ro_summary,
+    "camera.inspect": _ro_document,
+    "camera.list": _ro_pinned,
+    "scene.properties.inspect": _ro_pinned,
+    "level.inspect": _ro_levels,
+    "cast.list": _ro_pinned,
+    "cast.usage": _ro_pinned,
+    "scene.dependencies": _ro_pinned,
+    "scene.validate": _ro_pinned,
+    "fx.graph": _ro_document,
+    "fx.graph.delta": _ro_delta,
+    "scene.inventory": _inventory,
+    "scene.source_status": _ro_source_status,
+    "column.cells": _ro_cells,
+    "drawing.inspect": _ro_levels_with_drawings,
+    "palette.inspect": _ro_palettes,
+    "palette.pages": _ro_palettes,
+    "fx.parameter.get": _ro_parameters,
+    "animation.channels": _ro_channels,
+    "animation.keys": _ro_keys,
+    "animation.sample": _ro_samples,
+    "vector.inspect": _ro_inspect,
+    "vector.structure": _ro_vectors,
+    "vector.opacity.inspect": _ro_opacity,
+    "raster.read_pixels": _ro_pixels,
+    "job.list": _ro_jobs,
+    "render.preflight": _ro_preflight,
+    "scene.save_preflight": _ro_save_preflight,
+    "scene.import_plan": _ro_import_plan,
+}
+ROUTED_WRITES = frozenset(
+    {
+        "render.preview",
+        "render.submit",
+        "scene.discard",
+        "scene.check.submit",
+        "drawing.analysis.submit",
+        "scene.import_editable",
+    }
+)
+
+
+READ_CALLS: dict[str, Callable[[Fixture], list[Call]]] = {
+    "automation.capabilities": _capabilities,
+    "automation.list_documents": _no_arguments,
+    "project.inspect": _project_inspect,
+    "project.scenes": _project_scenes,
+    "scene.inventory": _editable_inventory,
+    "scene.source_status": _editable_source_status,
+    "project.list": _projects,
+    "scene.summary": _per_document,
+    "camera.inspect": _per_document,
+    "level.inspect": _level,
+    "intake.preflight": _intake_preflight,
+    "intake.provenance": _level,
+    "column.cells": _cells,
+    "animation.channels": _channels,
+    "animation.keys": _keys,
+    "animation.sample": _sample,
+    "fx.catalog": _no_arguments,
+    "column.kinds": _no_arguments,
+    "fx.graph": _per_document,
+    "fx.graph.delta": _delta,
+    "fx.parameter.get": _parameter,
+    "fx.recipe.list": _recipes,
+    "drawing.inspect": _drawings,
+    "vector.inspect": _vector,
+    "vector.select": _select,
+    "vector.opacity.inspect": _opacity,
+    "vector.structure": _structure,
+    "palette.inspect": _palette,
+    "palette.pages": _pages,
+    "raster.read_pixels": _pixels,
+    "render.capabilities": _no_arguments,
+    "render.preflight": _preflight,
+    "runtime.inspect": _runtime,
+    "tool.describe": _describe,
+    "job.list": _jobs,
+    "job.status": _job,
+    "job.result": _job,
+    "artifact.read": _artifact,
+    "operation.status": _operation,
+    "journal.status": _journal,
+    "operation.list": _operations,
+    "scene.package_info": _package,
+    "scene.save_preflight": _save_preflight,
+    "delivery.preflight": _delivery_preflight,
+    "scene.import_plan": _editable_import_plan,
+    "cast.list": _pinned_with("stale_revision"),
+    "camera.list": _pinned_with("stale_revision"),
+    "scene.properties.inspect": _pinned_with("stale_revision"),
+    "cast.usage": _pinned_with("stale_revision"),
+    "scene.dependencies": _pinned_with("stale_revision"),
+    "scene.validate": _pinned_with("stale_revision"),
+    "text.fonts": _fonts,
+    "motion_path.list": _pinned_with("revision_conflict"),
+    "motion_path.inspect": _path,
+    "audio.inspect": _pinned_with("revision_conflict"),
+    "rig.inspect": _pinned_with("revision_conflict"),
+    "rig.evaluate": _evaluate,
+    "rig.dependents": _dependents,
+    "object.groups": _pinned_with("revision_conflict"),
+    "hook.inspect": _hooks,
+    "shared.roots": _roots,
+    "studio_palette.list": _studio_list,
+    "studio_palette.inspect": _studio_inspect,
+    "studio_palette.find": _studio_find,
+    "library.list": _library_list,
+    "library.inspect": _library_inspect,
+    "library.thumbnail": _library_thumbnail,
+    "storyboard.panels": _pinned_with("revision_conflict"),
+    "lipsync.inspect": _analysis,
+    "assistance.inspect": _assistance,
+}

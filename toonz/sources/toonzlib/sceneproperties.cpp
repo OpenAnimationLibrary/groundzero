@@ -238,6 +238,23 @@ void TSceneProperties::setCastCollections(const QList<CastCollection> &collectio
   m_castCollections = normalized;
 }
 
+namespace {
+
+// Writes values at full precision while alive: guides are stage units and
+// ratios are fractions, which six significant digits change on reload.
+class FullPrecision {
+public:
+  explicit FullPrecision(TOStream& os)
+      : m_os(os), m_previous(os.setFullPrecision(true)) {}
+  ~FullPrecision() { m_os.setFullPrecision(m_previous); }
+
+private:
+  TOStream& m_os;
+  bool m_previous;
+};
+
+}  // namespace
+
 void TSceneProperties::saveData(TOStream &os) const {
   if (!m_castCollections.empty()) {
     os.openChild("castCollections");
@@ -252,11 +269,13 @@ void TSceneProperties::saveData(TOStream &os) const {
     os.closeChild();
   }
   if (!m_hGuides.empty()) {
+    FullPrecision precision(os);
     os.openChild("hGuides");
     for (int i = 0; i < (int)m_hGuides.size(); i++) os << m_hGuides[i];
     os.closeChild();
   }
   if (!m_vGuides.empty()) {
+    FullPrecision precision(os);
     os.openChild("vGuides");
     for (int i = 0; i < (int)m_vGuides.size(); i++) os << m_vGuides[i];
     os.closeChild();
@@ -312,6 +331,7 @@ void TSceneProperties::saveData(TOStream &os) const {
     os.child("subcameraPrev") << (out.isSubcameraPreview() ? 1 : 0);
     // Only when used: OpenToonz builds without it reject the tag
     if (out.getAspectMode() != TOutputProperties::NoAspectExport) {
+      FullPrecision precision(os);
       const TPixel32 color = out.getAspectColor();
       os.child("aspectExport")
           << out.getAspectMode() << out.getAspectRatio() << (int)color.r
@@ -439,7 +459,10 @@ void TSceneProperties::saveData(TOStream &os) const {
   os.child("bgColor") << m_bgColor;
   os.child("markers") << m_markerDistance << m_markerOffset;
   os.child("subsampling") << m_fullcolorSubsampling << m_tlvSubsampling;
-  os.child("fieldguide") << m_fieldGuideSize << m_fieldGuideAspectRatio;
+  {
+    FullPrecision precision(os);
+    os.child("fieldguide") << m_fieldGuideSize << m_fieldGuideAspectRatio;
+  }
   if (m_columnColorFilterOnRender) os.child("columnColorFilterOnRender") << 1;
   if (m_multiplaneDepth != MultiplaneDepth::Settings()) {
     const MultiplaneDepth::Settings &d = m_multiplaneDepth;

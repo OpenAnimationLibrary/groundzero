@@ -2,6 +2,11 @@ name: Linux Build
 
 on:
   workflow_dispatch:
+    inputs:
+      baseline_only:
+        description: Run the build and core application checks without extended qualification
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       baseline_only:
@@ -41,6 +46,7 @@ jobs:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+        fetch-depth: 0
 
     - name: Enforce the baseline pull request budget
       run: |
@@ -51,6 +57,28 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Check MCP implementation proposal scope
+      env:
+        MCP_BASE: ${{ github.event.pull_request.base.sha || 'origin/edition' }}
+      run: |
+        set -euo pipefail
+        python3 ci-scripts/mcp_guardrails.py --base "$MCP_BASE"
+
+    - name: Check the MCP capability census and revision coverage
+      run: |
+        set -euo pipefail
+        python3 ci-scripts/mcp_census.py
+        python3 ci-scripts/mcp_revision_matrix.py
+        python3 ci-scripts/mcp_schema_keys.py
+        python3 ci-scripts/mcp_schema_required.py
+        python3 ci-scripts/run_harness_tests.py --pattern 'test_mcp_[cr]*.py' \
+          --report mcp-census-contracts.txt
+
+    - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      with:
+        version: '0.13.8'
+        enable-cache: false
+
     - name: Verify native diagnostic isolation
       run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_diagnostics.py
 
@@ -60,7 +88,11 @@ jobs:
         python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
 
     - name: Verify early harness failure reporting
-      run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+      run: |
+        set -euo pipefail
+        python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+        python3 ci-scripts/run_harness_tests.py --pattern test_mcp_stage_media.py \
+          --report mcp-media-staging-contracts.txt
 
     - name: Verify native lifecycle harness contracts
       run: python3 -m unittest discover -s ci-scripts/tests -p test_native_ui_lifecycle.py
@@ -131,15 +163,157 @@ jobs:
         export CC="ccache $C_COMPILER"
         export CXX="ccache $CXX_COMPILER"
         cd toonz
-        mkdir build
+        mkdir -p build
         cd build
         set -o pipefail
         cmake ../sources -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER="$CXX_COMPILER" -DCMAKE_C_COMPILER="$C_COMPILER" -DWITH_TRANSLATION=ON -DBUILD_UI_PORT_TESTS=ON -DBUILD_CELFX_TESTS=ON -DBUILD_CADMIUM_TESTS=ON -DBUILD_LUT3D_TESTS=ON -DBUILD_PARTICLE_CACHE_TESTS=ON -DBUILD_RELIABILITY_TESTS=ON -DBUILD_DEFORMER_TESTS=ON -DBUILD_AUTOPATCH_TESTS=ON -DBUILD_STREAM_TESTS=ON -DBUILD_SCENEBENCH_TESTS=ON -DBUILD_FXRENDER_TESTS=ON -DBUILD_FFMPEG_TESTS=ON -DBUILD_PSD_TESTS=ON -DBUILD_EXR_TESTS=ON -DBUILD_SEEXPR_TESTS=ON -DBUILD_SEEXPR_PYTHON=ON -DPython3_EXECUTABLE="$(command -v python)" -DCMAKE_CXX_FLAGS=-Werror=return-type 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
         # -k 0: keep going, so one run reports every file that fails
         ninja -k 0 OpenToonz tconverter celfx_tests cadmium_tests ui_port_tests particlecache_tests referencecolormatch_test neuralstyle_host_test neuralstyle_test neuralstyle_editor_test externfx_process_test plugin_probe_test 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
 
+    # Show the errors on the pull request (summary and annotations) without
+    # having to open the full log
+    - name: Report build errors
+      if: failure()
+      run: |
+        log="$GITHUB_WORKSPACE/build.log"
+        [ -f "$log" ] || exit 0
+        # Keep the failed target visible even when many linker references fill
+        # the bounded error excerpt below.
+        grep '^FAILED:' "$log" | head -10 | while IFS= read -r line; do
+          echo "::error title=Failed build target::$line"
+        done || true
+        grep -E ': (fatal )?error:|CMake Error|undefined reference|ld returned|^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
+        {
+          echo "## Linux build errors"
+          echo '```'
+          cat errors.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        prefix="$GITHUB_WORKSPACE/"
+        grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
+          file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
+          msg=${line#*error: }
+          file=${file#"$prefix"}; file=${file#../sources/}
+          case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
+          echo "::error file=${file},line=${lineno}::${msg}"
+        done
+        grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
+          echo "::error::${line}"
+        done
+
+    - name: Retain native build diagnostics immediately
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: Linux-native-build-${{ github.sha }}
+        path: |
+          build.log
+          errors.txt
+        if-no-files-found: ignore
+
+    - name: Test native MCP path authority
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      timeout-minutes: 2
+      run: |
+        set -euo pipefail
+        evidence="$GITHUB_WORKSPACE/toonz/build/mcp-acceptance"
+        mkdir -p "$evidence"
+        ctest --test-dir toonz/build --output-on-failure --no-tests=error \
+          --output-junit "$evidence/path-authority.xml" -R '^mcp_path_authority$' \
+          2>&1 | tee "$evidence/path-authority.txt"
+
     - name: Prepare native Neural Style component
       run: python ci-scripts/neural-style/host.py ${{ inputs.baseline_only && '--package-only' || '' }}
+
+    - name: Stage installed media tools for native MCP qualification
+      id: mcp_media_tools
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' }}
+      run: |
+        set -euo pipefail
+        mkdir -p toonz/build/mcp-acceptance
+        cp mcp-media-staging-contracts.txt \
+          toonz/build/mcp-acceptance/media-staging-contracts.txt
+        uv venv --python 3.13 "$RUNNER_TEMP/mcp-python"
+        "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_stage_media.py \
+          --output "$RUNNER_TEMP/mcp-media-tools" --report toonz/build/mcp-acceptance/media-tools.json \
+          --github-env "$GITHUB_ENV"
+
+    - name: Qualify native MCP worker milestones
+      id: mcp_native
+      if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
+      timeout-minutes: 15
+      env:
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_acceptance.py \
+          --executable toonz/build/bin/OpenToonz --output toonz/build/mcp-acceptance \
+          --media-tools "$MCP_MEDIA_TOOLS"
+
+    - name: Check native MCP acceptance scripts
+      if: ${{ !cancelled() }}
+      run: |
+        set -euo pipefail
+        uvx ruff@0.17.5 check --select E,F,I,C90 --line-length 100 \
+          --config 'lint.mccabe.max-complexity=8' ci-scripts/mcp_*.py
+        uvx ruff@0.17.5 format --check --line-length 100 ci-scripts/mcp_*.py
+        uvx ty@0.0.104 check --python-version 3.13 --error-on-warning ci-scripts/mcp_*.py
+
+    - name: Retain native MCP acceptance evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: MCP-native-acceptance-${{ github.sha }}
+        path: toonz/build/mcp-acceptance
+        if-no-files-found: ignore
+
+    - name: Create and verify an editable native animation shot
+      id: mcp_shot
+      if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
+      timeout-minutes: 10
+      env:
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_shot.py \
+          --executable toonz/build/bin/OpenToonz --output toonz/build/mcp-shot \
+          --media-tools "$MCP_MEDIA_TOOLS"
+
+    - name: Retain editable MCP shot and visual evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-first-shot-${{ github.sha }}
+        path: toonz/build/mcp-shot
+        if-no-files-found: ignore
+
+    - name: Open and edit the MCP shot in the native application
+      id: mcp_handoff
+      if: ${{ !cancelled() && steps.native_targets.outcome == 'success' && steps.mcp_shot.outcome == 'success' }}
+      timeout-minutes: 15
+      env:
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_handoff.py \
+          --executable toonz/build/bin/OpenToonz --stuff stuff \
+          --package toonz/build/mcp-shot/workspace/shot \
+          --reference toonz/build/mcp-shot/previews/reopened.png \
+          --output toonz/build/mcp-handoff
+
+    - name: Retain native application handoff evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-gui-handoff-${{ github.sha }}
+        path: toonz/build/mcp-handoff
+        if-no-files-found: ignore
 
     - name: Retain reference style qualification and visual examples
       if: ${{ !inputs.baseline_only && always() }}
@@ -482,37 +656,6 @@ jobs:
         cd glb-build
         ctest --output-on-failure --timeout 600
 
-    # Show the errors on the pull request (summary and annotations) without
-    # having to open the full log
-    - name: Report build errors
-      if: failure()
-      run: |
-        log="$GITHUB_WORKSPACE/build.log"
-        [ -f "$log" ] || exit 0
-        # Keep the failed target visible even when many linker references fill
-        # the bounded error excerpt below.
-        grep '^FAILED:' "$log" | head -10 | while IFS= read -r line; do
-          echo "::error title=Failed build target::$line"
-        done || true
-        grep -E ': (fatal )?error:|CMake Error|undefined reference|ld returned|^FAILED:' "$log" | sort -u | head -60 > errors.txt || true
-        {
-          echo "## Linux build errors"
-          echo '```'
-          cat errors.txt
-          echo '```'
-        } >> "$GITHUB_STEP_SUMMARY"
-        prefix="$GITHUB_WORKSPACE/"
-        grep -E ': (fatal )?error:' errors.txt | head -40 | while IFS= read -r line; do
-          file=${line%%:*}; rest=${line#*:}; lineno=${rest%%:*}
-          msg=${line#*error: }
-          file=${file#"$prefix"}; file=${file#../sources/}
-          case "$file" in /*|toonz/*) ;; *) file="toonz/sources/$file" ;; esac
-          echo "::error file=${file},line=${lineno}::${msg}"
-        done
-        grep -vE ': (fatal )?error:' errors.txt | head -10 | while IFS= read -r line; do
-          echo "::error::${line}"
-        done
-
     - name: Create Artifact
       env:
         ARTIFACT_NAME: Opentoonz-${{ runner.os }}-${{ matrix.compiler }}-${{ github.sha }}
@@ -621,8 +764,174 @@ jobs:
       id: node_runtime
       if: ${{ !cancelled() }}
       with:
-        node-version: '22'
+        node-version: '22.23.5'
         package-manager-cache: false
+
+    - name: Audit and install MCP adapter dependencies
+      id: mcp_dependencies
+      if: ${{ !cancelled() && steps.node_runtime.outcome == 'success' }}
+      working-directory: tools/mcp
+      run: |
+        set -euo pipefail
+        corepack prepare pnpm@12.21.0 --activate
+        if [[ ! -f pnpm-lock.yaml ]]; then
+          corepack pnpm install --lockfile-only --ignore-scripts
+        fi
+        corepack pnpm audit --audit-level=moderate
+        corepack pnpm install --frozen-lockfile --ignore-scripts
+
+    - name: Retain MCP dependency lock
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: MCP-dependency-lock-${{ github.sha }}
+        path: tools/mcp/pnpm-lock.yaml
+        if-no-files-found: ignore
+
+    - name: Check MCP adapter sources
+      if: ${{ !cancelled() && steps.mcp_dependencies.outcome == 'success' }}
+      working-directory: tools/mcp
+      run: |
+        set -euo pipefail
+        failed=0
+        for check in lint format:check typecheck; do
+          if ! python3 ../../ci-scripts/mcp_check.py --title "MCP adapter ${check}" \
+            --output "checks/${check//:/-}.txt" corepack pnpm "$check"; then
+            failed=1
+          fi
+        done
+        exit "$failed"
+
+    - name: Retain MCP adapter check diagnostics
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: MCP-adapter-checks-${{ github.sha }}
+        path: tools/mcp/checks
+        if-no-files-found: ignore
+
+    - name: Build MCP adapter
+      id: mcp_adapter
+      if: ${{ !cancelled() && steps.mcp_dependencies.outcome == 'success' }}
+      working-directory: tools/mcp
+      run: |
+        set -euo pipefail
+        python3 ../../ci-scripts/mcp_check.py --title "MCP adapter build" \
+          --output runtime-checks/build.txt corepack pnpm build
+
+    - name: Test MCP adapter contracts
+      if: ${{ !cancelled() && steps.mcp_dependencies.outcome == 'success' }}
+      working-directory: tools/mcp
+      run: |
+        set -euo pipefail
+        python3 ../../ci-scripts/mcp_check.py --title "MCP adapter contracts" \
+          --output runtime-checks/contracts.txt corepack pnpm test
+
+    - name: Qualify live MCP clients in the native editor
+      if: >-
+        ${{ !cancelled() && steps.native_targets.outcome == 'success' &&
+            steps.mcp_adapter.outcome == 'success' }}
+      timeout-minutes: 5
+      env:
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        uv venv --python 3.13 "$RUNNER_TEMP/mcp-live-python"
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-live-python/bin/python" ci-scripts/mcp_live.py \
+          --executable toonz/build/bin/OpenToonz --stuff stuff \
+          --node "$(command -v node)" --adapter tools/mcp/dist/cli.js \
+          --client tools/mcp/fixtures/live-client.mjs --output toonz/build/mcp-live
+
+    - name: Retain live MCP editor qualification evidence
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-live-editor-${{ github.sha }}
+        path: toonz/build/mcp-live
+        if-no-files-found: ignore
+
+    - name: Qualify MCP client against the native worker
+      if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' && steps.mcp_media_tools.outcome == 'success' }}
+      working-directory: tools/mcp
+      timeout-minutes: 5
+      env:
+        GROUNDZERO_EXECUTABLE: ${{ github.workspace }}/toonz/build/bin/OpenToonz
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        python3 ../../ci-scripts/mcp_check.py --title "MCP native client" \
+          --output runtime-checks/native-client.txt \
+          xvfb-run -a -s '-screen 0 1280x1024x24' corepack pnpm test:native
+
+    - name: Retain MCP runtime qualification diagnostics
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: MCP-runtime-checks-${{ github.sha }}
+        path: tools/mcp/runtime-checks
+        if-no-files-found: ignore
+
+    - name: Author and render the animation through the MCP client
+      id: mcp_client_shot
+      if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' && steps.mcp_media_tools.outcome == 'success' }}
+      timeout-minutes: 10
+      env:
+        GROUNDZERO_NATIVE_EXECUTABLE: ${{ github.workspace }}/toonz/build/bin/OpenToonz
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_shot.py \
+          --executable "$GITHUB_WORKSPACE/tools/mcp/fixtures/native-client.mjs" \
+          --output toonz/build/mcp-client-shot --media-tools "$MCP_MEDIA_TOOLS"
+
+    - name: Retain the animation authored through the MCP client
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-client-shot-${{ github.sha }}
+        path: toonz/build/mcp-client-shot
+        if-no-files-found: ignore
+
+    - name: Open and edit the MCP client package in the native application
+      if: ${{ !cancelled() && steps.mcp_client_shot.outcome == 'success' }}
+      timeout-minutes: 15
+      env:
+        QT_QPA_PLATFORM: xcb
+        LIBGL_ALWAYS_SOFTWARE: '1'
+      run: |
+        set -euo pipefail
+        xvfb-run -a -s '-screen 0 1280x1024x24' \
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_handoff.py \
+          --executable toonz/build/bin/OpenToonz --stuff stuff \
+          --package toonz/build/mcp-client-shot/workspace/shot \
+          --reference toonz/build/mcp-client-shot/previews/reopened.png \
+          --output toonz/build/mcp-client-handoff
+
+    - name: Retain native handoff evidence for the MCP client package
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-client-handoff-${{ github.sha }}
+        path: toonz/build/mcp-client-handoff
+        if-no-files-found: ignore
+
+    - name: Retain compiled MCP adapter and dependency resolution
+      if: ${{ !cancelled() && steps.mcp_adapter.outcome == 'success' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: groundzero-mcp-adapter
+        path: |
+          tools/mcp/dist
+          tools/mcp/package.json
+          tools/mcp/pnpm-workspace.yaml
+          tools/mcp/pnpm-lock.yaml
+          tools/mcp/README.md
+        if-no-files-found: error
 
     - name: Install locked stylesheet and wiki tools
       id: style_toolchain

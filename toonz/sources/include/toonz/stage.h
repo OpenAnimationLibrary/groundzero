@@ -3,6 +3,7 @@
 #ifndef STAGE_INCLUDED
 #define STAGE_INCLUDED
 
+#include "toonz/stageunits.h"
 #include "timage.h"
 #include "trastercm.h"
 #include "tgl.h"
@@ -40,9 +41,6 @@ class QMatrix;
 
 namespace Stage {
 //=============================================================================
-
-DVVAR extern const double inch;
-DVVAR extern const double standardDpi;
 
 class Visitor;
 struct VisitArgs;

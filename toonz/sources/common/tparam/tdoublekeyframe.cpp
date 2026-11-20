@@ -7,6 +7,7 @@
 
 TDoubleKeyframe::TDoubleKeyframe(double frame, double value)
     : m_type(Linear)
+    , m_prevType(None)
     , m_frame(frame)
     , m_value(value)
     , m_step(1)

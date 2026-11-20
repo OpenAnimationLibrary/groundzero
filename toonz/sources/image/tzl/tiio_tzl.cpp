@@ -10,6 +10,8 @@
 #include "tpalette.h"
 #include "tcodec.h"
 #include <stdio.h>
+#include <cstring>
+#include <limits>
 #include "trastercm.h"
 #include "timageinfo.h"
 #include "timagecache.h"
@@ -445,6 +447,42 @@ public:
   int m_ly;
   RasType m_rasType;
 };
+
+void validateCompressedSize(TINT32 size, int lx, int ly) {
+  if (lx <= 0 || ly <= 0)
+    throw TException("Loading tlv: invalid raster dimensions.");
+  const qint64 pixels = static_cast<qint64>(lx) * ly;
+  const qint64 pixelSize = sizeof(TPixelCM32);
+  if (pixels > std::numeric_limits<TINT32>::max() / pixelSize)
+    throw TException("Loading tlv: raster size exceeds the codec limit.");
+  const qint64 rawSize = pixels * pixelSize;
+  // LZO1X may expand input by input/16 + 64 + 3, before the raster header.
+  const qint64 maxSize = rawSize + rawSize / 16 + 64 + 3 + sizeof(Header);
+  if (size <= static_cast<TINT32>(sizeof(Header)) || size > maxSize)
+    throw TException("Loading tlv: buffer size error.");
+}
+
+void validateRasterHeader(const QByteArray &compressed, int lx, int ly) {
+  Header header;
+  std::memcpy(&header, compressed.constData(), sizeof(header));
+#if !TNZ_LITTLE_ENDIAN
+  header.m_lx      = swapTINT32(header.m_lx);
+  header.m_ly      = swapTINT32(header.m_ly);
+  header.m_rasType = (Header::RasType)swapTINT32(header.m_rasType);
+#endif
+  if (header.m_lx <= 0 || header.m_ly <= 0 || header.m_lx > lx ||
+      header.m_ly > ly || header.m_rasType != Header::Raster32CM)
+    throw TException("Loading tlv: invalid compressed raster header.");
+}
+
+QByteArray readRasterPacket(FILE *chan, TINT32 size, int lx, int ly) {
+  validateCompressedSize(size, lx, ly);
+  QByteArray compressed(size, '\0');
+  if (fread(compressed.data(), 1, size, chan) != static_cast<size_t>(size))
+    throw TException("Loading tlv: truncated compressed raster.");
+  validateRasterHeader(compressed, lx, ly);
+  return compressed;
+}
 
 }  // namespace
 
@@ -1590,9 +1628,9 @@ TImageP TImageReaderTzl::load10() {
   TINT32 sbx0, sby0, sblx, sbly;
   TINT32 actualBuffSize;
   double xdpi = 1, ydpi = 1;
-  TINT32 imgBuffSize = 0;
-  UCHAR *imgBuff     = 0;
-  int frameIndex     = m_fid.getNumber();
+  QByteArray compressed;
+  UCHAR *imgBuff = nullptr;
+  int frameIndex = m_fid.getNumber();
   // int pos = ftell(chan);
   /*if(m_lrp->m_frameIndex>=m_frameIndex)
 {
@@ -1638,16 +1676,8 @@ m_lrp->m_frameIndex = m_frameIndex;*/
     reverse((char *)&ydpi, sizeof(double));
 #endif
 
-    delete[] imgBuff;
-    imgBuff = 0;
-
-    imgBuffSize = m_lx * m_ly * sizeof(TPixelCM32);
-    assert(actualBuffSize <= imgBuffSize);
-    if (actualBuffSize <= 0 || actualBuffSize > imgBuffSize)
-      throw TException("Loading tlv: buffer size error");
-
-    imgBuff = new UCHAR[imgBuffSize];
-    fread(imgBuff, actualBuffSize, 1, chan);
+    compressed = readRasterPacket(chan, actualBuffSize, m_lx, m_ly);
+    imgBuff = reinterpret_cast<UCHAR *>(compressed.data());
   }
 
   Header *header = (Header *)imgBuff;
@@ -1693,8 +1723,6 @@ m_lrp->m_frameIndex = m_frameIndex;*/
     ras = fullRas;
   }
 
-  delete[] imgBuff;
-
   // codec.decompress(m_compressedBuffer, m_compressedBufferSize, ras);
 
   // assert(0);
@@ -1705,8 +1733,6 @@ m_lrp->m_frameIndex = m_frameIndex;*/
   ti->setDpi(xdpi, ydpi);
   // m_lrp->m_level->setFrame(TFrameId(m_frameIndex+1), ti);
   ti->setPalette(m_lrp->m_level->getPalette());
-  // delete [] imgBuff;
-  // imgBuff = 0;
   return ti;
 
   // ToonzImageUtils::updateRas32(ti);
@@ -1723,8 +1749,8 @@ TImageP TImageReaderTzl::load11() {
   TINT32 sbx0, sby0, sblx, sbly;
   TINT32 actualBuffSize;
   double xdpi = 1, ydpi = 1;
-  TINT32 imgBuffSize = 0;
-  UCHAR *imgBuff     = 0;
+  QByteArray compressed;
+  UCHAR *imgBuff = nullptr;
 
   assert(!m_lrp->m_frameOffsTable.empty());
 
@@ -1762,13 +1788,8 @@ m_lrp->m_frameIndex = m_frameIndex;*/
   reverse((char *)&ydpi, sizeof(double));
 #endif
 
-  imgBuffSize = m_lx * m_ly * sizeof(TPixelCM32);
-  assert(actualBuffSize <= imgBuffSize);
-  if (actualBuffSize <= 0 || actualBuffSize > imgBuffSize)
-    throw TException("Loading tlv: buffer size error");
-
-  imgBuff = new UCHAR[imgBuffSize];
-  fread(imgBuff, actualBuffSize, 1, chan);
+  compressed = readRasterPacket(chan, actualBuffSize, m_lx, m_ly);
+  imgBuff = reinterpret_cast<UCHAR *>(compressed.data());
 
   Header *header = (Header *)imgBuff;
 
@@ -1813,8 +1834,6 @@ m_lrp->m_frameIndex = m_frameIndex;*/
     ras = fullRas;
   }
 
-  delete[] imgBuff;
-
   TToonzImageP ti(ras, savebox);
   ti->setDpi(xdpi, ydpi);
   ti->setPalette(m_lrp->m_level->getPalette());
@@ -1833,8 +1852,8 @@ TImageP TImageReaderTzl::load13() {
   TINT32 sbx0, sby0, sblx, sbly;
   TINT32 actualBuffSize;
   double xdpi = 1, ydpi = 1;
-  TINT32 imgBuffSize = 0;
-  UCHAR *imgBuff     = 0;
+  QByteArray compressed;
+  UCHAR *imgBuff = nullptr;
   TINT32 iconLx = 0, iconLy = 0;
   assert(!m_lrp->m_frameOffsTable.empty());
   assert(!m_lrp->m_iconOffsTable.empty());
@@ -1872,11 +1891,8 @@ TImageP TImageReaderTzl::load13() {
     if (iconLx <= 0 || iconLy <= 0) throw TException();
     fread(&actualBuffSize, sizeof(TINT32), 1, chan);
 
-    imgBuffSize = (iconLx * iconLy * sizeof(TPixelCM32));
-    if (actualBuffSize <= 0 || actualBuffSize > imgBuffSize)
-      throw TException("Loading tlv: icon buffer size error.");
-    imgBuff = new UCHAR[imgBuffSize];
-    fread(imgBuff, actualBuffSize, 1, chan);
+    compressed = readRasterPacket(chan, actualBuffSize, iconLx, iconLy);
+    imgBuff = reinterpret_cast<UCHAR *>(compressed.data());
 
 #if !TNZ_LITTLE_ENDIAN
     Header *header    = (Header *)imgBuff;
@@ -1889,7 +1905,6 @@ TImageP TImageReaderTzl::load13() {
     if (!codec.decompress(imgBuff, actualBuffSize, ras, m_safeMode))
       return TImageP();
     assert((TRasterCM32P)ras);
-    delete[] imgBuff;
 
 #if !TNZ_LITTLE_ENDIAN
 
@@ -1949,14 +1964,8 @@ TImageP TImageReaderTzl::load13() {
     return ti;
   }
 
-  if (actualBuffSize <= 0 ||
-      actualBuffSize > (int)(m_lx * m_ly * sizeof(TPixelCM32)))
-    throw TException("Loading tlv: buffer size error");
-
-  TRasterCM32P raux = TRasterCM32P(m_lx, m_ly);
-  raux->lock();
-  imgBuff = (UCHAR *)raux->getRawData();
-  fread(imgBuff, actualBuffSize, 1, chan);
+  compressed = readRasterPacket(chan, actualBuffSize, m_lx, m_ly);
+  imgBuff = reinterpret_cast<UCHAR *>(compressed.data());
 
   Header *header = (Header *)imgBuff;
 
@@ -2002,10 +2011,6 @@ TImageP TImageReaderTzl::load13() {
     fullRas->extractT(savebox)->copy(ras);
     ras = fullRas;
   }
-  raux->unlock();
-  raux = TRasterCM32P();
-
-  // delete [] imgBuff;
 
   // codec.decompress(m_compressedBuffer, m_compressedBufferSize, ras);
 
@@ -2017,8 +2022,6 @@ TImageP TImageReaderTzl::load13() {
   ti->setDpi(xdpi, ydpi);
   // m_lrp->m_level->setFrame(TFrameId(m_frameIndex+1), ti);
   ti->setPalette(m_lrp->m_level->getPalette());
-  // delete [] imgBuff;
-  // imgBuff = 0;
   return ti;
 
   // ToonzImageUtils::updateRas32(ti);
@@ -2061,8 +2064,8 @@ TImageP TImageReaderTzl::load14() {
   TINT32 sbx0 = 0, sby0 = 0, sblx, sbly;
   TINT32 actualBuffSize;
   double xdpi = 1, ydpi = 1;
-  // TINT32 imgBuffSize = 0;
-  UCHAR *imgBuff = 0;
+  QByteArray compressed;
+  UCHAR *imgBuff = nullptr;
   TINT32 iconLx = 0, iconLy = 0;
   assert(!m_lrp->m_frameOffsTable.empty());
   assert(!m_lrp->m_iconOffsTable.empty());
@@ -2110,15 +2113,8 @@ TImageP TImageReaderTzl::load14() {
       throw TException("Loading tlv: bad icon size.");
     fread(&actualBuffSize, sizeof(TINT32), 1, chan);
 
-    if (actualBuffSize <= 0 ||
-        actualBuffSize > (int)(iconLx * iconLy * sizeof(TPixelCM32)))
-      throw TException("Loading tlv: icon buffer size error.");
-
-    TRasterCM32P raux = TRasterCM32P(iconLx, iconLy);
-    if (!raux) return TImageP();
-    raux->lock();
-    imgBuff = (UCHAR *)raux->getRawData();  // new UCHAR[imgBuffSize];
-    fread(imgBuff, actualBuffSize, 1, chan);
+    compressed = readRasterPacket(chan, actualBuffSize, iconLx, iconLy);
+    imgBuff = reinterpret_cast<UCHAR *>(compressed.data());
 
 #if !TNZ_LITTLE_ENDIAN
     Header *header    = (Header *)imgBuff;
@@ -2132,8 +2128,6 @@ TImageP TImageReaderTzl::load14() {
     if (!codec.decompress(imgBuff, actualBuffSize, ras, m_safeMode))
       return TImageP();
     assert((TRasterCM32P)ras);
-    raux->unlock();
-    raux = TRasterCM32P();
 
 #if !TNZ_LITTLE_ENDIAN
 
@@ -2210,20 +2204,8 @@ TImageP TImageReaderTzl::load14() {
     ti->setPalette(m_lrp->m_level->getPalette());
     return ti;
   }
-  if (actualBuffSize <= 0 ||
-      actualBuffSize > (int)(m_lx * m_ly * sizeof(TPixelCM32)))
-    throw TException("Loading tlv: buffer size error");
-
-  TRasterCM32P raux = TRasterCM32P(m_lx, m_ly);
-
-  // imgBuffSize = m_lx*m_ly*sizeof(TPixelCM32);
-
-  raux->lock();
-  imgBuff = (UCHAR *)raux->getRawData();  // new UCHAR[imgBuffSize];
-  // int ret =
-
-  fread(imgBuff, actualBuffSize, 1, chan);
-  // assert(ret==1);
+  compressed = readRasterPacket(chan, actualBuffSize, m_lx, m_ly);
+  imgBuff = reinterpret_cast<UCHAR *>(compressed.data());
 
   Header *header = (Header *)imgBuff;
 
@@ -2244,8 +2226,6 @@ TImageP TImageReaderTzl::load14() {
     throw TException("Loading tlv: lx dimension error.");
   if (ras->getLy() != header->m_ly)
     throw TException("Loading tlv: ly dimension error.");
-  raux->unlock();
-  raux = TRasterCM32P();
 
 #if !TNZ_LITTLE_ENDIAN
 
@@ -2287,8 +2267,6 @@ TImageP TImageReaderTzl::load14() {
   ti->setDpi(xdpi, ydpi);
   // m_lrp->m_level->setFrame(TFrameId(m_frameIndex+1), ti);
   ti->setPalette(m_lrp->m_level->getPalette());
-  // delete [] imgBuff;
-  // imgBuff = 0;
   return ti;
 
   // ToonzImageUtils::updateRas32(ti);
@@ -2414,9 +2392,7 @@ const TImageInfo *TImageReaderTzl::getImageInfo10() const {
   TINT32 sbx0, sby0, sblx, sbly;
   TINT32 actualBuffSize;
   double xdpi = 1, ydpi = 1;
-  TINT32 imgBuffSize = 0;
-  UCHAR *imgBuff     = 0;
-  int frameIndex     = m_fid.getNumber();
+  int frameIndex = m_fid.getNumber();
 
   // int pos = ftell(chan);
   assert(m_lrp->m_frameOffsTable[TFrameId(1)].m_offs > 0);
@@ -2457,27 +2433,8 @@ const TImageInfo *TImageReaderTzl::getImageInfo10() const {
     reverse((char *)&ydpi, sizeof(double));
 #endif
 
-    delete[] imgBuff;
-    imgBuff = 0;
-
-    imgBuffSize = m_lx * m_ly * sizeof(TPixelCM32);
-    assert(actualBuffSize <= imgBuffSize);
-    if (actualBuffSize <= 0 || actualBuffSize > imgBuffSize)
-      throw TException("Loading tlv: buffer size error");
-
-    imgBuff = new UCHAR[imgBuffSize];
-    fread(imgBuff, actualBuffSize, 1, chan);
+    readRasterPacket(chan, actualBuffSize, m_lx, m_ly);
   }
-
-  Header *header = (Header *)imgBuff;
-
-#if !TNZ_LITTLE_ENDIAN
-  header->m_lx      = swapTINT32(header->m_lx);
-  header->m_ly      = swapTINT32(header->m_ly);
-  header->m_rasType = (Header::RasType)swapTINT32(header->m_rasType);
-#endif
-
-  delete[] imgBuff;
 
   static TImageInfo info;
   info.m_x0   = sbx0;

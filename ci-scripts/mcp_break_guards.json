@@ -1,0 +1,1723 @@
+[
+ {
+  "id": "model-linear-direction",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        return first.value + (last.value - first.value) * fraction",
+  "replace": "        return first.value + (last.value - first.value) * (1 - fraction)",
+  "why": "A linear segment must run from the first key's value to the second's.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-constant-segment",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "    if first.interpolation == \"constant\":\n        return first.value",
+  "replace": "    if first.interpolation == \"constant\":\n        return last.value",
+  "why": "A constant segment holds the first key's value until the next key.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-step-hold",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "    if first.step > 1:",
+  "replace": "    if False:",
+  "why": "A step above 1 holds the value for that many frames.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-opacity-rounding",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    return math.floor(value * OPACITY_LEVELS + 0.5)",
+  "replace": "    return math.floor(value * OPACITY_LEVELS)",
+  "why": "A column's opacity is stored in 8 bits, rounding half up.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-reopen-trailing-columns",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    while scene.columns and not scene.columns[-1].cells:",
+  "replace": "    while False:",
+  "why": "A save drops the columns at the end of the sheet that hold no cell.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-occupied-refusal",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    if not step[\"overwrite\"] and any(frame in column.cells for frame in frames):\n        return \"occupied_cells\"",
+  "replace": "    if False and any(frame in column.cells for frame in frames):\n        return \"occupied_cells\"",
+  "why": "An exposure onto occupied cells without overwrite is refused.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-locked-expose",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    if column.locked:\n        return \"locked\"\n    if not step[\"overwrite\"]",
+  "replace": "    if False:\n        return \"locked\"\n    if not step[\"overwrite\"]",
+  "why": "A locked column refuses an exposure.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "model-empty-level-save",
+  "file": "ci-scripts/mcp_property_model.py",
+  "find": "    if any(not drawings for drawings in scene.levels.values()):\n        return \"empty_level\"",
+  "replace": "    if False:\n        return \"empty_level\"",
+  "why": "A scene with a level that has no drawing cannot be saved.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "compare-tolerance",
+  "file": "ci-scripts/mcp_property_cases.py",
+  "find": "TOLERANCE = 1e-9",
+  "replace": "TOLERANCE = 1e9",
+  "why": "Observations of the worker and the model must agree to a tiny tolerance.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   }
+  ]
+ },
+ {
+  "id": "compare-boolean-is-not-a-number",
+  "file": "ci-scripts/mcp_property_cases.py",
+  "find": "(item, int | float) and not isinstance(item, bool)",
+  "replace": "(item, int | float)",
+  "why": "A boolean never equals a number in a comparison.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_model.py"
+   }
+  ]
+ },
+ {
+  "id": "known-stale-entry",
+  "file": "ci-scripts/mcp_known_violations.py",
+  "find": "    if observed in acceptable:\n        case.fail(",
+  "replace": "    if False:\n        case.fail(",
+  "why": "An entry whose defect is fixed must fail the suite until it is deleted.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_known_violations.py"
+   }
+  ]
+ },
+ {
+  "id": "known-new-defect",
+  "file": "ci-scripts/mcp_known_violations.py",
+  "find": "    if observed not in violation.answers:",
+  "replace": "    if False:",
+  "why": "An answer that is neither expected nor recorded is a new defect.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_known_violations.py"
+   }
+  ]
+ },
+ {
+  "id": "w2-expected-rows",
+  "file": "ci-scripts/mcp_w2_cases.py",
+  "find": "        for frame in range(first, first + held):",
+  "replace": "        for frame in range(first, first + held + 1):",
+  "why": "The exposure test's hand-written expectation must match the rows it exposes.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "exposure_on_twos_with_blanks_keeps_every_row_through_save_and_reopen"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "native-camera-megapixel-limit",
+  "file": "toonz/sources/toonz/automation_scene.cpp",
+  "find": "  if (qint64(settings.width) * settings.height > MaxPixels)",
+  "replace": "  if (qint64(settings.width) * settings.height > MaxPixels * 1000)",
+  "why": "The camera is refused above 16 megapixels.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "sixteen_megapixel_cameras_are_the_limit_for_every_setting_tool"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-occupied-cells",
+  "file": "toonz/sources/toonz/automation_cells.cpp",
+  "find": "    if (!overwrite && !existing.isEmpty())",
+  "replace": "    if (false && !overwrite && !existing.isEmpty())",
+  "why": "column.expose refuses occupied cells unless overwrite is set.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-locked-target",
+  "file": "toonz/sources/toonz/automation_scene_shared.cpp",
+  "find": "  if (locked) throw Error(\"locked\", \"Unlock the target before modifying it.\");",
+  "replace": "  if (false) throw Error(\"locked\", \"Unlock the target before modifying it.\");",
+  "why": "A locked column refuses an edit.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-empty-level-save",
+  "file": "toonz/sources/toonz/automation_persistence.cpp",
+  "find": "    if (level->getFrameCount() == 0)\n      throw Error(\"empty_level\",",
+  "replace": "    if (false)\n      throw Error(\"empty_level\",",
+  "why": "A level without drawings cannot be saved.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_sequences_match_the_independent_model"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "lifecycle-missing-cell",
+  "file": "ci-scripts/mcp_lifecycle.py",
+  "find": "        if operation not in cells:",
+  "replace": "        if False:",
+  "why": "A family without a cell for an operation fails the check.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_lifecycle.py"
+   }
+  ]
+ },
+ {
+  "id": "lifecycle-write-coverage",
+  "file": "ci-scripts/mcp_lifecycle.py",
+  "find": "        if entry[\"writes\"] and tool not in placed and tool not in grid[\"outside\"]:",
+  "replace": "        if False:",
+  "why": "A write tool that is in no cell fails the check.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_lifecycle.py"
+   }
+  ]
+ },
+ {
+  "id": "lifecycle-planned-outcome",
+  "file": "ci-scripts/mcp_lifecycle.py",
+  "find": "    if outcome[\"disposition\"][\"kind\"] != \"planned\":",
+  "replace": "    if False:",
+  "why": "A planned cell must name an outcome that is planned in the census.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_lifecycle.py"
+   }
+  ]
+ },
+ {
+  "id": "lifecycle-evidence-tie",
+  "file": "ci-scripts/mcp_lifecycle.py",
+  "find": "    if own and not any(tool in text for tool in own):",
+  "replace": "    if False:",
+  "why": "Evidence must name one of the family's own tools.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_lifecycle.py"
+   }
+  ]
+ },
+ {
+  "id": "lifecycle-data-tool",
+  "file": "ci-scripts/mcp_lifecycle.json",
+  "find": "\"scene.discard\"",
+  "replace": "\"scene.discardx\"",
+  "why": "The committed grid must name tools the census has.",
+  "tests": [
+   {
+    "kind": "static",
+    "script": "mcp_lifecycle"
+   }
+  ]
+ },
+ {
+  "id": "corpus-alpha-tolerance",
+  "file": "ci-scripts/mcp_native_oracle.py",
+  "find": "    if difference.max_alpha > policy.alpha:",
+  "replace": "    if False:",
+  "why": "Alpha must match unless the policy states an alpha tolerance.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-color-tolerance",
+  "file": "ci-scripts/mcp_native_oracle.py",
+  "find": "    if difference.max_color > policy.color:",
+  "replace": "    if False:",
+  "why": "Color must match within the stated tolerance.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-changed-baseline",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "        elif actual[frame] != baseline[\"files\"][frame]:",
+  "replace": "        elif False:",
+  "why": "A baseline that differs from the manifest fails.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-replaced-set",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "    if last[\"baseline_set_sha256\"] != baseline_set(manifest):",
+  "replace": "    if False:",
+  "why": "Baselines without a matching history entry fail.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-stale-baseline",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "    if baseline[\"rendered_from\"] != scene[\"scene_sha256\"]:",
+  "replace": "    if False:",
+  "why": "Changed scene files need regenerated baselines.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-regeneration-reason",
+  "file": "ci-scripts/mcp_corpus_build.py",
+  "find": "    if len(reason.strip()) < MINIMUM_REASON:",
+  "replace": "    if False:",
+  "why": "A regeneration needs a reason.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-missing-reference",
+  "file": "ci-scripts/mcp_native_oracle.py",
+  "find": "        raise OracleError(f\"cannot read the image {path}: {error}\") from error",
+  "replace": "        return 0, 0, []",
+  "why": "A missing reference image is an error.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "native-snapshot-removed-at-job-end",
+  "file": "toonz/sources/toonz/automation_render.cpp",
+  "find": "  void removeSnapshotFiles() {\n#ifdef BUILD_UI_PORT_TESTS",
+  "replace": "  void removeSnapshotFiles() {\n    return;\n#ifdef BUILD_UI_PORT_TESTS",
+  "why": "A job removes its snapshot's scene and artwork when it ends.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "a_discarded_draft_keeps_its_job_alive_and_loses_its_private_copies"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-cast-lists-each-level-once",
+  "file": "toonz/sources/toonz/automation_context.cpp",
+  "find": "    if (seen.contains(level)) continue;",
+  "replace": "    if (false && seen.contains(level)) continue;",
+  "why": "The read tools list each level of a cast once.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "repeated_level_names_in_a_read_only_scene_stay_separate_levels"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "native-names-are-bounded-in-every-schema",
+  "file": "toonz/sources/toonz/automation_context.cpp",
+  "find": "{\"maxLength\", maxCharacters},",
+  "replace": "{\"maxLength\", maxCharacters * 1000},",
+  "why": "The name schema states its length bound.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "names_beyond_the_length_limit_are_refused_by_the_schema"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "model-cycle-drift",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        drift = (keys[-1].value - keys[0].value) * repeats",
+  "replace": "        drift = 0.0",
+  "why": "A cyclic curve repeats its span shifted by the last value minus the first, once per repeat.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-ease-ramp-in",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        travelled = peak * elapsed * elapsed / (2 * out)",
+  "replace": "        travelled = peak * elapsed",
+  "why": "An ease segment starts with a speed that ramps up over the outgoing ease length.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-step-holds-frames",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        held = first.frame + first.step * math.floor((frame - first.frame) / first.step)",
+  "replace": "        held = frame",
+  "why": "A segment with a step above one holds its value between steps.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-move-keys-order",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "            reason = \"key_exists\" if key.frame == moved[-1].frame else \"order_changed\"",
+  "replace": "            reason = \"order_changed\"",
+  "why": "A move onto another key's frame is refused as key_exists, past it as order_changed.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-duplicate-incoming-kind",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "    if any(after[frame + frame_offset] != before[frame] for frame in frames):\n        return \"invalid_argument/incoming_kind_changed\", keys\n",
+  "replace": "",
+  "why": "A duplicated key must keep the kind of segment that arrives at it.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "model-swing-no-repeat",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "\"swing\": lambda segment, op: segment + segment[-2::-1],",
+  "replace": "\"swing\": lambda segment, op: segment + segment[::-1],",
+  "why": "A swing goes back without repeating the last row.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-roll-direction",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "\"roll_up\": lambda segment, op: segment[1:] + segment[:1],",
+  "replace": "\"roll_up\": lambda segment, op: segment[-1:] + segment[:-1],",
+  "why": "Roll up moves the first row to the end.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-each-first-row",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    return segment[::factor]",
+  "replace": "    return segment[factor - 1 :: factor]",
+  "why": "Each n keeps rows 0, n, 2n.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-decrease-step-minimum",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "max(1, size - 1)",
+  "replace": "size - 1",
+  "why": "A hold never gets shorter than one row.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-remove-closes-gap",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    return trimmed(rows[:start] + rows[start + length :])",
+  "replace": "    return trimmed(rows[:start] + [None] * length + rows[start + length :])",
+  "why": "Removing rows moves the later rows up.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-insert-past-end",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    if start >= len(rows):\n        return rows\n",
+  "replace": "",
+  "why": "Inserting after the last cell changes nothing.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-retime-follows-length",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    return trimmed(rows[:start] + segment + rows[start + length :])",
+  "replace": "    return trimmed(rows[:start] + segment + rows[start + len(segment) :])",
+  "why": "Rows after a retimed interval move with its new length.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-extend-over-hold",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    while last is not None and end < len(rows) and rows[end] == last:",
+  "replace": "    while False:",
+  "why": "With extend_over_hold the interval grows over the rest of its last hold.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-reframe-blank-interval",
+  "file": "ci-scripts/mcp_property_cells.py",
+  "find": "    if not segment:\n        return trimmed(rows)\n",
+  "replace": "",
+  "why": "A reframe that drops blanks leaves an interval holding only blanks as it is.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_cells.py"
+   }
+  ]
+ },
+ {
+  "id": "model-generator-cubic-frame-axis",
+  "file": "ci-scripts/mcp_property_curves.py",
+  "find": "        if 3 * (far - near) == span:\n            far += 1 if far < span else -1\n",
+  "replace": "",
+  "why": "Generated speed segments keep the cubic term of the frame axis, so their samples are compared.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_curves.py"
+   }
+  ]
+ },
+ {
+  "id": "native-refused-cell-write-is-an-error",
+  "file": "toonz/sources/toonz/automation_cells.cpp",
+  "find": "      if (!applyNative(sheet, index, op,",
+  "replace": "      if (false && !applyNative(sheet, index, op,",
+  "why": "A native cell write that refuses is reported as an error, not as success.",
+  "native": true,
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "a_refused_first_cell_write_is_a_rejection_that_changes_nothing",
+     "a_cell_write_refused_after_another_landed_says_what_landed"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "native-first-refusal-is-a-rejection",
+  "file": "toonz/sources/toonz/automation_cells.cpp",
+  "find": "        if (landed.isEmpty() && !startedBefore) context.resetMutationStarted();\n",
+  "replace": "",
+  "why": "A cell write refused before any write landed is a rejection that leaves the revision alone.",
+  "native": true,
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "a_refused_first_cell_write_is_a_rejection_that_changes_nothing"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "native-project-reread-compares-defaults",
+  "file": "toonz/sources/toonz/automation_projects.cpp",
+  "find": "  return near(reread, \"frame_rate\", defaults.frameRate) &&\n         reread",
+  "replace": "  return reread",
+  "why": "A project is published only when its staged definition reads back as requested.",
+  "native": true,
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "project_create_refuses_a_definition_that_rereads_differently"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "rig-column-move-position",
+  "file": "ci-scripts/mcp_property_objects.py",
+  "find": "index < before",
+  "replace": "index <= before",
+  "why": "A moved block goes before a position of the original order.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "rig-world-shift-sign",
+  "file": "ci-scripts/mcp_property_objects.py",
+  "find": "shift = [a - b for a, b in zip(shift, origin(scene, member), strict=True)]",
+  "replace": "shift = [a + b for a, b in zip(shift, origin(scene, member), strict=True)]",
+  "why": "Keeping the world placement subtracts the new parent's chain and adds the old one's.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "rig-world-animated-branch",
+  "file": "ci-scripts/mcp_property_objects.py",
+  "find": "if len(scene.curves.get((member, channel), {})) > 1:",
+  "replace": "if len(scene.curves.get((member, channel), {})) > 2:",
+  "why": "A parent branch that moves over time cannot keep the world placement exactly.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "rig-group-whole-groups",
+  "file": "ci-scripts/mcp_property_objects.py",
+  "find": "        if any(member not in chosen for member in shown):\n            return \"invalid_params\"\n",
+  "replace": "",
+  "why": "An object shown in a group is grouped again only with the whole group.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "rig-ungroup-outermost",
+  "file": "ci-scripts/mcp_property_objects.py",
+  "find": "    if any(scene.stacks[name][-1] != group for name in inside):\n        return \"invalid_params\"\n",
+  "replace": "",
+  "why": "Only an outermost group is dissolved.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "rig-delete-reattaches-children",
+  "file": "ci-scripts/mcp_property_objects.py",
+  "find": "        scene.parents[child] = parent\n",
+  "replace": "        scene.parents[child] = None\n",
+  "why": "Children of a deleted object move to its parent.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "rig-duplicate-independent-keys",
+  "file": "ci-scripts/mcp_property_objects.py",
+  "find": "frame: dataclasses.replace(key) for frame, key in keys.items()",
+  "replace": "frame: key for frame, key in keys.items()",
+  "why": "A copied object's curves are independent of the source's.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "camera-replacement-is-not-itself",
+  "file": "ci-scripts/mcp_property_cameras.py",
+  "find": "if role not in held or replacement[role] == camera.name:",
+  "replace": "if role not in held:",
+  "why": "A camera cannot replace itself.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "camera-last-is-kept",
+  "file": "ci-scripts/mcp_property_cameras.py",
+  "find": "if len(scene.cameras) <= 1:",
+  "replace": "if len(scene.cameras) <= 0:",
+  "why": "A sheet keeps at least one camera.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "camera-reserved-name",
+  "file": "ci-scripts/mcp_property_cameras.py",
+  "find": "if RESERVED.match(name):",
+  "replace": "if False:",
+  "why": "Camera<digits> names follow camera numbers.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "output-sync-is-preview-only",
+  "file": "ci-scripts/mcp_property_output.py",
+  "find": "if \"sync\" in step and \"preview\" not in step[\"apply_to\"]:",
+  "replace": "if False:",
+  "why": "sync_color_settings belongs to the preview block.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "output-none-keeps-ratio",
+  "file": "ci-scripts/mcp_property_output.py",
+  "find": "if aspect[\"mode\"] != \"none\":",
+  "replace": "if True:",
+  "why": "An aspect export of none keeps the stored ratio and color.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "output-effective-range",
+  "file": "ci-scripts/mcp_property_output.py",
+  "find": "min(ranged[\"end_frame\"], frames - 1)",
+  "replace": "ranged[\"end_frame\"]",
+  "why": "A range is cut to the scene's length.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_rig.py"
+   }
+  ]
+ },
+ {
+  "id": "native-reopen-keeps-project-binding",
+  "file": "toonz/sources/toonz/automation_persistence.cpp",
+  "find": "  document.project      = project;\n",
+  "replace": "",
+  "why": "A package of a bound draft reopens bound to the same project.",
+  "native": true,
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "a_bound_draft_keeps_its_project_through_a_package"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "job-discard-refuses-running",
+  "file": "toonz/sources/toonz/automation_jobs.cpp",
+  "native": true,
+  "find": "  if (!job->terminal())\n    throw Error(\"in_use\",",
+  "replace": "  if (false)\n    throw Error(\"in_use\",",
+  "why": "job.discard never touches a running job; it is refused with in_use and job.cancel as the next call.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "job_discard_refuses_a_running_job",
+     "native_domain_regressions"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "job-discard-frees-the-slot",
+  "file": "toonz/sources/toonz/automation_jobs.cpp",
+  "native": true,
+  "find": "                                return job->id() == id;",
+  "replace": "                                return false;",
+  "why": "A discarded job leaves the registry, so its lane admits a new job.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "job_retention_limit_names_jobs_to_release",
+     "native_domain_regressions"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "job-discard-hidden-after-restart",
+  "file": "toonz/sources/toonz/automation_jobs.cpp",
+  "native": true,
+  "find": "    if (!id.startsWith(own) && !discardedRecord(stored))",
+  "replace": "    if (!id.startsWith(own))",
+  "why": "A discarded job is not listed again by a later worker of the workspace.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "job_discard_survives_restart"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "job-discard-removes-render-files",
+  "file": "toonz/sources/toonz/automation_render.cpp",
+  "native": true,
+  "find": "    return removeJobDirectory(directory);",
+  "replace": "    return 0;",
+  "why": "A discarded render's private directory, artifacts and claim are removed and their bytes reported.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "job_discard_releases_a_completed_render"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "receipts-never-drop-unjournaled",
+  "file": "toonz/sources/toonz/automation_dispatch.cpp",
+  "native": true,
+  "find": "  if (receipt.durable) m_droppable.push_back(operationId);",
+  "replace": "  m_droppable.push_back(operationId);",
+  "why": "An in-memory receipt the journal does not hold is never dropped; without a journal the receipt limit refuses with its reason.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "native_domain_regressions"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-subset-label",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "complete = bool(cells) and counts[\"not_tested\"] == 0 and stale == 0",
+  "replace": "complete = bool(cells)",
+  "why": "A platform is complete only when every cell ran and came from its latest run.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-tolerance-cap",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "        if tolerance[name] > cap:",
+  "replace": "        if False:",
+  "why": "A tolerance above the format's cap could hide a driver or codec difference.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-pass-within-tolerance",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "observed.get(name, float(\"inf\")) > tolerance[name]",
+  "replace": "observed.get(name, float(\"inf\")) > 1e18",
+  "why": "A passed cell's observed difference must be inside its own tolerance.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-missing-cell",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "for key in sorted(wanted - set(present))",
+  "replace": "for key in sorted(set())",
+  "why": "A type, format or platform without a cell is reported, never silently missing.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-negative-test-required",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "for tool in sorted(lacking - set(listed))",
+  "replace": "for tool in []",
+  "why": "A released tool without a negative test must be written or listed.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-stale-gap",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "for tool in sorted(set(listed) & (tools - lacking))",
+  "replace": "for tool in []",
+  "why": "A listed gap that now has a negative test must be deleted.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-document-current",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "if path.read_text(encoding=\"utf-8\") != expected:",
+  "replace": "if False:",
+  "why": "The stored document must equal the generated one.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-negative-call-counts",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "NEGATIVE_CALL.search(_call_name(node.func))",
+  "replace": "NEGATIVE_CALL.search('failure')",
+  "why": "Only a call that expects a refusal is a negative test: a success call must not count.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-movie-reference",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "png.get(\"reference\") != cell.get(\"reference\")",
+  "replace": "False",
+  "why": "A movie cell must have been compared with the PNG render recorded for the type.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-png-exact",
+  "file": "ci-scripts/mcp_fx_matrix_cases.py",
+  "find": "observed[\"differing_pixels\"] = max(observed[\"differing_pixels\"], 1)",
+  "replace": "pass",
+  "why": "A PNG whose pixels differ from the stored reference fails.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-cell-fails-outside-tolerance",
+  "file": "ci-scripts/mcp_fx_matrix_cases.py",
+  "find": "over = [name for name in limits if observed[name] > limits[name]]",
+  "replace": "over = []",
+  "why": "A measurement outside its tolerance makes the cell failed.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-no-media-is-unavailable",
+  "file": "ci-scripts/mcp_fx_matrix_cases.py",
+  "find": "return {\"status\": \"unavailable\", \"reason\": measured[\"skipped\"]}",
+  "replace": "return {\"status\": \"passed\"}",
+  "why": "A run without media tools must not pass a movie cell.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-movie-decode-exact",
+  "file": "ci-scripts/mcp_fx_matrix_cases.py",
+  "find": "measured[\"decoded_digest\"] != references[\"decoded\"]",
+  "replace": "False",
+  "why": "A movie whose decoded bytes differ from the stored decode fails.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-movie-blind-is-unverified",
+  "file": "ci-scripts/mcp_fx_matrix_cases.py",
+  "find": "tolerance[\"block_error\"] >= near[\"nearest_other_block_error\"]",
+  "replace": "False",
+  "why": "A movie tolerance that cannot tell the picture from another type's must not pass.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-block-metric",
+  "file": "ci-scripts/mcp_fx_matrix_cases.py",
+  "find": "\"block_error\": round(max(block_errors(expected, decoded, size)), 3),",
+  "replace": "\"block_error\": 0.0,",
+  "why": "The movie is scored by its worst block, so a small wrong region is seen.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-tolerance-margin",
+  "file": "ci-scripts/mcp_fx_matrix_cases.py",
+  "find": "return float(math.ceil(value * MARGIN) + 1)",
+  "replace": "return 1000.0",
+  "why": "A movie cell states a tolerance from its observed error with a margin, not a broad one.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-passed-separates",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "blind = cell[\"tolerance\"][\"block_error\"] >= near",
+  "replace": "blind = False",
+  "why": "A passed movie cell's tolerance must be smaller than the distance to another picture.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "fx-matrix-unverified-is-run",
+  "file": "ci-scripts/mcp_fx_matrix.py",
+  "find": "stale = sum(1 for cell in cells if cell[\"status\"] in MEASURED and cell[\"run\"] != latest)",
+  "replace": "stale = 0",
+  "why": "Cells from an older run make the platform incomplete.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_fx_matrix.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-probe-value",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "    if tuple(probe[\"rgba\"]) != here[0]:",
+  "replace": "    if False:",
+  "why": "A pixel the construction says must hold a value must hold it in the baseline.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-probe-animation",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "        if gap < probe[\"min_difference\"]:",
+  "replace": "        if False:",
+  "why": "An effect that must change a pixel between two frames must.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-coverage-kinds",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "        if kind not in kinds",
+  "replace": "        if False",
+  "why": "The baselines must show a vector, a Toonz raster and a PNG column and an effect.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-coverage-effect-types",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "    if len(types) < MINIMUM_EFFECT_TYPES:",
+  "replace": "    if False:",
+  "why": "The corpus must carry several effect types.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-coverage-animated",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "    if not animated:",
+  "replace": "    if False:",
+  "why": "Some probe must show an effect changing a pixel between frames.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-effects-declared",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "    if declared != scene_effects(root, name):",
+  "replace": "    if False:",
+  "why": "A scene's declared effects must be the ones its file holds.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "corpus-comparison-case-exists",
+  "file": "ci-scripts/mcp_corpus_compare.py",
+  "find": "                if f\"def {case}(\" not in cases",
+  "replace": "                if False",
+  "why": "A comparison said to be made must name a case that exists.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_corpus.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-failed-runs-excluded",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "if trial.outcome == OK]",
+  "replace": "if True]",
+  "why": "Failed, canceled and timed-out trials never enter a speed figure.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-no-pooling",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "    if len(keys) != 1:",
+  "replace": "    if False:",
+  "why": "Cold and warm, or baseline and candidate, trials are never pooled.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-noise-band",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "band = max(NOISE_FACTOR * max(base.noise, cand.noise), RESOLUTION_SECONDS)",
+  "replace": "band = 0.0",
+  "why": "A difference inside the noise is not reported as one.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-minimum-trials",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "    if min(base.counted, cand.counted) < MINIMUM_TRIALS:",
+  "replace": "    if False:",
+  "why": "Too few finished trials make a comparison invalid.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-host-differs",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "        if baseline.get(key) != candidate.get(key)",
+  "replace": "        if False",
+  "why": "Runs on different hardware cannot be compared.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-fixtures-differ",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "    if baseline[\"fixtures\"] != candidate[\"fixtures\"]:",
+  "replace": "    if False:",
+  "why": "Runs on different fixtures cannot be compared.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-cold-warm",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "    if temperatures[0] != temperatures[1]:",
+  "replace": "    if False:",
+  "why": "A cold run is never compared with a warm one.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-simultaneous-peak",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "simultaneous = max(simultaneous, sum(entry[\"rss\"] for entry in instant))",
+  "replace": "simultaneous = max(simultaneous, 0)",
+  "why": "The simultaneous tree peak is the largest sum seen at one instant.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-sum-of-peaks-labelled",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "\"sum_of_individual_peaks_bytes\": sum(peaks.values()),",
+  "replace": "\"sum_of_individual_peaks_bytes\": simultaneous,",
+  "why": "The sum of every process's own peak is kept apart from the simultaneous peak.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-budget-not-in-force",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "\"agreed\": False,",
+  "replace": "\"agreed\": True,",
+  "why": "A proposed budget is never in force until the owner agrees.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-budget-over-detected",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "\"over budget\" if summary.median > seconds else \"within budget\"",
+  "replace": "\"within budget\"",
+  "why": "A median over an advisory budget is reported.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "perf-budget-not-gate",
+  "file": "ci-scripts/mcp_perf_stats.py",
+  "find": "\"advisory\": True,",
+  "replace": "\"advisory\": False,",
+  "why": "A budget is advisory: it is labelled so in every report.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_perf_stats.py"
+   }
+  ]
+ },
+ {
+  "id": "shot-oracle-landmarks",
+  "file": "ci-scripts/mcp_shot.py",
+  "find": "        actual = pixels[y * width + x]\n        require(actual == expected,",
+  "replace": "        actual = pixels[y * width + x]\n        require(True or actual == expected,",
+  "why": "The oracle checks the authored landmarks, so a sky drawn over the harbor fails.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "shot_that_renders_wrongly_fails_the_independent_oracle"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "shot-oracle-courier",
+  "file": "ci-scripts/mcp_shot.py",
+  "find": "require(core == INK,",
+  "replace": "require(True or core == INK,",
+  "why": "The oracle checks where the courier is, so a dropped or misplaced courier fails.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "shot_that_renders_wrongly_fails_the_independent_oracle"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "shot-oracle-gradient",
+  "file": "ci-scripts/mcp_shot.py",
+  "find": "require(lower[1] >= upper[1] + 4, f\"Frame {frame} sky lost its top-to-bottom gradient\")",
+  "replace": "require(True, \"\")",
+  "why": "The oracle checks the sky's direction, so an upside-down sky fails.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "shot_that_renders_wrongly_fails_the_independent_oracle"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "shot-refusal-leaves-draft",
+  "file": "ci-scripts/mcp_shot_failure_cases.py",
+  "find": "    response = shot.worker.call(method, request)\n",
+  "replace": "    response = shot.worker.call(method, request)\n    if document is not None:\n        sneaky = {\"document_id\": document, \"expected_revision\": shot.revisions[document]}\n        shot.worker.call(\"scene.settings\", {**sneaky, \"operation_id\": f\"s-{shot.operations}\", \"frame_rate\": 31})\n",
+  "why": "A refused edit that changed the draft is noticed.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "shot_edit_failures_end_typed_and_change_nothing"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "fx-key-speed-handle-bound",
+  "file": "toonz/sources/toonz/automation_fx_profile.cpp",
+  "find": "    if (key.m_type != TDoubleKeyframe::SpeedInOut || index + 1 == count)\n      continue;",
+  "replace": "    if (true || key.m_type != TDoubleKeyframe::SpeedInOut || index + 1 == count)\n      continue;",
+  "native": true,
+  "why": "A speed segment stays in bounds only when both handle points do; without the check a curve can leave the admitted range between keys.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "native_domain_regressions",
+     "fx_rich_keys_per_channel",
+     "generated_effect_key_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "fx-key-curve-lock",
+  "file": "toonz/sources/toonz/automation_fx.cpp",
+  "find": "  if (!channel.curve->isEditorLocked()) return;",
+  "replace": "  if (true || !channel.curve->isEditorLocked()) return;",
+  "native": true,
+  "why": "Every animation key write to an effect curve the editor locked is refused with curve_locked before any change.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "native_domain_regressions"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "fx-key-linked-members-reported",
+  "file": "toonz/sources/toonz/automation_scene.cpp",
+  "find": "  if (isFx(target)) automationAddFxAffected(document, target.fx.fx, result);",
+  "replace": "  if (false && isFx(target)) automationAddFxAffected(document, target.fx.fx, result);",
+  "native": true,
+  "why": "A key write to one linked effect changes every member, and its result must say so.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "fx_key_writes_through_links_and_refusals"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "fx-key-model-handle-bound",
+  "file": "ci-scripts/mcp_property_effects.py",
+  "find": "        if first.interpolation == \"speed_in_out\" and first.outgoing is not None:",
+  "replace": "        if False and first.interpolation == \"speed_in_out\" and first.outgoing is not None:",
+  "why": "The independent model must refuse a speed handle outside the bounds, or it agrees with a worker that admits one.",
+  "tests": [
+   {
+    "kind": "unit",
+    "pattern": "test_mcp_property_effects.py"
+   },
+   {
+    "kind": "acceptance",
+    "names": [
+     "generated_effect_key_sequences_match_the_independent_model"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "fx-graph-linked-parameters-constraint",
+  "file": "toonz/sources/toonz/automation_fx.cpp",
+  "find": "  if (linked.isObject())\n    add(\"linked_parameters\"",
+  "replace": "  if (false && linked.isObject())\n    add(\"linked_parameters\"",
+  "native": true,
+  "why": "fx.graph tells a caller that a parameter write to a linked effect is a write to its whole group.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "fx_linked_edit_reports_every_member"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "fx-delta-sub-sheet-refused",
+  "file": "toonz/sources/toonz/automation_fx_journal.cpp",
+  "find": "  resolveSheetPath(document, path);\n  throw Error(\"delta_unavailable\",",
+  "replace": "  resolveSheetPath(document, path);\n  if (false) throw Error(\"delta_unavailable\",",
+  "native": true,
+  "why": "The journal tracks the top sheet only; a delta for a sub-sheet would claim tracking it does not have.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "read_only_inventory_tells_instances_from_definitions"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "fx-parameter-get-linked-constraint",
+  "file": "toonz/sources/toonz/automation_fx.cpp",
+  "find": "  if (linked.isObject())\n    return QJsonObject{{\"kind\", \"linked_parameters\"},",
+  "replace": "  if (false && linked.isObject())\n    return QJsonObject{{\"kind\", \"linked_parameters\"},",
+  "native": true,
+  "why": "fx.parameter.get says that a write to a linked effect's parameter changes every member of its group.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "fx_parameter_descriptors_separate_defaults_bounds_and_units"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "delivery-discarded-job",
+  "file": "toonz/sources/toonz/automation_jobs.cpp",
+  "find": "  answeredWithoutRegistry(context, \"job.result\", id);\n",
+  "replace": "",
+  "why": "A job released by job.discard is refused for publication as job_discarded.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "delivery_refuses_jobs_it_cannot_publish"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "delivery-checks-before-write",
+  "file": "toonz/sources/toonz/automation_delivery.cpp",
+  "find": "  if (name.isNull()) return;\n",
+  "replace": "  return;\n",
+  "why": "A publication refuses on the first failed check before anything is written.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "delivery_to_other_volumes",
+     "delivery_paths_hold_the_output_root_boundary"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "delivery-staging-manifest-name",
+  "file": "toonz/sources/toonz/automation_journal.cpp",
+  "find": "stage.value(\"manifest_name\").toString(\"manifest.json\")",
+  "replace": "QString(\"manifest.json\")",
+  "why": "Recovery removes an abandoned delivery container by the files its own manifest names.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "delivery_interrupted_publication_is_recovered"
+    ]
+   }
+  ],
+  "native": true
+ },
+ {
+  "id": "delivery-progress-count",
+  "file": "toonz/sources/toonz/automation_delivery.cpp",
+  "find": "  error.details.insert(\"files_copied\", copied);\n",
+  "replace": "  error.details.insert(\"files_copied\", 0);\n",
+  "why": "A failed publication reports how many files of the plan it had copied.",
+  "tests": [
+   {
+    "kind": "acceptance",
+    "names": [
+     "delivery_failures_report_file_by_file_and_leave_nothing"
+    ]
+   }
+  ],
+  "native": true
+ }
+]

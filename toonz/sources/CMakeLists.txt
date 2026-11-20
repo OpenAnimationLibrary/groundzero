@@ -243,7 +243,6 @@ elseif(BUILD_ENV_APPLE)
 
     add_definitions(
         -DMACOSX
-        -Di386
         -D__MACOS__
       )
     if(PLATFORM EQUAL 64)
@@ -1022,6 +1021,10 @@ endif()
 if(BUILD_RELIABILITY_TESTS)
     # Declare consumers outside tnzcore's directory so they do not inherit
     # its DLL export definitions on Windows.
+    if(BUILD_ENV_APPLE)
+        add_executable(macoschannelorder_test tnzcore/tests/macoschannelorder_test.cpp)
+        add_test(NAME macoschannelorder COMMAND macoschannelorder_test)
+    endif()
     add_executable(rasterallocation_test tnzcore/tests/rasterallocation_test.cpp)
     target_link_libraries(rasterallocation_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME rasterallocation COMMAND rasterallocation_test)

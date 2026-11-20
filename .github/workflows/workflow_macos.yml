@@ -3,6 +3,10 @@ name: MacOS Build
 on:
   workflow_dispatch:
     inputs:
+      baseline_only:
+        description: Run the build and core application checks without extended qualification
+        type: boolean
+        default: true
       benchmark_bundle:
         description: Prepare an immutable scene benchmark bundle after validation
         type: boolean
@@ -109,7 +113,17 @@ jobs:
           python3 -m unittest discover -s ci-scripts/tests -p test_windows_process.py -v
 
       - name: Verify early harness failure reporting
-        run: python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ci-scripts/tests -p test_harness_reporting.py -v
+          python3 ci-scripts/run_harness_tests.py --pattern test_mcp_stage_media.py \
+            --report mcp-media-staging-contracts.txt
+
+      - name: Verify macOS dependency deployment contracts
+        run: |
+          set -euo pipefail
+          python3 ci-scripts/run_harness_tests.py --pattern test_macos_bundle.py \
+            --report macos-bundle-contracts.txt
 
       - name: Select SeExpr parser tools
         run: |
@@ -161,6 +175,17 @@ jobs:
             -DBUILD_SEEXPR_PYTHON=ON \
             -DPython3_EXECUTABLE="$(command -v python)" 2>&1 | tee "$GITHUB_WORKSPACE/build.log"
           ninja -j "$(sysctl -n hw.ncpu)" 2>&1 | tee -a "$GITHUB_WORKSPACE/build.log"
+      - name: Test native MCP path authority before deployment
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          evidence="$GITHUB_WORKSPACE/toonz/build/mcp-acceptance"
+          mkdir -p "$evidence"
+          ctest --test-dir toonz/build --output-on-failure --no-tests=error \
+            --output-junit "$evidence/path-authority.xml" -R '^mcp_path_authority$' \
+            2>&1 | tee "$evidence/path-authority.txt"
+
       - name: Preserve compiled objects
         if: ${{ always() && steps.compiler_cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -462,6 +487,7 @@ jobs:
 
       - name: Introduce Libraries and Stuff
         run: |
+          set -euo pipefail
           cd toonz/build/toonz
           cp -pr ../../../stuff OpenToonz.app/portablestuff
           mkdir -p OpenToonz.app/Contents/Resources/sdk
@@ -477,17 +503,71 @@ jobs:
             -executable=OpenToonz.app/Contents/MacOS/tconverter \
             -executable=OpenToonz.app/Contents/MacOS/tfarmcontroller \
             -executable=OpenToonz.app/Contents/MacOS/tfarmserver
-      - name: Modify Library Paths
+      - name: Complete and verify the application dependency closure
+        id: deployed_runtime
         run: |
-          cd toonz/build/toonz/OpenToonz.app/Contents/Frameworks
-          for TARGETLIB in *.dylib; do
-            otool -L "$TARGETLIB" | grep ".dylib" | grep -v "$TARGETLIB" | grep -v "@executable_path/../Frameworks" | awk '{print $1}' | while read -r FROMPATH; do
-              LIBNAME=$(basename "$FROMPATH")
-              if [[ -e ./$LIBNAME ]]; then
-                install_name_tool -change "$FROMPATH" "@executable_path/../Frameworks/$LIBNAME" "$TARGETLIB"
-              fi
-            done
-          done
+          set -euo pipefail
+          application="$GITHUB_WORKSPACE/toonz/build/toonz/OpenToonz.app"
+          library_roots=(
+            --library-root "$(brew --prefix)/lib"
+            --library-root "$(brew --prefix qt@5)/lib"
+          )
+          gcc_runtime="$(brew --prefix)/lib/gcc/current"
+          if [[ -d "$gcc_runtime" ]]; then
+            library_roots+=(--library-root "$gcc_runtime")
+          fi
+          python3 ci-scripts/macos_bundle.py "$application" "${library_roots[@]}"
+          webp_notice="$(brew --prefix webp)/COPYING"
+          test -s "$webp_notice"
+          mkdir -p "$application/Contents/Resources/licenses"
+          cp -p "$webp_notice" "$application/Contents/Resources/licenses/WebP-COPYING"
+          cmp "$webp_notice" "$application/Contents/Resources/licenses/WebP-COPYING"
+          # The helper repairs individual Mach-O signatures after rewriting paths.
+          # Existing portablestuff layout is not a sealed/notarized application bundle.
+          python3 ci-scripts/macos_bundle.py --verify "$application"
+      - name: Prepare native MCP qualification runtime
+        id: mcp_runtime
+        if: ${{ !cancelled() && steps.deployed_runtime.outcome == 'success' }}
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: '0.13.8'
+          enable-cache: false
+
+      - name: Stage installed media tools for native MCP qualification
+        id: mcp_media_tools
+        if: ${{ !cancelled() && steps.mcp_runtime.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          mkdir -p toonz/build/mcp-acceptance
+          cp mcp-media-staging-contracts.txt \
+            toonz/build/mcp-acceptance/media-staging-contracts.txt
+          uv venv --python 3.13 "$RUNNER_TEMP/mcp-python"
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_stage_media.py \
+            --output "$RUNNER_TEMP/mcp-media-tools" --report toonz/build/mcp-acceptance/media-tools.json \
+            --github-env "$GITHUB_ENV"
+
+      - name: Qualify the deployed native MCP worker
+        if: ${{ !cancelled() && steps.mcp_media_tools.outcome == 'success' }}
+        timeout-minutes: 15
+        env:
+          QT_QPA_PLATFORM: cocoa
+          GROUNDZERO_REQUIRE_VECTOR_GL: '1'
+          GROUNDZERO_OFFSCREEN_GL_DIAGNOSTICS: '1'
+        run: |
+          set -euo pipefail
+          unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH
+          "$RUNNER_TEMP/mcp-python/bin/python" ci-scripts/mcp_acceptance.py \
+            --executable toonz/build/toonz/OpenToonz.app/Contents/MacOS/OpenToonz \
+            --output toonz/build/mcp-acceptance --media-tools "$MCP_MEDIA_TOOLS"
+
+      - name: Retain native MCP acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: MCP-native-acceptance-macos-${{ github.sha }}
+          path: toonz/build/mcp-acceptance
+          if-no-files-found: ignore
+
       - name: Prepare optional benchmark bundle
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.benchmark_bundle }}
         run: |
@@ -508,10 +588,17 @@ jobs:
 
       - name: Create Artifact
         run: |
+          set -euo pipefail
           cd toonz/build/toonz
+          cmake -E rm -f OpenToonz.app/Contents/MacOS/mcp_ffprobe_fixture
+          test ! -e OpenToonz.app/Contents/MacOS/mcp_ffprobe_fixture
+          python3 "$GITHUB_WORKSPACE/ci-scripts/macos_bundle.py" --verify OpenToonz.app
           echo "Creating DMG..."
           ATTEMPT=1
-          until /usr/local/opt/qt@5/bin/macdeployqt OpenToonz.app -dmg -verbose=0 && [ -f OpenToonz.dmg ]; do
+          # Match createDiskImage()'s format without redeploying the verified application.
+          # https://github.com/qt/qttools/blob/5.15/src/macdeployqt/shared/shared.cpp
+          until hdiutil create OpenToonz.dmg -srcfolder OpenToonz.app \
+            -format UDZO -fs HFS+ -volname OpenToonz -ov && [ -f OpenToonz.dmg ]; do
             echo "Attempt $ATTEMPT failed to build DMG."
             if [ $ATTEMPT -eq 10 ]; then
               echo ">>> DMG file creation failed after 10 attempts. Aborting!"

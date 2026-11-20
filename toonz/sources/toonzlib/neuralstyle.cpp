@@ -1,4 +1,5 @@
 #include "toonz/neuralstyle.h"
+#include "toonz/neuralstyleexecution.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -31,7 +32,6 @@ std::condition_variable workerAvailable;
 bool workerBusy = false;
 quint64 nextTicket = 0;
 std::deque<quint64> waiting;
-bool cancelled(Cancellation flag) { return flag(); }
 void appendWord(QByteArray &bytes, quint32 value) {
   const quint32 little = qToLittleEndian(value);
   bytes.append(reinterpret_cast<const char *>(&little), 4);
@@ -66,12 +66,25 @@ struct Session::Impl {
   QByteArray reference;
   quint32 sequence = 0;
   bool ownsLease = false;
-  explicit Impl(const QString &path) : directory(QDir(path).absolutePath()) {}
+  bool trackedHelper = false;
+  std::shared_ptr<const WorkerExecution> execution;
+  Impl(const QString &path, std::shared_ptr<const WorkerExecution> context)
+      : directory(QDir(path).absolutePath()), execution(std::move(context)) {}
+  bool cancelled(Cancellation flag) const {
+    return flag() || (execution && execution->expired());
+  }
   ~Impl() { stop(); }
   void stop() {
     if (process.state() != QProcess::NotRunning) {
       process.kill();
+      if (execution) execution->helperKilled();
       process.waitForFinished(3000);
+    }
+    if (execution && process.state() != QProcess::NotRunning)
+      execution->closureFailed();
+    if (trackedHelper) {
+      execution->helperClosed();
+      trackedHelper = false;
     }
     if (process.isOpen()) {
       process.readAllStandardOutput();
@@ -161,57 +174,69 @@ struct Session::Impl {
       process.waitForReadyRead(20);
     }
   }
-  bool start(QString &error, Cancellation cancel) {
-    if (process.state() == QProcess::Running) return true;
-    stop();
+  bool validVersion(const QJsonObject& manifest) const {
+    return manifest.value("version").toInt() == 1 &&
+           manifest.value("protocol").toInt() == 1 &&
+           manifest.value("runtimeVersion").toString() == "2.3.0";
+  }
+  bool loadPackage(QHash<QString, QString>& paths, QString& error, Cancellation cancel) {
     QFile file(QDir(directory).filePath("package.json"));
     if (!file.open(QIODevice::ReadOnly) || file.size() > 16384)
       return fail(error, "Neural style component is not installed.");
     const auto manifest = QJsonDocument::fromJson(file.readAll()).object();
-    if (manifest.value("version").toInt() != 1 || manifest.value("protocol").toInt() != 1 ||
-        manifest.value("runtimeVersion").toString() != "2.3.0")
+    if (!validVersion(manifest))
       return fail(error, "Unsupported neural style component version.");
-    QString worker, runtime, prediction, transfer;
-    if (!verify(manifest, "worker", worker, error, cancel) ||
-        !verify(manifest, "runtime", runtime, error, cancel) ||
-        !verify(manifest, "prediction", prediction, error, cancel) ||
-        !verify(manifest, "transfer", transfer, error, cancel)) return false;
-    {
-      std::unique_lock<std::mutex> lock(workerMutex);
-      // At most eight admitted waiters; further callers receive cancellable
-      // backpressure. Queue time is not an inference timeout: valid active
-      // work may take a full shot, and must not make another request fail.
-      while (waiting.size() >= 8) {
-        if (cancelled(cancel)) return fail(error, "Neural styling cancelled.");
-        workerAvailable.wait_for(lock, std::chrono::milliseconds(20));
-      }
-      const quint64 ticket = ++nextTicket;
-      waiting.push_back(ticket);
-      for (;;) {
-        if (cancelled(cancel)) {
-          waiting.erase(std::find(waiting.begin(), waiting.end(), ticket));
-          workerAvailable.notify_all();
-          return fail(error, "Neural styling cancelled.");
-        }
-        if (!workerBusy && waiting.front() == ticket) {
-          waiting.pop_front(); workerBusy = true; ownsLease = true;
-          workerAvailable.notify_all(); break;
-        }
-        workerAvailable.wait_for(lock, std::chrono::milliseconds(20));
-      }
+    for (const QString& role : {"worker", "runtime", "prediction", "transfer"}) {
+      QString path;
+      if (!verify(manifest, role, path, error, cancel)) return false;
+      paths.insert(role, path);
     }
+    return true;
+  }
+  bool acquireLease(QString& error, Cancellation cancel) {
+    std::unique_lock<std::mutex> lock(workerMutex);
+    while (waiting.size() >= 8) {
+      if (cancelled(cancel)) return fail(error, "Neural styling cancelled.");
+      workerAvailable.wait_for(lock, std::chrono::milliseconds(20));
+    }
+    const quint64 ticket = ++nextTicket;
+    waiting.push_back(ticket);
+    for (;;) {
+      if (cancelled(cancel)) {
+        waiting.erase(std::find(waiting.begin(), waiting.end(), ticket));
+        workerAvailable.notify_all();
+        return fail(error, "Neural styling cancelled.");
+      }
+      if (!workerBusy && waiting.front() == ticket) {
+        waiting.pop_front();
+        workerBusy = true;
+        ownsLease = true;
+        workerAvailable.notify_all();
+        return true;
+      }
+      workerAvailable.wait_for(lock, std::chrono::milliseconds(20));
+    }
+  }
+  void configureProcess(const QHash<QString, QString>& paths) {
     auto environment = QProcessEnvironment::systemEnvironment();
-    for (const auto &name : environment.keys())
+    for (const auto& name : environment.keys())
       if (name.startsWith("PYTHON") || name.startsWith("DYLD_") || name.startsWith("LD_"))
         environment.remove(name);
     process.setProcessEnvironment(environment);
     process.setWorkingDirectory(directory);
     process.setProcessChannelMode(QProcess::SeparateChannels);
     process.setStandardErrorFile(QProcess::nullDevice());
-    process.setProgram(worker);
-    process.setArguments({runtime, prediction, transfer});
+    process.setProgram(paths.value("worker"));
+    process.setArguments({paths.value("runtime"), paths.value("prediction"), paths.value("transfer")});
+  }
+  bool launch(QString& error, Cancellation cancel) {
     QElapsedTimer timer;
     timer.start();
+    if (cancelled(cancel)) return fail(error, "Neural styling cancelled.");
+    if (execution) {
+      execution->helperStarting();
+      trackedHelper = true;
+    }
     process.start();
     while (process.state() == QProcess::Starting) {
       if (cancelled(cancel)) return fail(error, "Neural styling cancelled.");
@@ -220,6 +245,21 @@ struct Session::Impl {
     }
     QByteArray ready;
     return receive(0, 0, 0, ready, error, cancel, timer);
+  }
+  bool start(QString& error, Cancellation cancel) {
+    if (execution && directory != execution->directory)
+      return fail(error, "Neural execution identity belongs to another package.");
+    if (process.state() == QProcess::Running) return true;
+    stop();
+    QHash<QString, QString> paths;
+    if (!loadPackage(paths, error, cancel)) return false;
+    if (!acquireLease(error, cancel)) return false;
+    if (execution && !execution->verify(error)) {
+      stop();
+      return false;
+    }
+    configureProcess(paths);
+    return launch(error, cancel);
   }
   bool request(quint32 command, const QByteArray &input, int count,
                QByteArray &output, QString &error, Cancellation cancel) {
@@ -242,7 +282,9 @@ struct Session::Impl {
   }
 };
 
-Session::Session(const QString &directory) : m_impl(new Impl(directory)) {
+Session::Session(const QString &directory) : Session(directory, {}) {}
+Session::Session(const QString &directory, std::shared_ptr<const WorkerExecution> execution)
+    : m_impl(new Impl(directory, std::move(execution))) {
   static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559,
                 "Neural protocol requires IEEE float32");
 }
@@ -279,7 +321,7 @@ bool Session::styleBatch(const QImage &reference, const std::vector<QImage> &con
     }
     const auto rgba = image.convertToFormat(QImage::Format_ARGB32);
     for (int y = 0; y < rgba.height(); ++y) {
-      if (cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
+      if (m_impl->cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
       const auto row = reinterpret_cast<const QRgb *>(rgba.constScanLine(y));
       for (int x = 0; x < rgba.width(); ++x)
         if (qAlpha(row[x]) != 255) {
@@ -294,13 +336,13 @@ bool Session::styleBatch(const QImage &reference, const std::vector<QImage> &con
   std::vector<QImage> complete;
   complete.reserve(contents.size());
   for (size_t i=0; i<contents.size(); ++i) {
-    if (cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
+    if (m_impl->cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
     if (progress) progress(int(i),int(contents.size()));
     if (i && contents[i] == contents[i-1]) { complete.push_back(complete.back()); continue; }
     if (!m_impl->request(2, pixels(contents[i]), ContentCount, response, error, cancel)) return false;
     QImage image(384, 384, QImage::Format_RGB32);
     for (int y = 0; y < 384; ++y) {
-      if (cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
+      if (m_impl->cancelled(cancel)) return m_impl->fail(error, "Neural styling cancelled.");
       auto row = reinterpret_cast<QRgb *>(image.scanLine(y));
       for (int x = 0; x < 384; ++x) {
         int channels[3];

@@ -17,4 +17,8 @@
 
 DVAPI void initImageIo(bool lightVersion = false);
 
+// How many ffmpeg processes this process has killed: after a cancellation or a
+// timeout, before they exited by themselves.
+DVAPI int ffmpegForcedExits();
+
 #endif

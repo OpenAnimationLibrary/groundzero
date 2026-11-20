@@ -1,6 +1,7 @@
 
 
 #include "toonz/tcolumnfxset.h"
+#include "tmutationgeneration.h"
 
 // TnzLib includes
 #include "toonz/tcolumnfx.h"
@@ -21,9 +22,14 @@ TFxSet::~TFxSet() {
   clear();
 }
 
+std::uint64_t TFxSet::membershipGeneration() const noexcept {
+  return m_membershipGeneration;
+}
+
 void TFxSet::addFx(TFx *fx) {
   std::set<TFx *>::iterator it = m_fxs.find(fx);
   if (it == m_fxs.end()) {
+    TMutation::advanceGeneration(m_membershipGeneration);
     fx->addRef();
     m_fxs.insert(fx);
     fx->setNewIdentifier();
@@ -55,6 +61,7 @@ int TFxSet::getFxCount() const { return m_fxs.size(); }
 bool TFxSet::removeFx(TFx *fx) {
   std::set<TFx *>::iterator it = m_fxs.find(fx);
   if (it != m_fxs.end()) {
+    TMutation::advanceGeneration(m_membershipGeneration);
     TFx *fx = *it;
     fx->release();
     m_fxs.erase(fx);
@@ -81,6 +88,7 @@ TFx *TFxSet::getFx(const std::string &id) const {
 }
 
 void TFxSet::clear() {
+  if (!m_fxs.empty()) TMutation::advanceGeneration(m_membershipGeneration);
   std::set<TFx *>::iterator it;
   for (it = m_fxs.begin(); it != m_fxs.end(); ++it) {
     TFx *fx = *it;

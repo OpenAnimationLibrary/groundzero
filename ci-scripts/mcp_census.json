@@ -1,0 +1,3511 @@
+{
+ "schema_version": 1,
+ "claims": {
+  "protocol_version": 5,
+  "fx_profile": "builtin-2d-v2",
+  "fx_builtins": 31
+ },
+ "platforms": {
+  "qualified": [
+   "macOS"
+  ],
+  "not_recorded": [
+   "Linux",
+   "Windows"
+  ]
+ },
+ "non_tool_tokens": [
+  "details.blockers",
+  "details.cause",
+  "details.cause_code",
+  "details.check",
+  "details.job_id",
+  "details.missing",
+  "details.native_binding",
+  "details.next",
+  "details.plan_digest",
+  "details.reason",
+  "details.releasable",
+  "details.scope",
+  "details.slice",
+  "details.stage",
+  "details.status",
+  "details.toolset",
+  "formats.admitted"
+ ],
+ "formats": [
+  {
+   "id": "png",
+   "tokens": [
+    "PNG"
+   ],
+   "role": "level and drawing import, drawing export, preview and sequence output",
+   "state": "supported",
+   "evidence": {
+    "kind": "description",
+    "tool": "raster.import_png",
+    "text": "PNG"
+   }
+  },
+  {
+   "id": "mp4",
+   "tokens": [
+    "MP4"
+   ],
+   "role": "opaque movie output",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "render.submit",
+    "property": "profile",
+    "value": "opaque8-mp4"
+   }
+  },
+  {
+   "id": "pli",
+   "tokens": [
+    "PLI"
+   ],
+   "role": "storage of vector levels in saved packages",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "level.create",
+    "property": "format",
+    "value": "vector"
+   }
+  },
+  {
+   "id": "tnz",
+   "tokens": [
+    "TNZ"
+   ],
+   "role": "scene file in saved packages",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "scene.save_copy"
+   }
+  },
+  {
+   "id": "wav",
+   "tokens": [
+    "WAV"
+   ],
+   "role": "sound import and mixdown output",
+   "state": "supported",
+   "evidence": {
+    "kind": "description",
+    "tool": "audio.import",
+    "text": "WAV"
+   }
+  },
+  {
+   "id": "aiff",
+   "tokens": [
+    "AIFF"
+   ],
+   "role": "sound import",
+   "state": "supported",
+   "evidence": {
+    "kind": "description",
+    "tool": "audio.import",
+    "text": "AIFF"
+   }
+  },
+  {
+   "id": "aifc",
+   "tokens": [
+    "AIFC"
+   ],
+   "role": "sound import",
+   "state": "refused",
+   "reason": "audio.import returns unsupported_format"
+  },
+  {
+   "id": "papagayo_dat",
+   "tokens": [
+    "DAT"
+   ],
+   "role": "lip-sync timing import",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "lipsync.import",
+    "property": "format",
+    "value": "papagayo_dat"
+   }
+  },
+  {
+   "id": "rhubarb_tsv",
+   "tokens": [
+    "TSV"
+   ],
+   "role": "lip-sync timing import",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "lipsync.import",
+    "property": "format",
+    "value": "rhubarb_tsv"
+   }
+  },
+  {
+   "id": "rhubarb_json",
+   "tokens": [],
+   "role": "lip-sync timing import",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "lipsync.import",
+    "property": "format",
+    "value": "rhubarb_json"
+   }
+  },
+  {
+   "id": "tpl",
+   "tokens": [
+    "TPL"
+   ],
+   "role": "studio palette files read from a granted root",
+   "state": "supported",
+   "evidence": {
+    "kind": "description",
+    "tool": "studio_palette.list",
+    "text": ".tpl"
+   }
+  },
+  {
+   "id": "psd",
+   "tokens": [
+    "PSD"
+   ],
+   "role": "level files in a read-only user scene",
+   "state": "refused",
+   "reason": "scene.open_read_only reports a level in this format as not_applicable and does not load it"
+  },
+  {
+   "id": "exr",
+   "tokens": [
+    "EXR"
+   ],
+   "role": "half and float image sequence output (render.submit); EXR level files in a read-only user scene are still reported not_applicable and not loaded",
+   "state": "supported",
+   "evidence": {
+    "kind": "enum",
+    "tool": "render.submit",
+    "property": "profile",
+    "value": "rgba-half-exr"
+   }
+  },
+  {
+   "id": "svg",
+   "tokens": [
+    "SVG"
+   ],
+   "role": "level files in a read-only user scene",
+   "state": "refused",
+   "reason": "scene.open_read_only reports a level in this format as not_applicable and does not load it"
+  },
+  {
+   "id": "svg_export",
+   "tokens": [],
+   "role": "vector drawing export within the verified subset",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "vector.export_svg"
+   }
+  },
+  {
+   "id": "jpeg",
+   "tokens": [
+    "JPEG"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
+  },
+  {
+   "id": "tiff",
+   "tokens": [
+    "TIFF"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
+  },
+  {
+   "id": "gif",
+   "tokens": [
+    "GIF"
+   ],
+   "role": "image intake",
+   "state": "refused",
+   "reason": "intake.preflight names the format from its signature; intake.import returns unsupported_format"
+  },
+  {
+   "id": "bmp",
+   "tokens": [
+    "BMP"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
+  },
+  {
+   "id": "tga",
+   "tokens": [
+    "TGA"
+   ],
+   "role": "image intake through the contained native decoder",
+   "state": "supported",
+   "evidence": {
+    "kind": "tool",
+    "tool": "intake.import"
+   }
+  }
+ ],
+ "tools": {
+  "animation.channels": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "animation.copy_curve": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "animation.delete_keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "animation.duplicate_keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "animation.insert_breakdown": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "animation.keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "animation.move_keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "animation.retime_curve": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "animation.sample": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "animation.set_cycle": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "animation.set_keys": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "artifact.read": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "assistance.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "assistance.neural.preview": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "audio.clip.place": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true
+  },
+  "audio.clip.remove": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true
+  },
+  "audio.clip.update": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true
+  },
+  "audio.column.create": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true
+  },
+  "audio.column.set_volume": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true
+  },
+  "audio.import": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true
+  },
+  "audio.inspect": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": false
+  },
+  "audio.mixdown": {
+   "origin": "worker",
+   "toolset": "audio",
+   "writes": true
+  },
+  "automation.capabilities": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "automation.list_documents": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "camera.create": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "camera.duplicate": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "camera.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "camera.list": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": false
+  },
+  "camera.remove": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "camera.select": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "camera.update": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "cast.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "cast.usage": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "cells.clear": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.copy": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.insert": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.remove": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.replace": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.retime": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "cells.set": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "column.cells": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "column.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "column.delete": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "column.duplicate": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "column.expose": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "column.kinds": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": false
+  },
+  "column.move": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "column.update": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "delivery.preflight": {
+   "origin": "worker",
+   "toolset": "delivery",
+   "writes": false
+  },
+  "delivery.publish": {
+   "origin": "worker",
+   "toolset": "delivery",
+   "writes": true
+  },
+  "drawing.analysis.submit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "drawing.clone": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "drawing.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "drawing.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "drawing.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "drawing.renumber": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.catalog": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "fx.connect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.delete": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.disconnect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.enabled.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.graph": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "fx.graph.delta": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "fx.group.create": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.group.remove": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.group.rename": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.layout.set": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.link.add": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.link.remove": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.macro.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.macro.expand": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.output.select": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.parameter.get": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "fx.parameter.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.parameter.set_key": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.port_group.set": {
+   "origin": "worker",
+   "toolset": "fx-graph",
+   "writes": true
+  },
+  "fx.preset.apply": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.preset.save": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.recipe.list": {
+   "origin": "worker",
+   "toolset": "fx-finishing",
+   "writes": false
+  },
+  "fx.rename": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "fx.terminal.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "hook.delete": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "hook.inspect": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false
+  },
+  "hook.set": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "intake.import": {
+   "origin": "worker",
+   "toolset": "intake",
+   "writes": true
+  },
+  "intake.preflight": {
+   "origin": "worker",
+   "toolset": "intake",
+   "writes": false
+  },
+  "intake.provenance": {
+   "origin": "worker",
+   "toolset": "intake",
+   "writes": false
+  },
+  "job.cancel": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "job.discard": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "job.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "job.result": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "job.status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "journal.status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "level.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "level.duplicate": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "level.import": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "level.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "level.remove": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "level.rename": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "level.settings.set": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "library.inspect": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false
+  },
+  "library.list": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false
+  },
+  "library.thumbnail": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false
+  },
+  "lipsync.apply": {
+   "origin": "worker",
+   "toolset": "lipsync",
+   "writes": true
+  },
+  "lipsync.import": {
+   "origin": "worker",
+   "toolset": "lipsync",
+   "writes": true
+  },
+  "lipsync.inspect": {
+   "origin": "worker",
+   "toolset": "lipsync",
+   "writes": false
+  },
+  "live.capabilities": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": false
+  },
+  "live.fx.set_scalar_value": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": true
+  },
+  "live.inspect": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": false
+  },
+  "live.receipt": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": false
+  },
+  "live.stage.set_key_value": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": true
+  },
+  "live.status": {
+   "origin": "live_bridge",
+   "toolset": "live",
+   "writes": false
+  },
+  "motion_path.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "motion_path.delete": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "motion_path.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "motion_path.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "motion_path.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "motion_path.rename": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "motion_path.update": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "object.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "object.delete": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.duplicate": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.group": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.group.rename": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.groups": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false
+  },
+  "object.handles.set": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.parent": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "object.path.attach": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "object.path.detach": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "object.pivot.set": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.rename": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "object.ungroup": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "offset_layer.create": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "offset_layer.delete": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "offset_layer.update": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": true
+  },
+  "operation.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "operation.status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "package.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.clone_style": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.create_style": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "palette.page.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.page.move": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.page.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.page.rename": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.pages": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "palette.rename_style": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.style.move": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "palette.update_style": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "project.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "project.duplicate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "project.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "project.list": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "project.scenes": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "raster.export_png": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "raster.import_png": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "raster.patch": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "raster.read_pixels": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "render.capabilities": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "render.preflight": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "render.preview": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "render.submit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "review.compare.submit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "rig.dependents": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false
+  },
+  "rig.evaluate": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false
+  },
+  "rig.inspect": {
+   "origin": "worker",
+   "toolset": "rigging",
+   "writes": false
+  },
+  "runtime.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.check.submit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.dependencies": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.discard": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.guides.set": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "scene.import_editable": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.import_plan": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.inventory": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.open": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.open_read_only": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.output.set": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": true
+  },
+  "scene.package_info": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.properties.inspect": {
+   "origin": "worker",
+   "toolset": "sheet",
+   "writes": false
+  },
+  "scene.save_copy": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.save_preflight": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.settings": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "scene.source_status": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.summary": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "scene.validate": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "shared.roots": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false
+  },
+  "storyboard.panel.create": {
+   "origin": "worker",
+   "toolset": "storyboard",
+   "writes": true
+  },
+  "storyboard.panel.delete": {
+   "origin": "worker",
+   "toolset": "storyboard",
+   "writes": true
+  },
+  "storyboard.panel.update": {
+   "origin": "worker",
+   "toolset": "storyboard",
+   "writes": true
+  },
+  "storyboard.panels": {
+   "origin": "worker",
+   "toolset": "storyboard",
+   "writes": false
+  },
+  "studio_palette.find": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false
+  },
+  "studio_palette.inspect": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false
+  },
+  "studio_palette.list": {
+   "origin": "worker",
+   "toolset": "shared-library",
+   "writes": false
+  },
+  "text.fonts": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "tool.describe": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "toolsets.disable": {
+   "origin": "adapter",
+   "toolset": "adapter",
+   "writes": true
+  },
+  "toolsets.enable": {
+   "origin": "adapter",
+   "toolset": "adapter",
+   "writes": true
+  },
+  "toolsets.list": {
+   "origin": "adapter",
+   "toolset": "adapter",
+   "writes": false
+  },
+  "vector.edit": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.export_svg": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.fill": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.group.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.group.remove": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "vector.opacity.inspect": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "vector.opacity.profile.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.opacity.set": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.order.move": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.select": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "vector.structure": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": false
+  },
+  "vector.text.create": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  },
+  "vector.transform": {
+   "origin": "worker",
+   "toolset": "core",
+   "writes": true
+  }
+ },
+ "outcomes": [
+  {
+   "id": "session.discover_operations",
+   "domain": "Session and capability discovery",
+   "outcome": "Discover the worker protocol, toolsets and typed operations with their input schemas.",
+   "classification": "exposed",
+   "tools": [
+    "automation.capabilities"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "automation.describe_tools",
+   "domain": "Session and capability discovery",
+   "outcome": "Read a tool's effects, every error code it can return and the shape of its result.",
+   "classification": "exposed",
+   "tools": [
+    "tool.describe"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.inspect_runtime",
+   "domain": "Session and capability discovery",
+   "outcome": "Report what this worker can actually run: build, platform, graphics readiness, granted media tools and mp4 encoder, native and admitted formats, plugin policy and toolset states, each layer by layer.",
+   "classification": "exposed",
+   "tools": [
+    "runtime.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.select_toolsets",
+   "domain": "Session and capability discovery",
+   "outcome": "Choose which toolsets a session advertises, so it carries only the definitions it needs.",
+   "classification": "exposed",
+   "tools": [
+    "toolsets.list",
+    "toolsets.enable",
+    "toolsets.disable"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.list_documents",
+   "domain": "Session and capability discovery",
+   "outcome": "List the open detached documents with their current revisions.",
+   "classification": "exposed",
+   "tools": [
+    "automation.list_documents"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.inspect_project",
+   "domain": "Session and capability discovery",
+   "outcome": "Report the worker's private project and the limits of its isolation.",
+   "classification": "exposed",
+   "tools": [
+    "project.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.attach_live_editor",
+   "domain": "Session and capability discovery",
+   "outcome": "Attach to a running editor that was started with live automation and read its status, document state and capabilities.",
+   "classification": "optional",
+   "tools": [
+    "live.status",
+    "live.inspect",
+    "live.capabilities"
+   ],
+   "requires": "an editor launched with live automation and a private session file",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.live_receipts",
+   "domain": "Session and capability discovery",
+   "outcome": "Recover the outcome of a live write after a lost reply by its operation identifier.",
+   "classification": "optional",
+   "tools": [
+    "live.receipt"
+   ],
+   "requires": "an editor launched with live automation",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.live_stage_key_edit",
+   "domain": "Session and capability discovery",
+   "outcome": "Change the value of an existing camera or peg x, y or rotation key in the running editor as one undo step.",
+   "classification": "optional",
+   "tools": [
+    "live.stage.set_key_value"
+   ],
+   "requires": "an editor launched with live automation in edit mode",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.live_blur_edit",
+   "domain": "Session and capability discovery",
+   "outcome": "Change the qualified Blur scalar of an effect in the running editor as one undo step.",
+   "classification": "optional",
+   "tools": [
+    "live.fx.set_scalar_value"
+   ],
+   "requires": "an editor launched with live automation in edit mode",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "session.live_undo_redo",
+   "domain": "Session and capability discovery",
+   "outcome": "Undo and redo editor history through a typed operation, with stale-edit detection.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "session.live_document_lifecycle",
+   "domain": "Session and capability discovery",
+   "outcome": "Open, switch, save and close live editor documents with explicit handles.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "session.navigation_and_selection",
+   "domain": "Session and capability discovery",
+   "outcome": "Read and set the editor selection, current frame, viewer and panels without it acting as a hidden edit target.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "session.instance_discovery",
+   "domain": "Session and capability discovery",
+   "outcome": "Find authorized running editor instances without a session file passed by hand.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "session.generic_command_dispatch",
+   "domain": "Session and capability discovery",
+   "outcome": "Run an arbitrary menu command or script by identifier.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Every operation is a typed tool with its own bounds; an untyped dispatcher would bypass them."
+   }
+  },
+  {
+   "id": "scene.create_detached",
+   "domain": "Projects and scenes",
+   "outcome": "Create an isolated detached scene with explicit frame rate, pixel size and physical size.",
+   "classification": "exposed",
+   "tools": [
+    "scene.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.inspect",
+   "domain": "Projects and scenes",
+   "outcome": "Read the scene's levels, columns, stage objects and current revision.",
+   "classification": "exposed",
+   "tools": [
+    "scene.summary"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.update_settings",
+   "domain": "Projects and scenes",
+   "outcome": "Change frame rate, pixel size and physical size of an existing scene.",
+   "classification": "exposed",
+   "tools": [
+    "scene.settings"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.discard",
+   "domain": "Projects and scenes",
+   "outcome": "Close a detached document and invalidate its handles.",
+   "classification": "exposed",
+   "tools": [
+    "scene.discard"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.save_package",
+   "domain": "Projects and scenes",
+   "outcome": "Save a verified, hash-checked scene package with its artwork and sidecars into a new directory.",
+   "classification": "exposed",
+   "tools": [
+    "scene.save_copy"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.reopen_package",
+   "domain": "Projects and scenes",
+   "outcome": "Inspect and reopen a package this workspace registered, wherever it now lies in the workspace, an input root or an output root, from a verified private copy.",
+   "classification": "exposed",
+   "tools": [
+    "scene.open",
+    "scene.package_info"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.validate_basic",
+   "domain": "Projects and scenes",
+   "outcome": "Report basic scene issues without loading artwork or media.",
+   "classification": "exposed",
+   "tools": [
+    "scene.validate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.list_dependencies",
+   "domain": "Projects and scenes",
+   "outcome": "List the files a scene refers to with authorized metadata, without loading them.",
+   "classification": "exposed",
+   "tools": [
+    "scene.dependencies"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.collection_preflight",
+   "domain": "Projects and scenes",
+   "outcome": "Plan saving an editable document as a package: every check the save runs, where each dependency goes, an upper bound of its size and what it leaves out, writing nothing.",
+   "classification": "exposed",
+   "tools": [
+    "scene.save_preflight"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "workspace.package_cleanup",
+   "domain": "Projects and scenes",
+   "outcome": "Remove a registered package that matches its manifest exactly, deleting only its unchanged listed files and reporting anything else as residue.",
+   "classification": "exposed",
+   "tools": [
+    "package.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.check_jobs",
+   "domain": "Projects and scenes",
+   "outcome": "Run a bounded, cancellable unused-style scan or dependency inventory as an analysis job and page its rows.",
+   "classification": "exposed",
+   "tools": [
+    "scene.check.submit",
+    "job.status",
+    "job.result"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "project.discover_native_projects",
+   "domain": "Projects and scenes",
+   "outcome": "List the read roots and the native projects under them without parsing a project file.",
+   "classification": "exposed",
+   "tools": [
+    "project.list"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.open_existing_read_only",
+   "domain": "Projects and scenes",
+   "outcome": "Open an existing native scene from a read root as a read-only document with an explicit project binding, and inspect it with the qualified read tools.",
+   "classification": "exposed",
+   "tools": [
+    "scene.open_read_only"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.inventory_nested_sheets",
+   "domain": "Projects and scenes",
+   "outcome": "Page through the sheets, columns and stage objects of a scene, nested sub-sheets included, telling each instance path from the shared sub-sheet definition.",
+   "classification": "exposed",
+   "tools": [
+    "scene.inventory"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.read_only_source_status",
+   "domain": "Projects and scenes",
+   "outcome": "Report whether any file a read-only document pinned when it was opened is now missing, unreadable, replaced or modified on disk.",
+   "classification": "exposed",
+   "tools": [
+    "scene.source_status"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "project.list_scenes",
+   "domain": "Projects and scenes",
+   "outcome": "List the scene files and folders under a granted project's scenes folder, paged, without parsing any of them.",
+   "classification": "exposed",
+   "tools": [
+    "project.scenes"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.save_in_place",
+   "domain": "Projects and scenes",
+   "outcome": "Save the live scene and its assets in place with a per-asset result.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W4"
+   }
+  },
+  {
+   "id": "scene.output_settings",
+   "domain": "Projects and scenes",
+   "outcome": "Edit output range, scale, markers and guide settings of a scene.",
+   "classification": "exposed",
+   "tools": [
+    "scene.properties.inspect",
+    "scene.output.set",
+    "scene.guides.set",
+    "scene.settings"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.compare_revisions",
+   "domain": "Projects and scenes",
+   "outcome": "Compare two saved or live revisions of a scene.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "scene.recover_autosave",
+   "domain": "Projects and scenes",
+   "outcome": "Restore an autosaved or checkpointed scene into a new copy.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "project.create_and_select",
+   "domain": "Projects and scenes",
+   "outcome": "Create and duplicate explicit project definitions (folders, rules, scene defaults) in the workspace, verified by rereading, and select a project per draft; the editor's active project and in-place project edits stay out.",
+   "classification": "exposed",
+   "tools": [
+    "project.create",
+    "project.duplicate",
+    "scene.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "project.portable_collection",
+   "domain": "Projects and scenes",
+   "outcome": "Collect a scene and its assets into a relocatable delivery project.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "level.create_empty",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Create an empty vector, RGBA or Toonz raster level.",
+   "classification": "exposed",
+   "tools": [
+    "level.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.import_png",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Import one PNG image as a level's first drawing within asset limits.",
+   "classification": "exposed",
+   "tools": [
+    "level.import"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.inspect",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Read a level's format, exact drawing identifiers, interpretation settings and exposures in every sheet.",
+   "classification": "exposed",
+   "tools": [
+    "level.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "cast.read_usage",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Read cast metadata and the root-sheet exposure runs of each level, with bounded traversal.",
+   "classification": "exposed",
+   "tools": [
+    "cast.list",
+    "cast.usage"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.create",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Create an empty drawing in an existing level with an exact identity.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.inspect",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Load and describe one drawing.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.clone",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Clone a drawing inside its level without exposing the copy.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.clone"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.remove",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Remove an unexposed drawing.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.renumber",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Rename drawings together, including swaps, and update every exposure.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.renumber"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.import_other_media",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Import image sequences, layered files and other raster or vector formats, with a conversion plan.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W2"
+   }
+  },
+  {
+   "id": "level.interpretation_settings",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Change a level's interpretation settings (DPI, premultiply, white transparency, antialias, subsampling, gamma) with the native applicability, dirty-level and coupling rules.",
+   "classification": "exposed",
+   "tools": [
+    "level.settings.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.duplicate",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Duplicate a level into an independent level with every drawing, setting and hook, exposed nowhere.",
+   "classification": "exposed",
+   "tools": [
+    "level.duplicate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.rename_replace_remove",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Rename a level, and remove it from the cast after an explicit plan for its exposures in every sheet: refuse, clear them, or replace them by another level.",
+   "classification": "exposed",
+   "tools": [
+    "level.rename",
+    "level.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.canvas_resize",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Change a level's canvas size or resolution, a pixel transformation distinct from its interpretation settings.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "cast.organize_and_relink",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Organize the cast into folders and tags, relink missing files, make local copies and merge duplicates.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "drawing.reorder_merge_replace",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Reorder, merge or replace drawings while preserving suffixes and exposures.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "column.create",
+   "domain": "Timeline and columns",
+   "outcome": "Append an empty level column with a stable handle.",
+   "classification": "exposed",
+   "tools": [
+    "column.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "column.update_state",
+   "domain": "Timeline and columns",
+   "outcome": "Change a column's name, visibility, lock or opacity.",
+   "classification": "exposed",
+   "tools": [
+    "column.update"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "column.delete",
+   "domain": "Timeline and columns",
+   "outcome": "Delete an unlocked column that has no stage children.",
+   "classification": "exposed",
+   "tools": [
+    "column.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "column.read_cells",
+   "domain": "Timeline and columns",
+   "outcome": "Read an interval of timeline cells.",
+   "classification": "exposed",
+   "tools": [
+    "column.cells"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "column.expose_drawing",
+   "domain": "Timeline and columns",
+   "outcome": "Expose an existing drawing as a hold over a frame range.",
+   "classification": "exposed",
+   "tools": [
+    "column.expose"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "timeline.cell_and_time_edits",
+   "domain": "Timeline and columns",
+   "outcome": "Write explicit drawing runs, clear cells, insert or remove time, copy or move blocks, retime intervals and replace exposed drawings over several columns at once; move columns and duplicate them with shared artwork.",
+   "classification": "exposed",
+   "tools": [
+    "cells.set",
+    "cells.clear",
+    "cells.insert",
+    "cells.remove",
+    "cells.copy",
+    "cells.retime",
+    "cells.replace",
+    "column.move",
+    "column.duplicate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "timeline.retime",
+   "domain": "Timeline and columns",
+   "outcome": "Retime a range with explicit rules for curves, effects, sound and storyboard panels.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "timeline.child_sheets",
+   "domain": "Timeline and columns",
+   "outcome": "Create, enter, edit and explode child sheets and instances with shared-definition rules.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "timeline.notes_and_annotations",
+   "domain": "Timeline and columns",
+   "outcome": "Add notes, annotation columns and reference views to the timeline.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "camera.inspect_update",
+   "domain": "Stage, camera and animation",
+   "outcome": "Read and set the active camera's resolution and physical size.",
+   "classification": "exposed",
+   "tools": [
+    "camera.inspect",
+    "camera.update"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "stage.create_peg",
+   "domain": "Stage, camera and animation",
+   "outcome": "Create a pegbar with a stable handle.",
+   "classification": "exposed",
+   "tools": [
+    "object.create"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "stage.reparent",
+   "domain": "Stage, camera and animation",
+   "outcome": "Attach an object to a parent and optional parent handle, keeping local keys or keeping world placement exactly, or by an explicit bake when exactness is impossible.",
+   "classification": "exposed",
+   "tools": [
+    "object.parent"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.discover_channels",
+   "domain": "Stage, camera and animation",
+   "outcome": "List an object's animatable channels with units, bounds and edit admission.",
+   "classification": "exposed",
+   "tools": [
+    "animation.channels"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.read_keys_and_samples",
+   "domain": "Stage, camera and animation",
+   "outcome": "Read curve keys with units and sample effective values at whole or fractional frames.",
+   "classification": "exposed",
+   "tools": [
+    "animation.keys",
+    "animation.sample"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.edit_keys",
+   "domain": "Stage, camera and animation",
+   "outcome": "Set sparse keys with explicit interpolation and controls, or delete keys after full validation.",
+   "classification": "exposed",
+   "tools": [
+    "animation.set_keys",
+    "animation.delete_keys"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.breakdown_key",
+   "domain": "Stage, camera and animation",
+   "outcome": "Insert a breakdown key into a segment, as the editor's Set Breakdown Key, keeping every other key and segment unchanged.",
+   "classification": "exposed",
+   "tools": [
+    "animation.insert_breakdown"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.move_and_duplicate_keys",
+   "domain": "Stage, camera and animation",
+   "outcome": "Move or duplicate existing keys by whole frames and a value, keeping the key order, every other key and every untouched segment unchanged.",
+   "classification": "exposed",
+   "tools": [
+    "animation.move_keys",
+    "animation.duplicate_keys"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.cyclic_curves",
+   "domain": "Stage, camera and animation",
+   "outcome": "Turn a stage channel's cycle on or off and read, sample, edit, copy, retime, save and reopen cyclic curves.",
+   "classification": "exposed",
+   "tools": [
+    "animation.set_cycle"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "animation.copy_and_retime_curves",
+   "domain": "Stage, camera and animation",
+   "outcome": "Copy a whole curve to another channel or retime one with exact rational factors.",
+   "classification": "exposed",
+   "tools": [
+    "animation.copy_curve",
+    "animation.retime_curve"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "path.manage_motion_paths",
+   "domain": "Stage, camera and animation",
+   "outcome": "Create, list, inspect, edit, rename, duplicate and delete motion paths.",
+   "classification": "exposed",
+   "tools": [
+    "motion_path.create",
+    "motion_path.list",
+    "motion_path.inspect",
+    "motion_path.update",
+    "motion_path.rename",
+    "motion_path.duplicate",
+    "motion_path.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "path.attach_to_objects",
+   "domain": "Stage, camera and animation",
+   "outcome": "Attach an object to a motion path, with optional tangent aim, and detach it again.",
+   "classification": "exposed",
+   "tools": [
+    "object.path.attach",
+    "object.path.detach"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "camera.create_and_select",
+   "domain": "Stage, camera and animation",
+   "outcome": "Create, duplicate and delete cameras and choose the active one.",
+   "classification": "exposed",
+   "tools": [
+    "camera.list",
+    "camera.create",
+    "camera.duplicate",
+    "camera.select",
+    "camera.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "stage.object_lifecycle",
+   "domain": "Stage, camera and animation",
+   "outcome": "Delete, duplicate and group stage objects, and add other object kinds.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "animation.expressions_and_file_curves",
+   "domain": "Stage, camera and animation",
+   "outcome": "Drive channels with expressions or file curves, with dependency-aware edits.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "animation.bake_and_reduce",
+   "domain": "Stage, camera and animation",
+   "outcome": "Bake or reduce curves and compare them with the original.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "animation.motion_synthesis",
+   "domain": "Stage, camera and animation",
+   "outcome": "Generate new character motion automatically from a description.",
+   "classification": "unsupported",
+   "tools": [],
+   "disposition": {
+    "kind": "unsupported",
+    "reason": "The application has no motion synthesis; it needs external content creation."
+   }
+  },
+  {
+   "id": "scene.author_editable_shot",
+   "domain": "Stage, camera and animation",
+   "outcome": "Build a shot from artwork, exposures, a camera move and an effect graph, render it, save it and reopen the package.",
+   "classification": "compositional",
+   "tools": [
+    "scene.create",
+    "level.create",
+    "drawing.create",
+    "raster.patch",
+    "column.create",
+    "column.expose",
+    "object.create",
+    "object.parent",
+    "animation.set_keys",
+    "fx.create",
+    "fx.connect",
+    "fx.parameter.set",
+    "fx.terminal.set",
+    "render.preview",
+    "render.submit",
+    "scene.save_copy",
+    "scene.open"
+   ],
+   "journey": [
+    "ci-scripts/mcp_shot.py"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.inspect_hierarchy",
+   "domain": "Rigging",
+   "outcome": "Read the stage hierarchy with handles, pivots, hook bindings and offset layers, and evaluate placements at chosen frames.",
+   "classification": "exposed",
+   "tools": [
+    "rig.inspect",
+    "rig.evaluate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.set_handles_and_pivots",
+   "domain": "Rigging",
+   "outcome": "Set an object's own handle, parent handle and stored pivot, and report the stage change.",
+   "classification": "exposed",
+   "tools": [
+    "object.handles.set",
+    "object.pivot.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.object_lifecycle",
+   "domain": "Rigging",
+   "outcome": "Duplicate a peg or a peg hierarchy with shared levels, rename stage objects, and delete a peg after a dependency preflight that refuses or re-attaches its children.",
+   "classification": "exposed",
+   "tools": [
+    "object.duplicate",
+    "object.rename",
+    "object.delete",
+    "rig.dependents"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.schematic_groups",
+   "domain": "Rigging",
+   "outcome": "Group stage objects in named, nested stage schematic groups, rename and dissolve them, without changing placement.",
+   "classification": "exposed",
+   "tools": [
+    "object.group",
+    "object.group.rename",
+    "object.ungroup",
+    "object.groups"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.manage_offset_layers",
+   "domain": "Rigging",
+   "outcome": "Add, edit and remove additive offset layers on pegs, columns and cameras.",
+   "classification": "exposed",
+   "tools": [
+    "offset_layer.create",
+    "offset_layer.update",
+    "offset_layer.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.manage_hooks",
+   "domain": "Rigging",
+   "outcome": "Read, set and delete level hooks on explicit drawings.",
+   "classification": "exposed",
+   "tools": [
+    "hook.inspect",
+    "hook.set",
+    "hook.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.cutout_character_journey",
+   "domain": "Rigging",
+   "outcome": "Build a hierarchy of pegs with handles, hooks and offset layers, animate it and check the rendered result.",
+   "classification": "compositional",
+   "tools": [
+    "rig.inspect",
+    "rig.evaluate",
+    "object.create",
+    "object.parent",
+    "hook.set",
+    "offset_layer.create",
+    "animation.set_keys",
+    "render.preview"
+   ],
+   "journey": [
+    "tools/mcp/src/native.test.ts",
+    "ci-scripts/mcp_acceptance.py::test_rig_hook_attach_renders_and_reopens",
+    "ci-scripts/mcp_acceptance.py::test_rig_layer_lifecycle_and_animation_keys"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "rig.published_controls_and_pins",
+   "domain": "Rigging",
+   "outcome": "Publish channels as controls and add pins or inverse kinematics.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "rig.skeleton_and_mesh_deformation",
+   "domain": "Rigging",
+   "outcome": "Build and edit skeletons, meshes and weights for Plastic deformation.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "rig.deformer_chains_and_bake",
+   "domain": "Rigging",
+   "outcome": "Stack deformers and bake them into vector drawings.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "rig.pose_libraries_and_retargeting",
+   "domain": "Rigging",
+   "outcome": "Save, apply and rename poses and map motion onto another rig.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "rig.automatic_inference",
+   "domain": "Rigging",
+   "outcome": "Infer a rig from artwork automatically.",
+   "classification": "unsupported",
+   "tools": [],
+   "disposition": {
+    "kind": "unsupported",
+    "reason": "The application has no automatic rig inference; it needs external content creation."
+   }
+  },
+  {
+   "id": "vector.inspect_and_select",
+   "domain": "Vector drawing",
+   "outcome": "Read strokes, their control points, art roles and style usage, select them by geometry, lasso or role into a revision-bound handle, and read their order and groups.",
+   "classification": "exposed",
+   "tools": [
+    "vector.inspect",
+    "vector.select",
+    "vector.structure"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "drawing.analysis_job",
+   "domain": "Vector drawing",
+   "outcome": "Count style usage, regions and art roles over a level as a bounded, cancellable job and read its rows.",
+   "classification": "exposed",
+   "tools": [
+    "drawing.analysis.submit",
+    "job.status",
+    "job.result"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.edit_strokes",
+   "domain": "Vector drawing",
+   "outcome": "Add, reshape and delete strokes in one atomic edit.",
+   "classification": "exposed",
+   "tools": [
+    "vector.edit"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.fill_region",
+   "domain": "Vector drawing",
+   "outcome": "Assign a style to the closed region containing a point.",
+   "classification": "exposed",
+   "tools": [
+    "vector.fill"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.transform_drawing",
+   "domain": "Vector drawing",
+   "outcome": "Apply an affine transform to a whole drawing with an explicit thickness rule.",
+   "classification": "exposed",
+   "tools": [
+    "vector.transform"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.edit_opacity",
+   "domain": "Vector drawing",
+   "outcome": "Read and set stroke opacity and opacity envelopes.",
+   "classification": "exposed",
+   "tools": [
+    "vector.opacity.inspect",
+    "vector.opacity.set",
+    "vector.opacity.profile.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.groups_and_order",
+   "domain": "Vector drawing",
+   "outcome": "Group adjacent strokes, ungroup them and reorder strokes or groups.",
+   "classification": "exposed",
+   "tools": [
+    "vector.group.create",
+    "vector.group.remove",
+    "vector.order.move"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.text_outlines",
+   "domain": "Vector drawing",
+   "outcome": "Create editable vector outlines from installed fonts and list the fonts available.",
+   "classification": "optional",
+   "tools": [
+    "vector.text.create",
+    "text.fonts"
+   ],
+   "requires": "the fonts installed on the worker host",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.region_tools",
+   "domain": "Vector drawing",
+   "outcome": "Select by region, split, join, align, distribute and deform strokes.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "vector.brush_strokes",
+   "domain": "Vector drawing",
+   "outcome": "Draw deterministic sampled brush and eraser strokes with brush presets.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "vector.gradient_styles",
+   "domain": "Vector drawing",
+   "outcome": "Edit gradient styles and animate styles.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "vector.inbetween_and_morph",
+   "domain": "Vector drawing",
+   "outcome": "Author correspondence and generate vector inbetweens.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W6"
+   }
+  },
+  {
+   "id": "raster.read_and_patch_pixels",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Read pixels and replace a bounded rectangle of RGBA or Toonz raster pixels atomically.",
+   "classification": "exposed",
+   "tools": [
+    "raster.read_pixels",
+    "raster.patch"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "raster.png_exchange",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Import an 8-bit PNG as a new drawing and export a drawing to a new PNG.",
+   "classification": "exposed",
+   "tools": [
+    "raster.import_png",
+    "raster.export_png"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "palette.read",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Read a level palette's styles, animation keys, pages and membership.",
+   "classification": "exposed",
+   "tools": [
+    "palette.inspect",
+    "palette.pages"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "palette.edit_styles",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Create, edit, rename, copy and move solid styles with stable identifiers.",
+   "classification": "exposed",
+   "tools": [
+    "palette.create_style",
+    "palette.update_style",
+    "palette.rename_style",
+    "palette.clone_style",
+    "palette.style.move"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "palette.manage_pages",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Create, rename, move and remove empty palette pages.",
+   "classification": "exposed",
+   "tools": [
+    "palette.page.create",
+    "palette.page.rename",
+    "palette.page.move",
+    "palette.page.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "palette.other_style_types",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Create textured, gradient and special styles, delete styles with a remap, and use reference images.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "raster.tools_and_selections",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Paint, erase, fill and transform raster areas with selections and masks.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "raster.conversion_jobs",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Vectorize, rasterize and convert levels as cancellable jobs.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "raster.scan_cleanup",
+   "domain": "Raster artwork and palettes",
+   "outcome": "Clean up scanned drawings and autocenter them, keeping the originals.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W5"
+   }
+  },
+  {
+   "id": "fx.discover_types",
+   "domain": "Effects",
+   "outcome": "Discover the admitted effect types with parameters, ranges, ports and replay class.",
+   "classification": "exposed",
+   "tools": [
+    "fx.catalog"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.inspect_graph",
+   "domain": "Effects",
+   "outcome": "Read the effect graph, generator columns, ports, terminals and current output.",
+   "classification": "exposed",
+   "tools": [
+    "fx.graph"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.build_graph",
+   "domain": "Effects",
+   "outcome": "Create and delete effects, connect and disconnect ports, set the terminal link and select the output.",
+   "classification": "exposed",
+   "tools": [
+    "fx.create",
+    "fx.delete",
+    "fx.connect",
+    "fx.disconnect",
+    "fx.terminal.set",
+    "fx.output.select"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.edit_parameters",
+   "domain": "Effects",
+   "outcome": "Read parameters and set values or linear keys with native range checks.",
+   "classification": "exposed",
+   "tools": [
+    "fx.parameter.get",
+    "fx.parameter.set",
+    "fx.parameter.set_key"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.manage_nodes",
+   "domain": "Effects",
+   "outcome": "Rename, enable or bypass and duplicate effects.",
+   "classification": "exposed",
+   "tools": [
+    "fx.rename",
+    "fx.enabled.set",
+    "fx.duplicate"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.presets",
+   "domain": "Effects",
+   "outcome": "Save an effect's state as a preset package and apply it to an effect of the same type.",
+   "classification": "exposed",
+   "tools": [
+    "fx.preset.save",
+    "fx.preset.apply"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.macros",
+   "domain": "Effects",
+   "outcome": "Group connected effects into a macro and expand it again.",
+   "classification": "exposed",
+   "tools": [
+    "fx.macro.create",
+    "fx.macro.expand"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.graph_deltas",
+   "domain": "Effects",
+   "outcome": "See what each write changed in the effect graph, and the net change since any recent revision.",
+   "classification": "exposed",
+   "tools": [
+    "fx.graph.delta"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.schematic_groups_and_layout",
+   "domain": "Effects",
+   "outcome": "Group, ungroup and name effects in the schematic and set node positions.",
+   "classification": "exposed",
+   "tools": [
+    "fx.group.create",
+    "fx.group.remove",
+    "fx.group.rename",
+    "fx.layout.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.finishing_recipes",
+   "domain": "Effects",
+   "outcome": "Build light wrap, rim light, exposure grade, cross dissolve and iris wipe from listed recipes of ordinary tool calls.",
+   "classification": "compositional",
+   "tools": [
+    "fx.recipe.list",
+    "fx.create",
+    "fx.connect",
+    "fx.parameter.set",
+    "fx.parameter.set_key",
+    "fx.terminal.set"
+   ],
+   "journey": [
+    "ci-scripts/mcp_acceptance.py::test_recipe_light_wrap_composite_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_backlit_rim_light_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_exposure_grade_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_cross_dissolve_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_iris_wipe_runs_literally"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "recipes.shot_rig_delivery",
+   "domain": "Stage, camera and animation",
+   "outcome": "Assemble a dolly shot, rig a pendulum swing and deliver a frame sequence from listed recipes of ordinary tool calls, each with a preview the client reads before it reports success.",
+   "classification": "compositional",
+   "tools": [
+    "fx.recipe.list",
+    "scene.create",
+    "level.import",
+    "column.create",
+    "column.expose",
+    "object.create",
+    "object.parent",
+    "object.pivot.set",
+    "offset_layer.create",
+    "animation.set_keys",
+    "animation.insert_breakdown",
+    "animation.set_cycle",
+    "animation.sample",
+    "scene.validate",
+    "scene.save_copy",
+    "render.preflight",
+    "render.preview",
+    "render.submit",
+    "job.status",
+    "job.result",
+    "artifact.read"
+   ],
+   "journey": [
+    "ci-scripts/mcp_acceptance.py::test_recipe_dolly_shot_assembly_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_pendulum_rig_runs_literally",
+    "ci-scripts/mcp_acceptance.py::test_recipe_frame_sequence_delivery_runs_literally"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.remaining_builtin_types",
+   "domain": "Effects",
+   "outcome": "Author with the native effect types beyond the admitted set.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W8"
+   }
+  },
+  {
+   "id": "fx.linked_parameters",
+   "domain": "Effects",
+   "outcome": "Link or unlink the parameters of effects of one type, and set the sources of dynamic port groups.",
+   "classification": "exposed",
+   "tools": [
+    "fx.link.add",
+    "fx.link.remove",
+    "fx.port_group.set"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "fx.expressions_and_particles",
+   "domain": "Effects",
+   "outcome": "Author expression-driven effects and deterministic particle systems with caches.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W8"
+   }
+  },
+  {
+   "id": "fx.three_dimensional_and_color",
+   "domain": "Effects",
+   "outcome": "Place supported 3D assets, lights and surfaces, and keep high-precision color and LUT semantics.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W8"
+   }
+  },
+  {
+   "id": "fx.installed_extensions",
+   "domain": "Effects",
+   "outcome": "Use installed effect plugins and develop effects in isolation.",
+   "classification": "optional",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W11"
+   }
+  },
+  {
+   "id": "render.read_capabilities",
+   "domain": "Rendering and review",
+   "outcome": "Report the render profiles, limits and media support of the worker.",
+   "classification": "exposed",
+   "tools": [
+    "render.capabilities"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.preflight",
+   "domain": "Rendering and review",
+   "outcome": "Check a render request against every check a render job applies and report each failure and the effective output, without starting a job.",
+   "classification": "exposed",
+   "tools": [
+    "render.preflight"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.preview_frame",
+   "domain": "Rendering and review",
+   "outcome": "Render one frame from an immutable snapshot, poll the job and read the image.",
+   "classification": "exposed",
+   "tools": [
+    "render.preview",
+    "job.status",
+    "job.result",
+    "artifact.read"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.png_sequence",
+   "domain": "Rendering and review",
+   "outcome": "Render a bounded PNG sequence as a job that is verified before it is published.",
+   "classification": "exposed",
+   "tools": [
+    "render.submit",
+    "job.status",
+    "job.result"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "job.cancel_job",
+   "domain": "Rendering and review",
+   "outcome": "Request cancellation of a render job and poll it to a terminal state.",
+   "classification": "exposed",
+   "tools": [
+    "job.cancel",
+    "job.status"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "job.list_jobs",
+   "domain": "Rendering and review",
+   "outcome": "List the worker's retained jobs newest first, filtered by document, kind and state, and read a finished job's result.",
+   "classification": "exposed",
+   "tools": [
+    "job.list",
+    "job.status",
+    "job.result"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.mp4_movie",
+   "domain": "Rendering and review",
+   "outcome": "Render an opaque MP4 movie with verified metadata.",
+   "classification": "optional",
+   "tools": [
+    "render.submit"
+   ],
+   "requires": "ffmpeg and ffprobe granted at launch",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "assistance.neural_preview",
+   "domain": "Rendering and review",
+   "outcome": "Render a Neural Style preview of a frame from a captured reference.",
+   "classification": "optional",
+   "tools": [
+    "assistance.neural.preview",
+    "assistance.inspect"
+   ],
+   "requires": "the installed Neural Style runtime and models",
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.contact_sheets_and_compare",
+   "domain": "Rendering and review",
+   "outcome": "Compare before and after renders and produce contact sheets.",
+   "classification": "exposed",
+   "tools": [
+    "review.compare.submit"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.publish_to_output_root",
+   "domain": "Rendering and review",
+   "outcome": "Publish completed renders' verified frames, movies and EXR files into a granted output root as a delivery directory with a manifest, after a preflight that names every file and check, never replacing anything and reporting a failure file by file.",
+   "classification": "exposed",
+   "tools": [
+    "delivery.preflight",
+    "delivery.publish"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "render.other_delivery_formats",
+   "domain": "Rendering and review",
+   "outcome": "Export other movie, image and interchange formats with a fidelity report.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W10"
+   }
+  },
+  {
+   "id": "render.preflight_and_gl_probe",
+   "domain": "Rendering and review",
+   "outcome": "Check graphics readiness, missing assets and codec availability before a job starts.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W1"
+   }
+  },
+  {
+   "id": "render.job_registry",
+   "domain": "Rendering and review",
+   "outcome": "List and reconnect to jobs with a common status model.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W1"
+   }
+  },
+  {
+   "id": "audio.import_and_inspect",
+   "domain": "Production assets and timing",
+   "outcome": "Import WAV or AIFF sound as a source and inspect sources, columns and clips.",
+   "classification": "exposed",
+   "tools": [
+    "audio.import",
+    "audio.inspect"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "audio.place_clips",
+   "domain": "Production assets and timing",
+   "outcome": "Create sound columns, set their volume, and place, move and remove clips.",
+   "classification": "exposed",
+   "tools": [
+    "audio.column.create",
+    "audio.column.set_volume",
+    "audio.clip.place",
+    "audio.clip.update",
+    "audio.clip.remove"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "audio.mixdown",
+   "domain": "Production assets and timing",
+   "outcome": "Write an exact offline WAV mix of a frame range.",
+   "classification": "exposed",
+   "tools": [
+    "audio.mixdown"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "storyboard.panels",
+   "domain": "Production assets and timing",
+   "outcome": "List, create, edit, move and delete storyboard panels with captions, notes and colors.",
+   "classification": "exposed",
+   "tools": [
+    "storyboard.panels",
+    "storyboard.panel.create",
+    "storyboard.panel.update",
+    "storyboard.panel.delete"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "lipsync.import_and_apply",
+   "domain": "Production assets and timing",
+   "outcome": "Import Papagayo or Rhubarb timing, inspect its cues and apply it to a drawing column at the scene rate.",
+   "classification": "exposed",
+   "tools": [
+    "lipsync.import",
+    "lipsync.inspect",
+    "lipsync.apply"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "library.read_shared_roots",
+   "domain": "Production assets and timing",
+   "outcome": "Read granted studio palettes and Library templates and pose sets, with identities and dependencies.",
+   "classification": "exposed",
+   "tools": [
+    "shared.roots",
+    "studio_palette.list",
+    "studio_palette.inspect",
+    "studio_palette.find",
+    "library.list",
+    "library.inspect",
+    "library.thumbnail"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "audio.wider_formats",
+   "domain": "Production assets and timing",
+   "outcome": "Accept AIFC, extensible WAV, 32-bit integer PCM and 32-bit AIFF, which are refused today.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "lipsync.run_analysis",
+   "domain": "Production assets and timing",
+   "outcome": "Run a mouth-shape analysis on sound and review it before applying.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "storyboard.reorder_and_retime",
+   "domain": "Production assets and timing",
+   "outcome": "Reorder storyboard sections with explicit synchronized timing.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "library.publish_and_insert",
+   "domain": "Production assets and timing",
+   "outcome": "Insert Library items into a scene and publish templates, poses and studio palettes.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "reference.images",
+   "domain": "Production assets and timing",
+   "outcome": "Manage reference images and external reference viewers.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "production.project_asset_lifecycle",
+   "domain": "Production assets and timing",
+   "outcome": "Consolidate, relink and collect production assets without hidden shared-file effects.",
+   "classification": "not_exposed",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W7"
+   }
+  },
+  {
+   "id": "production.devices_and_capture",
+   "domain": "Production assets and timing",
+   "outcome": "Acquire from scanners and cameras, run stop motion and record audio.",
+   "classification": "optional",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W11"
+   }
+  },
+  {
+   "id": "production.external_generation",
+   "domain": "Production assets and timing",
+   "outcome": "Use separately authorized external image, video and audio generation and multi-shot sequences.",
+   "classification": "optional",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W11"
+   }
+  },
+  {
+   "id": "assistance.cadmium",
+   "domain": "Production assets and timing",
+   "outcome": "Prepare sources, read proposals and apply reviewed colorization.",
+   "classification": "optional",
+   "tools": [],
+   "disposition": {
+    "kind": "planned",
+    "milestone": "W9"
+   }
+  },
+  {
+   "id": "admin.plugins_and_models",
+   "domain": "Administration",
+   "outcome": "Install, update or remove plugins and models.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Needs separate authority and an impact preview; ordinary creative tools never fall back to it."
+   }
+  },
+  {
+   "id": "admin.recovery_and_cache",
+   "domain": "Administration",
+   "outcome": "Restore recovery data, evict media caches and delete logs.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Needs separate authority and an impact preview."
+   }
+  },
+  {
+   "id": "admin.preferences_and_workspace",
+   "domain": "Administration",
+   "outcome": "Change application preferences, shortcuts and rooms.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Application settings must not silently change deterministic generation."
+   }
+  },
+  {
+   "id": "admin.version_control_and_publishing",
+   "domain": "Administration",
+   "outcome": "Run repository and publishing operations against shared storage.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Needs separate authority and external-write contracts."
+   }
+  },
+  {
+   "id": "admin.lifecycle",
+   "domain": "Administration",
+   "outcome": "Quit or restart the editor.",
+   "classification": "restricted",
+   "tools": [],
+   "disposition": {
+    "kind": "restricted",
+    "reason": "Needs separate authority; a live session stops through the editor's own action."
+   }
+  },
+  {
+   "id": "session.durable_receipts",
+   "domain": "Session and capability discovery",
+   "outcome": "Recover the outcome of a write after a worker restart or crash by its operation identifier, and list writes whose outcome is unresolved.",
+   "classification": "exposed",
+   "tools": [
+    "operation.status",
+    "operation.list",
+    "journal.status"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "timeline.column_kinds",
+   "domain": "Timeline and columns",
+   "outcome": "See every native column kind with the tool that creates, edits and deletes it, or why it is unavailable.",
+   "classification": "exposed",
+   "tools": [
+    "column.kinds"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "level.intake_png_sequences",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Preflight PNG files or a numbered sequence (formats, sizes, gaps, alpha, DPI, collisions), import them as one level with an explicit copy or link choice, and read the import's provenance.",
+   "classification": "exposed",
+   "tools": [
+    "intake.preflight",
+    "intake.import",
+    "intake.provenance"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "vector.export_svg",
+   "domain": "Levels, cast and drawings",
+   "outcome": "Export one vector drawing to an SVG file within a stated verified subset, refusing content the subset does not cover.",
+   "classification": "exposed",
+   "tools": [
+    "vector.export_svg"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "scene.editable_import",
+   "domain": "Projects and scenes",
+   "outcome": "Import a user scene as an editable copy: plan every loss by kind before consent, convert it in its scene host and open the verified package, the source left unchanged and attached.",
+   "classification": "exposed",
+   "tools": [
+    "scene.import_editable",
+    "scene.import_plan"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  },
+  {
+   "id": "job.discard_job",
+   "domain": "Rendering and review",
+   "outcome": "Release a finished job: remove its private files and artifacts and free its retention slot, so a long-lived worker keeps rendering.",
+   "classification": "exposed",
+   "tools": [
+    "job.discard",
+    "job.list"
+   ],
+   "disposition": {
+    "kind": "implemented"
+   }
+  }
+ ]
+}

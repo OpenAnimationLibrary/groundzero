@@ -1,6 +1,8 @@
 
 
 #include "tundo.h"
+#include "tmutationgeneration.h"
+#include <QScopedValueRollback>
 #include "traster.h"
 #include "timage.h"
 #include "tvectorimage.h"
@@ -155,6 +157,9 @@ struct TUndoManager::TUndoManagerImp {
   UndoListIterator m_current;
   bool m_skipped;
   bool m_inUndoRedo;
+  bool m_busy = false;
+  std::uint64_t m_changeGeneration = 0;
+  std::uint64_t m_resetGeneration = 0;
   int m_undoMemorySize;  // in bytes
 
   std::vector<TUndoBlock *> m_blockStack;
@@ -202,6 +207,18 @@ TUndoManager *TUndoManager::manager() {
 //=============================================================================
 
 TUndoManager::TUndoManager() : m_imp(new TUndoManagerImp) {}
+
+std::uint64_t TUndoManager::changeGeneration() const noexcept {
+  return m_imp->m_changeGeneration;
+}
+
+std::uint64_t TUndoManager::resetGeneration() const noexcept {
+  return m_imp->m_resetGeneration;
+}
+
+bool TUndoManager::isBusy() const noexcept {
+  return m_imp->m_busy || m_imp->m_inUndoRedo || !m_imp->m_blockStack.empty();
+}
 
 //-----------------------------------------------------------------------------
 
@@ -273,6 +290,9 @@ void TUndoManager::TUndoManagerImp::doAdd(TUndo *undo) {
 //-----------------------------------------------------------------------------
 
 void TUndoManager::beginBlock() {
+  QScopedValueRollback<bool> busy(m_imp->m_busy, true);
+  if (m_imp->m_current != m_imp->m_undoList.end())
+    TMutation::advanceGeneration(m_imp->m_changeGeneration);
   m_imp->discardRedoHistory();
 
   TUndoBlock *undoBlock = new TUndoBlock;
@@ -283,11 +303,13 @@ void TUndoManager::beginBlock() {
 //-----------------------------------------------------------------------------
 
 void TUndoManager::endBlock() {
+  QScopedValueRollback<bool> busy(m_imp->m_busy, true);
   // vogliamo fare anche resize del vector ???
   assert(m_imp->m_blockStack.empty() == false);
   TUndoBlock *undoBlock = m_imp->m_blockStack.back();
   m_imp->m_blockStack.pop_back();
   if (undoBlock->getUndoCount() > 0) {
+    TMutation::advanceGeneration(m_imp->m_changeGeneration);
     undoBlock->setLast();
     m_imp->add(undoBlock);
     emit historyChanged();
@@ -302,11 +324,13 @@ void TUndoManager::endBlock() {
 bool TUndoManager::undo() {
   assert(m_imp->m_blockStack.empty());
   if (m_imp->m_inUndoRedo) return false;
+  QScopedValueRollback<bool> busy(m_imp->m_busy, true);
 
   m_imp->m_inUndoRedo = true;
   bool changed        = false;
 
   while (m_imp->m_current != m_imp->m_undoList.begin()) {
+    TMutation::advanceGeneration(m_imp->m_changeGeneration);
     m_imp->m_skipped = false;
     --m_imp->m_current;
     (*m_imp->m_current)->undo();
@@ -326,11 +350,13 @@ bool TUndoManager::undo() {
 bool TUndoManager::redo() {
   assert(m_imp->m_blockStack.empty());
   if (m_imp->m_inUndoRedo) return false;
+  QScopedValueRollback<bool> busy(m_imp->m_busy, true);
 
   m_imp->m_inUndoRedo = true;
   bool changed        = false;
 
   while (m_imp->m_current != m_imp->m_undoList.end()) {
+    TMutation::advanceGeneration(m_imp->m_changeGeneration);
     m_imp->m_skipped = false;
     (*m_imp->m_current)->redo();
     ++m_imp->m_current;
@@ -374,6 +400,8 @@ void TUndoManager::setUndoMemorySize(int memorySyze) {
 void TUndoManager::add(TUndo *undo) {
   assert(undo);
   if (!undo) return;
+  QScopedValueRollback<bool> busy(m_imp->m_busy, true);
+  TMutation::advanceGeneration(m_imp->m_changeGeneration);
 
   m_imp->add(undo);
   Q_EMIT historyChanged();
@@ -385,6 +413,9 @@ void TUndoManager::add(TUndo *undo) {
 //-----------------------------------------------------------------------------
 
 void TUndoManager::reset() {
+  QScopedValueRollback<bool> busy(m_imp->m_busy, true);
+  TMutation::advanceGeneration(m_imp->m_changeGeneration);
+  TMutation::advanceGeneration(m_imp->m_resetGeneration);
   assert(m_imp->m_blockStack.empty());
   m_imp->m_blockStack.clear();
   UndoList &lst = m_imp->m_undoList;
@@ -397,6 +428,7 @@ void TUndoManager::reset() {
 //-----------------------------------------------------------------------------
 
 void TUndoManager::popUndo(int n, bool forward) {
+  QScopedValueRollback<bool> busy(m_imp->m_busy, true);
   if (!forward) {
     if (m_imp->m_blockStack.empty()) {
       if (n == -1) {
@@ -406,6 +438,7 @@ void TUndoManager::popUndo(int n, bool forward) {
       }
       if (m_imp->m_undoList.empty() || n <= 0) return;
       if (m_imp->m_current == m_imp->m_undoList.end()) {
+        TMutation::advanceGeneration(m_imp->m_changeGeneration);
         int i;
         for (i = 0; i < n && m_imp->m_current != m_imp->m_undoList.begin();
              i++) {
@@ -418,6 +451,7 @@ void TUndoManager::popUndo(int n, bool forward) {
         TUndo *undo = *m_imp->m_current;
         UndoListIterator start, end = m_imp->m_current;
         if (end == m_imp->m_undoList.begin()) return;
+        TMutation::advanceGeneration(m_imp->m_changeGeneration);
 
         int i;
         for (i = 0; i < n && m_imp->m_current != m_imp->m_undoList.begin(); i++)
@@ -434,12 +468,16 @@ void TUndoManager::popUndo(int n, bool forward) {
         m_imp->m_current = m_imp->m_undoList.begin();
         while (*m_imp->m_current != undo) m_imp->m_current++;
       }
-    } else
+    } else {
+      if (m_imp->m_blockStack.back()->getUndoCount() > 0 && (n == -1 || n > 0))
+        TMutation::advanceGeneration(m_imp->m_changeGeneration);
       m_imp->m_blockStack.back()->popUndo(n);
+    }
     return;
   }
 
   if (m_imp->m_current == m_imp->m_undoList.end()) return;
+  TMutation::advanceGeneration(m_imp->m_changeGeneration);
   if (m_imp->m_blockStack.empty()) {
     UndoListIterator end, start = m_imp->m_current++;
     if (n == -1)
