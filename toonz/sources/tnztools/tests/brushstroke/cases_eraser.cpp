@@ -82,9 +82,9 @@ void addVectorEraserCases(std::vector<Case>& cases) {
                      vectorEraser(f);
                      f.setEnumValue("Type:", L"Rectangular");
                      f.setBool("Invert", true);
-                     Play small;
-                     small.scale = 0.4;
-                     paint(f, r, "line", small);
+                     Play inner;
+                     inner.scale = 0.4;
+                     paint(f, r, "line", inner);
                    }});
   cases.push_back({"erase_vector_freehand", [](Fixture& f, Record& r) {
                      vectorEraser(f);
