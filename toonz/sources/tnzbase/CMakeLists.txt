@@ -236,7 +236,7 @@ if(BUILD_RELIABILITY_TESTS)
     target_link_libraries(externfx_process_test PRIVATE tnzbase tnzcore image
         Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME externfx_process COMMAND externfx_process_test)
-    set_tests_properties(externfx_process PROPERTIES TIMEOUT 30)
+    set_tests_properties(externfx_process PROPERTIES TIMEOUT 30 LABELS regression)
     if(APPLE)
         set_tests_properties(externfx_process PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=cocoa")
     elseif(WIN32)

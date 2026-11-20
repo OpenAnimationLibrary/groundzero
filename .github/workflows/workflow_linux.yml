@@ -77,8 +77,8 @@ jobs:
     - name: Verify the no-PII hook resolves commit repositories
       run: python3 -m unittest discover -s ci-scripts/tests -p test_no_pii.py -v
 
-    - name: Verify Unicode regression reporting
-      run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
+    - name: Verify regression runner and test registration
+      run: python3 -m unittest discover -s ci-scripts/tests -p "test_regression_*.py" -v
 
     - name: Verify isolated image-cache leak qualification contracts
       run: python3 -m unittest discover -s ci-scripts/tests -p test_image_cache_lsan.py -v
@@ -201,7 +201,7 @@ jobs:
       working-directory: toonz/build
       run: |
         set -o pipefail
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ 2>&1 | tee ui-tests-output.txt
 
     - name: Test native application integration
       id: ui_integration
@@ -439,7 +439,7 @@ jobs:
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}
       working-directory: toonz/build
       run: |
-        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py castworkflow rasterallocation rasterrelease ropmin rasterpaste inputmodifier timagecache childstack_lifetime centerline_colors levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level malformed_scene spectrum swap24 malformed_palette subxsheet_output level_load_report aiff_reader byteswap soundsample_conversion wav_reader angularsubdivision erodilate rasterfx_bbox cubicbezier settingsownership groupreorder
+        QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a python3 ../../ci-scripts/run_regression_tests.py --label regression
 
     - name: Qualify image-cache builder release with LeakSanitizer
       if: ${{ !cancelled() && steps.application_build.outcome == 'success' }}

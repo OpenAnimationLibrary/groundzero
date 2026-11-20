@@ -220,7 +220,7 @@ jobs:
           set -o pipefail
           DYLD_LIBRARY_PATH="$(find "$PWD" -name '*.dylib' -exec dirname {} \; | sort -u | paste -sd: -)${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
           export DYLD_LIBRARY_PATH
-          QT_QPA_PLATFORM=offscreen python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ ui_vector_opacity ui_vector_profilemanager ui_vector_gradientanimation ui_vector_svgopacity ui_vector_pliprofile ui_vector_morphworkflow ui_vector_contour_outline ui_mediacache ui_functioncurveoperations ui_functionworkflow ui_commandpalette ui_widgetinspector ui_themeapplication ui_themeproperties ui_uitranslations ui_languagemanager ui_messagehistory ui_diagnosticswriter ui_diagnosticsservice 2>&1 | tee ui-tests-output.txt
+          QT_QPA_PLATFORM=offscreen python3 ../../ci-scripts/run_regression_tests.py --report ui-tests.xml --include-prefix ui_ 2>&1 | tee ui-tests-output.txt
       - name: Report native UI failures
         if: ${{ failure() && steps.ui_tests.outcome == 'failure' }}
         run: python3 ci-scripts/report_ui_tests.py toonz/build/ui-tests-output.txt
@@ -247,8 +247,8 @@ jobs:
       - name: Verify bounded desktop GL launcher
         run: python3 -m unittest discover -s ci-scripts/tests -p test_windows_gl_test.py -v
 
-      - name: Verify Unicode regression reporting
-        run: python3 -m unittest discover -s ci-scripts/tests -p test_regression_reporting.py -v
+      - name: Verify regression runner and test registration
+        run: python3 -m unittest discover -s ci-scripts/tests -p "test_regression_*.py" -v
 
       - name: Test SeExpr native integration
         id: seexpr_tests
@@ -379,7 +379,7 @@ jobs:
             fi
           done
           export DYLD_LIBRARY_PATH="$runtime_lib_dir"
-          python3 ../../ci-scripts/run_regression_tests.py castworkflow childstack_lifetime centerline_colors rasterallocation rasterrelease ropmin rasterpaste inputmodifier timagecache levelselection save_transaction movierenderqueue levelupdater_abort trenderer_startup renderoutputbudget executor_submission deformer autopatchoutline externfx_process plugin_probe_single plugin_probe_empty compressed_stream scenebench fxrender ffmpeg_public tiio_ffmpeg tiio_psd tiio_exr_level malformed_scene spectrum swap24 malformed_palette subxsheet_output level_load_report aiff_reader byteswap soundsample_conversion wav_reader angularsubdivision erodilate rasterfx_bbox cubicbezier settingsownership groupreorder
+          python3 ../../ci-scripts/run_regression_tests.py --label regression
 
       # Retried like the artist workflow evidence upload
       - name: Upload reliability diagnostics

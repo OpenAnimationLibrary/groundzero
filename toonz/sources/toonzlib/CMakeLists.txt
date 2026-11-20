@@ -491,6 +491,7 @@ if(BUILD_DEFORMER_TESTS)
     add_executable(deformer_test tests/deformer_test.cpp)
     target_link_libraries(deformer_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME deformer COMMAND deformer_test)
+    set_tests_properties(deformer PROPERTIES LABELS regression)
 endif()
 
 # Optional regression target for the Photoshop brush (ABR) reader.
@@ -686,6 +687,7 @@ if(BUILD_STREAM_TESTS)
     add_executable(compressed_stream_test tests/compressed_stream_test.cpp)
     target_link_libraries(compressed_stream_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME compressed_stream COMMAND compressed_stream_test)
+    set_tests_properties(compressed_stream PROPERTIES LABELS regression)
 endif()
 
 # Optional regression target for the scene checker (scenechecker.h): each
@@ -703,13 +705,13 @@ if(BUILD_RELIABILITY_TESTS)
     target_link_libraries(childstack_lifetime_test PRIVATE
         toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME childstack_lifetime COMMAND childstack_lifetime_test)
-    set_tests_properties(childstack_lifetime PROPERTIES TIMEOUT 60)
+    set_tests_properties(childstack_lifetime PROPERTIES TIMEOUT 60 LABELS regression)
 
     add_executable(centerline_colors_test tests/centerline_colors_test.cpp)
     target_link_libraries(centerline_colors_test PRIVATE
         toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME centerline_colors COMMAND centerline_colors_test)
-    set_tests_properties(centerline_colors PROPERTIES TIMEOUT 60)
+    set_tests_properties(centerline_colors PROPERTIES TIMEOUT 60 LABELS regression)
 
     add_executable(save_transaction_test tests/save_transaction_test.cpp)
     target_link_libraries(save_transaction_test PRIVATE
@@ -725,16 +727,17 @@ if(BUILD_RELIABILITY_TESTS)
             VERBATIM)
     endif()
     add_test(NAME save_transaction COMMAND save_transaction_test)
-    set_tests_properties(save_transaction PROPERTIES TIMEOUT 120)
+    set_tests_properties(save_transaction PROPERTIES TIMEOUT 120 LABELS regression)
 
     add_executable(movierenderqueue_test tests/movierenderqueue_test.cpp)
     add_test(NAME movierenderqueue COMMAND movierenderqueue_test)
+    set_tests_properties(movierenderqueue PROPERTIES LABELS regression)
 
     add_executable(levelupdater_abort_test tests/levelupdater_abort_test.cpp)
     target_link_libraries(levelupdater_abort_test PRIVATE
         toonzlib tnzbase tnzcore image Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME levelupdater_abort COMMAND levelupdater_abort_test)
-    set_tests_properties(levelupdater_abort PROPERTIES TIMEOUT 120)
+    set_tests_properties(levelupdater_abort PROPERTIES TIMEOUT 120 LABELS regression)
 endif()
 
 # Optional benchmark of scene save and load (master plan E6, see
@@ -745,7 +748,7 @@ if(BUILD_SCENEBENCH_TESTS)
     add_executable(scenebench_test tests/scenebench_test.cpp)
     target_link_libraries(scenebench_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME scenebench COMMAND scenebench_test --repeat 3)
-    set_tests_properties(scenebench PROPERTIES TIMEOUT 900)
+    set_tests_properties(scenebench PROPERTIES TIMEOUT 900 LABELS regression)
 endif()
 
 if(BUILD_SCRIPT_TESTS)
@@ -788,6 +791,7 @@ if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)
     add_executable(castworkflow_test tests/castworkflow_test.cpp)
     target_link_libraries(castworkflow_test PRIVATE toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME castworkflow COMMAND castworkflow_test)
+    set_tests_properties(castworkflow PROPERTIES LABELS regression)
 endif()
 
 if(BUILD_UI_PORT_TESTS OR BUILD_TESTS)

@@ -1,0 +1,66 @@
+# Registered CTest tests that ci-scripts/run_regression_tests.py does not run, and why.
+# A test is run by that script if it has LABELS regression or a name starting with ui_.
+# Each line is a name (or a glob such as celfx_*) followed by the reason.
+# ci-scripts/tests/test_regression_registration.py checks that every registered test
+# is run or listed here, and that no line here is out of date.
+
+celfx_* run by the cel effect steps (ctest -R ^celfx_) of the Linux and Windows build workflows and by tests_linux.yml
+seexpr_* run by the SeExpr steps (ctest -R ^seexpr_) of the three build workflows and by seexpr.yml
+cadmium_* run by the Cadmium steps (ctest -R ^cadmium_) of the Linux and Windows build workflows
+particlecache_* run by the particle cache steps (ctest -R ^particlecache_) of the three build workflows
+fuzz_* file loader fuzz tests, run by the full ctest of tests_linux.yml
+
+abrparser run by the full ctest of tests_linux.yml only
+artlayer run by the full ctest of tests_linux.yml only
+aspectexport run by the full ctest of tests_linux.yml only
+atlasjson run by the full ctest of tests_linux.yml only
+atlaspacker run by the full ctest of tests_linux.yml only
+automatte run by the full ctest of tests_linux.yml only
+bilineardeform run by the full ctest of tests_linux.yml only
+brushpaintmode run by the full ctest of tests_linux.yml only
+cameradepth run by the full ctest of tests_linux.yml only
+cameraguide run by the full ctest of tests_linux.yml only
+colourscript run by the full ctest of tests_linux.yml only
+columncoloreffect run by the full ctest of tests_linux.yml only
+distributeutil run by the full ctest of tests_linux.yml only
+envelopelayout run by the full ctest of tests_linux.yml only
+fluidwidth run by the full ctest of tests_linux.yml only
+framestrips run by the full ctest of tests_linux.yml only
+ghostfade run by the full ctest of tests_linux.yml only
+glbanimationdata run by the GLB loader and renderer step of workflow_linux.yml (standalone build)
+glblighting run by the GLB loader and renderer step of workflow_linux.yml (standalone build)
+glbloader run by the GLB loader and renderer step of workflow_linux.yml (standalone build)
+glbpose run by the GLB loader and renderer step of workflow_linux.yml (standalone build)
+glbrenderer run by the GLB loader and renderer step of workflow_linux.yml (standalone build)
+gradienthandles run by the full ctest of tests_linux.yml only
+libraryitems run by the full ctest of tests_linux.yml only
+lightshading run by the full ctest of tests_linux.yml only
+lottieexport run by the full ctest of tests_linux.yml only
+lottiemath run by the full ctest of tests_linux.yml only
+lut3dbake run by the full ctest of tests_linux.yml only
+motionarc run by the full ctest of tests_linux.yml only
+motionpreset run by the full ctest of tests_linux.yml only
+multiplanedepth run by the full ctest of tests_linux.yml only
+openexraovfx run by the full ctest of tests_linux.yml only
+outlineview run by the full ctest of tests_linux.yml only
+pegbarguide run by the full ctest of tests_linux.yml only
+pluginmanager run by the plugin manager steps of workflow_linux.yml (standalone build)
+posethumbnail run by the full ctest of tests_linux.yml only
+processprogress run by the full ctest of tests_linux.yml only
+purerefboard run by the pure reference board step of workflow_linux.yml (standalone build)
+pythonengine run by the full ctest of tests_linux.yml only
+rastertext run by the full ctest of tests_linux.yml only
+referencecolormatch run by the particle cache steps of the three build workflows (ctest -R ^referencecolormatch$)
+rigmapping run by the full ctest of tests_linux.yml only
+scenechecker run by the full ctest of tests_linux.yml only
+scriptengine run by the full ctest of tests_linux.yml only
+spineexport run by the full ctest of tests_linux.yml only
+stageobjectspaste run by the full ctest of tests_linux.yml only
+tglbatch run by the full ctest of tests_linux.yml only
+tiio_exr run by the full ctest of tests_linux.yml only
+timeremap run by the full ctest of tests_linux.yml only
+tinbetweenmatch run by the full ctest of tests_linux.yml only
+typetooltext run by the full ctest of tests_linux.yml only
+uniquestyle run by the full ctest of tests_linux.yml only
+vectoralignment run by the full ctest of tests_linux.yml only
+widthprofile run by the full ctest of tests_linux.yml only

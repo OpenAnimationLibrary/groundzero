@@ -455,6 +455,7 @@ if(BUILD_FXRENDER_TESTS)
     else()
         set_tests_properties(fxrender PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
+    set_tests_properties(fxrender PROPERTIES LABELS regression)
 endif()
 
 # Optional regression target for the pure helpers of the Light Shading FX
@@ -471,6 +472,7 @@ option(BUILD_AUTOPATCH_TESTS "Build the Auto-Patch FX outline helper test" ${BUI
 if(BUILD_AUTOPATCH_TESTS)
     add_executable(autopatchoutline_test tests/autopatchoutline_test.cpp)
     add_test(NAME autopatchoutline COMMAND autopatchoutline_test)
+    set_tests_properties(autopatchoutline PROPERTIES LABELS regression)
 endif()
 
 option(BUILD_LIGHTSHADING_TESTS "Build the Light Shading FX helper test" ${BUILD_TESTS})

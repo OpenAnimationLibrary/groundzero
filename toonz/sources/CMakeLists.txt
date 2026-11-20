@@ -1020,49 +1020,64 @@ if(BUILD_SEEXPR_PYTHON)
     add_subdirectory(seexprpython)
 endif()
 if(BUILD_RELIABILITY_TESTS)
+    # A test with the LABELS regression property is run by the build workflows
+    # through ci-scripts/run_regression_tests.py, on every platform where it is
+    # registered. Give a new test that label in its set_tests_properties, or
+    # list it with a reason in ci-scripts/regression_exempt.txt.
     # Declare consumers outside tnzcore's directory so they do not inherit
     # its DLL export definitions on Windows.
     add_executable(rasterallocation_test tnzcore/tests/rasterallocation_test.cpp)
     target_link_libraries(rasterallocation_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME rasterallocation COMMAND rasterallocation_test)
+    set_tests_properties(rasterallocation PROPERTIES LABELS regression)
     add_executable(rasterrelease_test tnzcore/tests/rasterrelease_test.cpp)
     target_link_libraries(rasterrelease_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME rasterrelease COMMAND rasterrelease_test)
+    set_tests_properties(rasterrelease PROPERTIES LABELS regression)
     add_executable(ropmin_test tnzcore/tests/ropmin_test.cpp)
     target_link_libraries(ropmin_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME ropmin COMMAND ropmin_test)
+    set_tests_properties(ropmin PROPERTIES LABELS regression)
     add_executable(spectrum_test tnzcore/tests/spectrum_test.cpp)
     target_link_libraries(spectrum_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME spectrum COMMAND spectrum_test)
+    set_tests_properties(spectrum PROPERTIES LABELS regression)
     add_executable(angularsubdivision_test tnzcore/tests/angularsubdivision_test.cpp)
     target_include_directories(angularsubdivision_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/common/tvrender)
     target_link_libraries(angularsubdivision_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME angularsubdivision COMMAND angularsubdivision_test)
+    set_tests_properties(angularsubdivision PROPERTIES LABELS regression)
     add_executable(erodilate_test tnzcore/tests/erodilate_test.cpp)
     target_link_libraries(erodilate_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME erodilate COMMAND erodilate_test)
+    set_tests_properties(erodilate PROPERTIES LABELS regression)
     add_executable(swap24_test sound/tests/swap24_test.cpp sound/tsioutils.cpp)
     target_link_libraries(swap24_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME swap24 COMMAND swap24_test)
+    set_tests_properties(swap24 PROPERTIES LABELS regression)
     add_executable(byteswap_test sound/tests/byteswap_test.cpp)
     target_link_libraries(byteswap_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME byteswap COMMAND byteswap_test)
+    set_tests_properties(byteswap PROPERTIES LABELS regression)
     add_executable(soundsample_conversion_test sound/tests/soundsample_conversion_test.cpp)
     target_link_libraries(soundsample_conversion_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME soundsample_conversion COMMAND soundsample_conversion_test)
+    set_tests_properties(soundsample_conversion PROPERTIES LABELS regression)
     add_executable(aiff_reader_test sound/tests/aiff_reader_test.cpp
         sound/aiff/tsio_aiff.cpp sound/tsioutils.cpp)
     target_include_directories(aiff_reader_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/sound)
     target_link_libraries(aiff_reader_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME aiff_reader COMMAND aiff_reader_test)
+    set_tests_properties(aiff_reader PROPERTIES LABELS regression)
     add_executable(wav_reader_test sound/tests/wav_reader_test.cpp
         sound/wav/tsio_wav.cpp sound/tsioutils.cpp)
     target_include_directories(wav_reader_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/sound)
     target_link_libraries(wav_reader_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME wav_reader COMMAND wav_reader_test)
+    set_tests_properties(wav_reader PROPERTIES LABELS regression)
     add_executable(timagecache_test common/tcache/tests/timagecache_test.cpp)
     target_include_directories(timagecache_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/common/tsystem)
@@ -1073,18 +1088,18 @@ if(BUILD_RELIABILITY_TESTS)
         target_link_options(timagecache_test PRIVATE -fsanitize=leak)
     endif()
     add_test(NAME timagecache COMMAND timagecache_test)
-    set_tests_properties(timagecache PROPERTIES TIMEOUT 120)
+    set_tests_properties(timagecache PROPERTIES TIMEOUT 120 LABELS regression)
     add_executable(executor_submission_test common/tcore/tests/executor_submission_test.cpp)
     target_link_libraries(executor_submission_test PRIVATE tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME executor_submission COMMAND executor_submission_test)
-    set_tests_properties(executor_submission PROPERTIES TIMEOUT 60)
+    set_tests_properties(executor_submission PROPERTIES TIMEOUT 60 LABELS regression)
     # Damaged palette files and texture styles read without a scene. The
     # texture style is in toonzlib.
     add_executable(malformed_palette_test toonzlib/tests/malformed_palette_test.cpp)
     target_link_libraries(malformed_palette_test PRIVATE
         toonzlib image tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME malformed_palette COMMAND malformed_palette_test)
-    set_tests_properties(malformed_palette PROPERTIES TIMEOUT 120)
+    set_tests_properties(malformed_palette PROPERTIES TIMEOUT 120 LABELS regression)
 endif()
 if(BUILD_TGL_BATCH_TESTS)
     add_subdirectory(common/tgl/tests tglbatchtests)
@@ -1094,19 +1109,20 @@ if(BUILD_RELIABILITY_TESTS)
     add_executable(trenderer_startup_test common/tfx/tests/trenderer_startup_test.cpp)
     target_link_libraries(trenderer_startup_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME trenderer_startup COMMAND trenderer_startup_test)
-    set_tests_properties(trenderer_startup PROPERTIES TIMEOUT 60)
+    set_tests_properties(trenderer_startup PROPERTIES TIMEOUT 60 LABELS regression)
     add_executable(rasterfx_bbox_test common/tfx/tests/rasterfx_bbox_test.cpp)
     target_link_libraries(rasterfx_bbox_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME rasterfx_bbox COMMAND rasterfx_bbox_test)
-    set_tests_properties(rasterfx_bbox PROPERTIES TIMEOUT 60)
+    set_tests_properties(rasterfx_bbox PROPERTIES TIMEOUT 60 LABELS regression)
     # Frame-to-parameter inversion of speed-in/speed-out curve segments
     add_executable(cubicbezier_test common/tparam/tests/cubicbezier_test.cpp)
     target_link_libraries(cubicbezier_test PRIVATE tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core)
     add_test(NAME cubicbezier COMMAND cubicbezier_test)
-    set_tests_properties(cubicbezier PROPERTIES TIMEOUT 60)
+    set_tests_properties(cubicbezier PROPERTIES TIMEOUT 60 LABELS regression)
     add_executable(renderoutputbudget_test common/tfx/tests/renderoutputbudget_test.cpp)
     target_include_directories(renderoutputbudget_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common/tfx)
     add_test(NAME renderoutputbudget COMMAND renderoutputbudget_test)
+    set_tests_properties(renderoutputbudget PROPERTIES LABELS regression)
 endif()
 add_subdirectory(tnzext)
 add_subdirectory(toonzlib)
@@ -1120,7 +1136,7 @@ if(BUILD_RELIABILITY_TESTS)
         target_link_libraries(malformed_scene_test PRIVATE Psapi)
     endif()
     add_test(NAME malformed_scene COMMAND malformed_scene_test)
-    set_tests_properties(malformed_scene PROPERTIES TIMEOUT 300)
+    set_tests_properties(malformed_scene PROPERTIES TIMEOUT 300 LABELS regression)
 
     # A sub-xsheet saved without an <output> entry loads with a default output
     # node and builds its FX tree instead of crashing
@@ -1128,7 +1144,7 @@ if(BUILD_RELIABILITY_TESTS)
     target_link_libraries(subxsheet_output_test PRIVATE
         toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME subxsheet_output COMMAND subxsheet_output_test)
-    set_tests_properties(subxsheet_output PROPERTIES TIMEOUT 60)
+    set_tests_properties(subxsheet_output PROPERTIES TIMEOUT 60 LABELS regression)
 
     # Loading a level reports what it cannot load through the level and an
     # installed handler instead of opening a dialog. The timeout ends a run
@@ -1137,7 +1153,7 @@ if(BUILD_RELIABILITY_TESTS)
     target_link_libraries(level_load_report_test PRIVATE
         toonzlib image tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME level_load_report COMMAND level_load_report_test)
-    set_tests_properties(level_load_report PROPERTIES TIMEOUT 30)
+    set_tests_properties(level_load_report PROPERTIES TIMEOUT 30 LABELS regression)
 
     # A scene's cleanup palette and output format properties are held once
     # and freed with their owner
@@ -1145,7 +1161,7 @@ if(BUILD_RELIABILITY_TESTS)
     target_link_libraries(settingsownership_test PRIVATE
         toonzlib tnzbase tnzcore Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME settingsownership COMMAND settingsownership_test)
-    set_tests_properties(settingsownership PROPERTIES TIMEOUT 60)
+    set_tests_properties(settingsownership PROPERTIES TIMEOUT 60 LABELS regression)
 endif()
 add_subdirectory(toonzfarm/tfarm)
 add_subdirectory(glb)
@@ -1163,7 +1179,7 @@ if(BUILD_RELIABILITY_TESTS)
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
     add_test(NAME rasterpaste COMMAND rasterpaste_test)
-    set_tests_properties(rasterpaste PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    set_tests_properties(rasterpaste PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS regression)
     # Bring to Front and the other order commands keep nested vector groups
     # whole
     add_executable(groupreorder_test tnztools/tests/groupreorder_test.cpp)
@@ -1171,13 +1187,13 @@ if(BUILD_RELIABILITY_TESTS)
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
         Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
     add_test(NAME groupreorder COMMAND groupreorder_test)
-    set_tests_properties(groupreorder PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    set_tests_properties(groupreorder PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS regression)
     # Runs the input modifiers' sub-track copy as compiled into tnztools
     add_executable(inputmodifier_test tnztools/tests/inputmodifier_test.cpp)
     target_link_libraries(inputmodifier_test PRIVATE tnztools tnzcore
         Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui)
     add_test(NAME inputmodifier COMMAND inputmodifier_test)
-    set_tests_properties(inputmodifier PROPERTIES TIMEOUT 60)
+    set_tests_properties(inputmodifier PROPERTIES TIMEOUT 60 LABELS regression)
 endif()
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)

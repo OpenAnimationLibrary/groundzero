@@ -345,7 +345,8 @@ if(BUILD_RELIABILITY_TESTS)
         add_test(NAME plugin_probe_${mode}
             COMMAND plugin_probe_test $<TARGET_FILE:plugin_probe_fixture> ${mode})
         set_tests_properties(plugin_probe_${mode} PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30
+            LABELS regression)
     endforeach()
 endif()
 

@@ -1,4 +1,5 @@
 """CI-only contracts for annotations on a redirected Windows code-page stream."""
+from contextlib import redirect_stderr
 import io
 import json
 from pathlib import Path
@@ -97,7 +98,7 @@ class RegressionReportingTest(unittest.TestCase):
                 def ctest(command, **kwargs):
                     if "--show-only=json-v1" in command:
                         return subprocess.CompletedProcess(command, 0, json.dumps(
-                            {"tests": [{"name": "ui_shellthumbnail"}]}))
+                            {"tests": [{"name": "ui_shellthumbnail", "command": ["python"]}]}))
                     self.assertEqual(kwargs, {}, "child output must remain inherited")
                     self.assertIn("--output-on-failure", command)
                     self.assertIn("--no-tests=error", command)
@@ -109,12 +110,12 @@ class RegressionReportingTest(unittest.TestCase):
 
                 with patch.object(subprocess, "run", side_effect=ctest) as run:
                     status, output = invoke(SCRIPTS / "run_regression_tests.py",
-                                            ["--report", report, "ui_shellthumbnail"])
+                                            ["--report", report, "--include-prefix", "ui_"])
                 self.assertEqual(run.call_count, 2)
                 self.assertEqual(status, 1)  # The existing aggregate failure contract.
                 self.assertEqual(result.returncode, child_status)
                 self.assertEqual(report.read_bytes(), original)
-                self.assertTrue(output.startswith(raw_child))
+                self.assertTrue(output.split(b"\n", 1)[1].startswith(raw_child))
                 self.assertIn(("::error::ui_shellthumbnail failed or skipped%0A" +
                                diagnostic.replace("%", "%25").replace("\n", "%0A"))
                               .encode("utf-8"), output)
@@ -127,23 +128,93 @@ class RegressionReportingTest(unittest.TestCase):
             def ctest(command, **kwargs):
                 if "--show-only=json-v1" in command:
                     return subprocess.CompletedProcess(command, 0,
-                        '{"tests":[{"name":"ui_success"}]}')
+                        '{"tests":[{"name":"ui_success","command":["x"]}]}')
                 report.write_bytes(b'<testsuite><testcase name="ui_success"/></testsuite>')
                 return subprocess.CompletedProcess(command, 0)
 
             with patch.object(subprocess, "run", side_effect=ctest):
                 status, output = invoke(SCRIPTS / "run_regression_tests.py",
-                                        ["--report", report, "ui_success"])
-            self.assertEqual((status, output), (0, b""))
+                                        ["--report", report, "--include-prefix", "ui_"])
+            self.assertEqual(status, 0)
+            self.assertEqual(output, b"Running 1 regression tests: ui_success\n")
             with patch.object(subprocess, "run", side_effect=ctest) as run:
-                status, output = invoke(SCRIPTS / "run_regression_tests.py", ["ui_描画"])
+                status, output = invoke(SCRIPTS / "run_regression_tests.py",
+                                        ["--include-prefix", "ui_描画"])
             self.assertEqual(status, 1)
             self.assertEqual(run.call_count, 1)
-            self.assertIn("Required tests were not registered: ui_描画".encode("utf-8"), output)
+            self.assertIn("No registered test has label [] or name prefix ['ui_描画']"
+                          .encode("utf-8"), output)
+
+    def run_selection(self, tests, arguments, junit_names=()):
+        """Run the runner against a fake CTest; return (status, output, commands)."""
+        commands = []
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "selection.xml"
+
+            def ctest(command, **kwargs):
+                commands.append(command)
+                if "--show-only=json-v1" in command:
+                    return subprocess.CompletedProcess(command, 0, json.dumps({"tests": tests}))
+                suite = "".join(f'<testcase name="{name}"/>' for name in junit_names)
+                report.write_text("<testsuite>" + suite + "</testsuite>")
+                return subprocess.CompletedProcess(command, 0)
+
+            with patch.object(subprocess, "run", side_effect=ctest):
+                status, output = invoke(SCRIPTS / "run_regression_tests.py",
+                                        ["--report", report, *arguments])
+        return status, output, commands
+
+    def test_runs_labelled_tests_and_prefix_matches_but_not_other_tests(self):
+        def entry(name, labels=()):
+            properties = [{"name": "LABELS", "value": list(labels)}] if labels else []
+            return {"name": name, "command": ["/build/" + name], "properties": properties}
+
+        tests = [entry("alpha", ["regression"]), entry("beta", ["regression", "slow"]),
+                 entry("ui_one"), entry("celfx_other", ["cel"]), entry("plain")]
+        status, output, commands = self.run_selection(
+            tests, ["--label", "regression", "--include-prefix", "ui_"],
+            junit_names=["alpha", "beta", "ui_one"])
+        self.assertEqual(status, 0)
+        self.assertEqual(commands[-1][commands[-1].index("-R") + 1], "^(alpha|beta|ui_one)$")
+        self.assertIn(b"Running 3 regression tests: alpha beta ui_one", output)
+
+    def test_missing_test_executable_fails_before_running_anything(self):
+        tests = [{"name": "built", "command": ["/build/built"],
+                  "properties": [{"name": "LABELS", "value": ["regression"]}]},
+                 {"name": "unbuilt",
+                  "properties": [{"name": "LABELS", "value": ["regression"]}]}]
+        status, output, commands = self.run_selection(tests, ["--label", "regression"])
+        self.assertEqual(status, 1)
+        self.assertEqual(len(commands), 1)
+        self.assertIn(b"::error::CTest cannot find the executable of: unbuilt", output)
+
+    def test_selected_test_missing_from_the_report_fails(self):
+        tests = [{"name": name, "command": ["/build/" + name],
+                  "properties": [{"name": "LABELS", "value": ["regression"]}]}
+                 for name in ("alpha", "beta")]
+        status, output, _ = self.run_selection(tests, ["--label", "regression"],
+                                               junit_names=["alpha"])
+        self.assertEqual(status, 1)
+        self.assertIn(b"::error::Required tests were not run: beta", output)
+
+    def test_no_labelled_test_registered_fails(self):
+        tests = [{"name": "plain", "command": ["/build/plain"]}]
+        status, output, commands = self.run_selection(tests, ["--label", "regression"])
+        self.assertEqual(status, 1)
+        self.assertEqual(len(commands), 1)
+        self.assertIn(b"No registered test has label ['regression']", output)
+
+    def test_selection_is_required(self):
+        with redirect_stderr(io.StringIO()) as usage:
+            status, _, commands = self.run_selection([], [])
+        self.assertEqual(status, 2)
+        self.assertIn("select tests with --label or --include-prefix", usage.getvalue())
+        self.assertEqual(commands, [])
 
     def test_launch_exception_reports_unicode_and_unencodable_path_surrogate(self):
         with patch.object(subprocess, "run", side_effect=OSError("描画\udcff unavailable")):
-            status, output = invoke(SCRIPTS / "run_regression_tests.py", ["ui_example"])
+            status, output = invoke(SCRIPTS / "run_regression_tests.py",
+                                    ["--include-prefix", "ui_example"])
         self.assertEqual(status, 1)
         self.assertIn("Regression runner failed: 描画".encode("utf-8"), output)
         self.assertIn(b"\\udcff unavailable", output)
