@@ -12,6 +12,12 @@ and writes it as a project under `fixtures/corpus/<name>/`. It records the files
 hashes in `manifest.json`. It does not touch the baselines, so the check that compares the two
 fails until the baselines are regenerated on purpose.
 
+`renderer-dependent` marks a scene whose frames depend on the GL renderer (vector edges are
+rasterized by OpenGL), names the reference identity, and states the bounded cross-platform rule
+every other platform's frames are held to. `platform` records one such scene's frames for one
+platform identity (OS, CPU architecture and GL renderer) from a folder of frames the acceptance
+suite rendered there, with the run they came from as provenance; a CI run never records them.
+
 `baselines` renders every scene with the batch renderer `tcomposer` and replaces the baseline
 frames. It refuses without a reason of at least 20 characters, refuses when the `CI` environment
 variable is set, and appends the reason, the renderer's hash and the old and new hash of every
@@ -39,9 +45,12 @@ from mcp_corpus_compare import (
     MINIMUM_REASON,
     baseline_files,
     baseline_set,
+    check,
     digest,
     dump_manifest,
     load_manifest,
+    platform_folder,
+    platform_identity,
     scene_effects,
     scene_files,
     sha256_file,
@@ -788,8 +797,129 @@ def build_baselines(
     shutil.rmtree(scratch, ignore_errors=True)
 
 
+def mark_renderer_dependent(
+    name: str, rule: dict[str, Any], reference_identity: str, root: Path = CORPUS
+) -> None:
+    """Mark a scene as rendered differently by each GL renderer and state its cross rule."""
+    refuse_unless_deliberate(rule["why"])
+    manifest = load_manifest(root / "manifest.json")
+    known = manifest.get("reference_identity")
+    if known and known != reference_identity:
+        raise SystemExit(f"the reference identity is {known}, not {reference_identity}")
+    manifest["reference_identity"] = reference_identity
+    scene = manifest["scenes"][name]
+    scene["renderer_dependent"] = True
+    scene["cross_platform"] = rule
+    scene.setdefault("platform_baselines", {})
+    previous = (root / "manifest.json").read_text(encoding="utf-8")
+    (root / "manifest.json").write_text(dump_manifest(manifest), encoding="utf-8")
+    problems = check(root)
+    if problems:
+        (root / "manifest.json").write_text(previous, encoding="utf-8")
+        raise SystemExit(
+            "the rule breaks the corpus rules; nothing changed:\n" + "\n".join(problems)
+        )
+
+
+def record_platform(
+    name: str, frames: Path, provenance: dict[str, str], root: Path = CORPUS
+) -> str:
+    """Record one platform's frames of a renderer-dependent scene and return its identity.
+
+    Args:
+        name: The scene.
+        frames: A folder holding frame.0001.png and on, rendered on that platform.
+        provenance: os, cpu_architecture and renderer as the worker reported them, the source
+            (the run the frames came from) and the reason.
+        root: The corpus.
+    """
+    refuse_unless_deliberate(provenance["reason"])
+    manifest = load_manifest(root / "manifest.json")
+    scene = manifest["scenes"][name]
+    if not scene.get("renderer_dependent"):
+        raise SystemExit(f"{name} is not marked renderer-dependent; run renderer-dependent first")
+    identity = platform_identity(provenance, provenance["renderer"])
+    if identity == manifest["reference_identity"]:
+        raise SystemExit(f"{identity} is the reference; regenerate it with baselines")
+    names = sorted(scene["baseline"]["files"])
+    found = sorted(path.name for path in frames.glob("frame.*.png"))
+    if found != names:
+        raise SystemExit(f"{frames} holds {found}, not the frames {names}")
+    folder = platform_folder(root, identity, name)
+    before = scene["platform_baselines"].get(identity, {}).get("files", {})
+    backup = Path(tempfile.mkdtemp(prefix="corpus-platform-")) / "previous"
+    if folder.exists():
+        shutil.move(str(folder), backup)
+    folder.mkdir(parents=True)
+    for frame in names:
+        shutil.copyfile(frames / frame, folder / frame)
+    after = {frame: sha256_file(folder / frame) for frame in names}
+    when = time.strftime("%Y-%m-%d %H:%M:%S")
+    scene["platform_baselines"][identity] = {
+        **{key: provenance[key] for key in ("os", "cpu_architecture", "renderer", "source")},
+        "reason": provenance["reason"].strip(),
+        "when": when,
+        "files": after,
+        "rendered_from": scene["scene_sha256"],
+    }
+    manifest["history"].append(
+        {
+            "when": when,
+            "reason": provenance["reason"].strip(),
+            "source": provenance["source"],
+            "baseline_set_sha256": baseline_set(manifest),
+            "changes": [{"scene": f"{name} on {identity}", "before": before, "after": after}],
+        }
+    )
+    previous = (root / "manifest.json").read_text(encoding="utf-8")
+    (root / "manifest.json").write_text(dump_manifest(manifest), encoding="utf-8")
+    problems = check(root)
+    if problems:
+        (root / "manifest.json").write_text(previous, encoding="utf-8")
+        shutil.rmtree(folder)
+        if backup.exists():
+            shutil.move(str(backup), folder)
+        raise SystemExit(
+            "the frames break the corpus rules; nothing recorded:\n" + "\n".join(problems)
+        )
+    return identity
+
+
+def _platform_commands(commands: Any) -> None:
+    depends = commands.add_parser("renderer-dependent")
+    depends.add_argument("--scene", required=True)
+    depends.add_argument("--reference-identity", required=True)
+    depends.add_argument("--pixels-per-frame", type=int, required=True)
+    depends.add_argument("--alpha", type=int, required=True)
+    depends.add_argument("--why", required=True)
+    platform = commands.add_parser("platform")
+    platform.add_argument("--scene", required=True)
+    platform.add_argument("--frames", type=Path, required=True)
+    for field in ("os", "cpu-architecture", "renderer", "source", "reason"):
+        platform.add_argument(f"--{field}", required=True)
+
+
+def _run_platform_command(arguments: argparse.Namespace) -> None:
+    if arguments.command == "renderer-dependent":
+        rule = {
+            "pixels_per_frame": arguments.pixels_per_frame,
+            "alpha": arguments.alpha,
+            "why": arguments.why,
+        }
+        mark_renderer_dependent(arguments.scene, rule, arguments.reference_identity)
+        return
+    provenance = {
+        "os": arguments.os,
+        "cpu_architecture": arguments.cpu_architecture,
+        "renderer": arguments.renderer,
+        "source": arguments.source,
+        "reason": arguments.reason,
+    }
+    print(record_platform(arguments.scene, arguments.frames, provenance))
+
+
 def main() -> int:
-    """Run `scenes` or `baselines`."""
+    """Run `scenes`, `declare`, `baselines`, `renderer-dependent` or `platform`."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     scenes = commands.add_parser("scenes")
@@ -801,7 +931,11 @@ def main() -> int:
     baselines.add_argument("--executable", type=Path)
     baselines.add_argument("--reason", default="")
     baselines.add_argument("--only", nargs="*", default=[], help="render only these scenes")
+    _platform_commands(commands)
     arguments = parser.parse_args()
+    if arguments.command in ("renderer-dependent", "platform"):
+        _run_platform_command(arguments)
+        return 0
     if arguments.command == "declare":
         declare()
         return 0

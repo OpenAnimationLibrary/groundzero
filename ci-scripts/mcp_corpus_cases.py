@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
-from mcp_corpus_compare import CORPUS, check, compare_scene, load_manifest
+from mcp_corpus_compare import CORPUS, check, compare_scene, load_manifest, platform_identity
 from mcp_native_oracle import OracleError, find_tcomposer, render_with_tcomposer
 from mcp_scene_access_cases import _op, discard, open_scene, project_id, wait
 from mcp_studio_palette_cases import call, tree_digest
@@ -25,6 +25,14 @@ from mcp_w2_cases import _noise_png
 
 if TYPE_CHECKING:
     from mcp_acceptance import NativeAcceptance
+
+
+def worker_identity(case: NativeAcceptance) -> str:
+    """The worker's rendering platform: OS, CPU architecture and the GL renderer it probed."""
+    report = call(case, case.worker, "runtime.inspect", {"probes": ["graphics"]})
+    probe = report["graphics"]["probe"]
+    case.assertIsNotNone(probe, "the graphics probe did not run; no renderer to compare against")
+    return platform_identity(report["platform"], probe["renderer"])
 
 
 def _install(case: NativeAcceptance, name: str) -> Path:
@@ -121,6 +129,7 @@ def corpus_scenes_open_read_only_render_and_match_their_baselines(case: NativeAc
     """Open every corpus scene, inspect it, change nothing, render it and compare its baselines."""
     case.assertEqual(check(), [], "the corpus does not match its manifest")
     manifest = load_manifest()
+    identity = worker_identity(case)
     before = tree_digest(case.inputs)
     for name, scene in manifest["scenes"].items():
         with case.subTest(scene=name):
@@ -143,7 +152,7 @@ def corpus_scenes_open_read_only_render_and_match_their_baselines(case: NativeAc
                 {"document_id": opened["document_id"], "expected_revision": "0"},
             )
             case.assertFalse(status["changed"], status)
-            case.assertEqual(compare_scene(manifest, name, frames), [], name)
+            case.assertEqual(compare_scene(manifest, name, frames, identity=identity), [], name)
             discard(case, case.worker, opened["document_id"])
     case.assertEqual(case.success("automation.list_documents", {})["documents"], [])
     installed = case.inputs / "corpus"
@@ -171,6 +180,8 @@ def corpus_baselines_are_reproduced_by_this_builds_batch_renderer(case: NativeAc
         case.skipTest(message)
         return
     manifest = load_manifest()
+    # The batch renderer draws vector levels with the same GL implementation as the worker.
+    identity = worker_identity(case)
     for name in manifest["scenes"]:
         with case.subTest(scene=name):
             project = case.directory / "batch" / name
@@ -187,7 +198,7 @@ def corpus_baselines_are_reproduced_by_this_builds_batch_renderer(case: NativeAc
                 )
             except OracleError as error:
                 case.fail(str(error))
-            case.assertEqual(compare_scene(manifest, name, frames), [], name)
+            case.assertEqual(compare_scene(manifest, name, frames, identity=identity), [], name)
 
 
 @acceptance_case
@@ -201,7 +212,7 @@ def a_corpus_scene_changed_on_disk_fails_its_comparison(case: NativeAcceptance) 
     case.assertNotEqual(asset.read_bytes(), original)
     opened = open_scene(case, case.worker, scene, project_id(case, case.worker, name))
     frames = _render_frames(case, opened["document_id"], case.directory / "changed")
-    problems = compare_scene(load_manifest(), name, frames)
+    problems = compare_scene(load_manifest(), name, frames, identity=worker_identity(case))
     case.assertTrue(problems, "a repainted level passed the comparison")
     case.assertTrue(any("differs by" in problem for problem in problems), problems)
     case.assertEqual(check(), [], "the corpus itself must be untouched")
@@ -223,7 +234,7 @@ def a_corpus_effect_changed_on_disk_fails_its_comparison(case: NativeAcceptance)
     scene.write_text(changed, encoding="utf-8")
     opened = open_scene(case, case.worker, scene, project_id(case, case.worker, name))
     frames = _render_frames(case, opened["document_id"], case.directory / "changed-effect")
-    problems = compare_scene(load_manifest(), name, frames)
+    problems = compare_scene(load_manifest(), name, frames, identity=worker_identity(case))
     case.assertTrue(problems, "a changed effect passed the comparison")
     case.assertTrue(any("differs by" in problem for problem in problems), problems)
     case.assertEqual(check(), [], "the corpus itself must be untouched")

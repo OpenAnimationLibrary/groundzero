@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp_case import acceptance_case
+from mcp_corpus_cases import worker_identity
 from mcp_corpus_compare import CORPUS, compare_scene, load_manifest
 from mcp_failure_cases import _fault_worker
 from mcp_import_cases import plan
@@ -328,12 +329,13 @@ def corpus_scenes_import_save_reopen_and_render_the_same(case: NativeAcceptance)
     exactly when the plan reports no loss, and exactly the scene without the lost items
     otherwise; the corpus never changes."""
     manifest = load_manifest()
+    identity = worker_identity(case)
     for name in manifest["scenes"]:
         with case.subTest(scene=name):
             kinds, frames, scene = _import_scene(case, name)
             case.assertEqual(tree_digest(scene.parent.parent), tree_digest(CORPUS / name))
             if not kinds:
-                case.assertEqual(compare_scene(manifest, name, frames), [], name)
+                case.assertEqual(compare_scene(manifest, name, frames, identity=identity), [], name)
                 continue
             expected = _expected(case, scene, name, kinds)
             for wanted, got in zip(expected, frames, strict=True):

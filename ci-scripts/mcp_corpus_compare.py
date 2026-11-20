@@ -34,12 +34,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
 from mcp_native_oracle import Difference, OracleError, Policy, compare_files, decode_file
+from mcp_png import Pixel
 
 SCRIPTS = Path(__file__).resolve().parent
 CORPUS = SCRIPTS / "fixtures" / "corpus"
@@ -54,6 +56,12 @@ MINIMUM_EFFECT_TYPES = 6
 COMPARISONS = ("bridge_disabled", "bridge_enabled", "assisted_save_reopen")
 EFFECT_TAG = re.compile(r"<([A-Za-z][A-Za-z0-9_]*Fx) id='\d+'>")
 STRUCTURAL_PREFIX = "Toonz_"
+PLATFORMS = "platforms"
+PLATFORM_FIELDS = ("renderer", "os", "cpu_architecture", "source", "reason", "when")
+# The most a cross-platform rule may allow: an edge pixel's alpha off by one, on at most this
+# fraction of a frame. Anything wider is not a rasterizer's rounding.
+MAX_CROSS_PLATFORM_ALPHA = 1
+MAX_CROSS_PLATFORM_FRACTION = 0.05
 
 
 def sha256_file(path: Path) -> str:
@@ -96,13 +104,39 @@ def baseline_files(root: Path, name: str) -> dict[str, str]:
 
 
 def baseline_set(manifest: dict[str, Any]) -> str:
-    """The hash of every baseline the manifest lists."""
+    """The hash of every baseline the manifest lists, the per-platform sets included."""
     pairs = {
         f"{name}/{frame}": value
         for name, scene in manifest["scenes"].items()
         for frame, value in scene["baseline"]["files"].items()
     }
+    for name, scene in manifest["scenes"].items():
+        for identity, entry in scene.get("platform_baselines", {}).items():
+            for frame, value in entry["files"].items():
+                pairs[f"{PLATFORMS}/{identity}/{name}/{frame}"] = value
     return digest(pairs)
+
+
+def platform_identity(platform: dict[str, Any], renderer: str) -> str:
+    """Name a rendering platform by OS, CPU architecture and GL renderer, as a folder name.
+
+    Vector levels are rasterized by OpenGL, so the GL renderer decides their edge pixels.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", renderer.lower()).strip("-")
+    return f"{platform['os']}-{platform['cpu_architecture']}-{slug}".lower()
+
+
+def platform_folder(root: Path, identity: str, name: str) -> Path:
+    """Where the baselines of one scene for one platform identity are kept."""
+    return root / "baselines" / PLATFORMS / identity / name
+
+
+def platform_files(root: Path, identity: str, name: str) -> dict[str, str]:
+    """Every per-platform baseline frame of one scene, by file name, with its hash."""
+    folder = platform_folder(root, identity, name)
+    if not folder.is_dir():
+        return {}
+    return {path.name: sha256_file(path) for path in sorted(folder.glob("*.png"))}
 
 
 def policy_of(scene: dict[str, Any]) -> Policy:
@@ -249,6 +283,124 @@ def _baseline_problems(root: Path, name: str, scene: dict[str, Any], frames: int
     return found
 
 
+def _rule_problems(name: str, rule: Any, size: int) -> list[str]:
+    """A renderer-dependent scene's cross-platform rule must be stated and bounded."""
+    if not isinstance(rule, dict):
+        return [f"{name}: a renderer-dependent scene needs a cross_platform rule"]
+    found = []
+    pixels, alpha = rule.get("pixels_per_frame"), rule.get("alpha")
+    most = math.ceil(MAX_CROSS_PLATFORM_FRACTION * size)
+    if not isinstance(pixels, int) or not 0 <= pixels <= most:
+        found.append(f"{name}: cross_platform pixels_per_frame must be 0 to {most}")
+    if not isinstance(alpha, int) or not 0 <= alpha <= MAX_CROSS_PLATFORM_ALPHA:
+        found.append(f"{name}: cross_platform alpha must be 0 to {MAX_CROSS_PLATFORM_ALPHA}")
+    if len(str(rule.get("why", "")).strip()) < MINIMUM_REASON:
+        found.append(f"{name}: cross_platform needs a why of at least {MINIMUM_REASON} characters")
+    return found
+
+
+def _pixel_against_rule(wanted: Pixel, got: Pixel, alpha: int) -> str:
+    if wanted[:3] != got[:3]:
+        return "colour differs"
+    if abs(wanted[3] - got[3]) > alpha:
+        return f"alpha differs by {abs(wanted[3] - got[3])}"
+    if not 0 < wanted[3] < 255:
+        return "alpha differs where the reference is " + ("opaque" if wanted[3] else "clear")
+    return ""
+
+
+def cross_platform_problems(reference: Path, platform: Path, rule: dict[str, Any]) -> list[str]:
+    """Hold a platform baseline frame to the scene's rule against the reference frame.
+
+    Colours must be equal; alpha may differ by at most the rule's alpha, and only on pixels that
+    are partly transparent in the reference (antialiased edges); at most pixels_per_frame differ.
+    """
+    width, height, wanted = decode_file(reference)
+    got_width, got_height, got = decode_file(platform)
+    if (width, height) != (got_width, got_height):
+        return [f"size {got_width}x{got_height} instead of {width}x{height}"]
+    found, differing = [], 0
+    for index, (left, right) in enumerate(zip(wanted, got, strict=True)):
+        if left == right:
+            continue
+        differing += 1
+        verdict = _pixel_against_rule(left, right, rule["alpha"])
+        if verdict:
+            found.append(f"{verdict} at {(index % width, index // width)}: {left} and {right}")
+    if differing > rule["pixels_per_frame"]:
+        found.append(f"{differing} pixels differ, more than {rule['pixels_per_frame']}")
+    return found
+
+
+def _platform_entry_problems(
+    root: Path, name: str, identity: str, entry: dict[str, Any], scene: dict[str, Any]
+) -> list[str]:
+    where = f"{name} on {identity}"
+    missing = [field for field in PLATFORM_FIELDS if not str(entry.get(field, "")).strip()]
+    if missing:
+        return [f"{where}: provenance lacks {', '.join(missing)}"]
+    found = []
+    if platform_identity(entry, entry["renderer"]) != identity:
+        found.append(f"{where}: the identity does not match its os, architecture and renderer")
+    if len(entry["reason"].strip()) < MINIMUM_REASON:
+        found.append(f"{where}: the reason is too short")
+    if entry.get("rendered_from") != scene["scene_sha256"]:
+        found.append(f"{where}: the scene files changed after these baselines were recorded")
+    actual = platform_files(root, identity, name)
+    if actual != entry.get("files"):
+        found.append(f"{where}: the frames on disk differ from the manifest")
+        return found
+    for frame in sorted(actual):
+        reference = root / "baselines" / name / frame
+        platform = platform_folder(root, identity, name) / frame
+        try:
+            problems = cross_platform_problems(reference, platform, scene["cross_platform"])
+        except OracleError as error:
+            problems = [str(error)]
+        found += [f"{where} {frame}: {problem}" for problem in problems[:5]]
+    return found
+
+
+def _platform_problems(
+    root: Path, name: str, scene: dict[str, Any], manifest: dict[str, Any]
+) -> list[str]:
+    """Per-platform baselines: only for renderer-dependent scenes, bounded against the reference."""
+    platforms = scene.get("platform_baselines", {})
+    if not scene.get("renderer_dependent"):
+        if platforms or "cross_platform" in scene:
+            return [f"{name}: only a renderer-dependent scene has platform baselines or a rule"]
+        return []
+    found = []
+    if not str(manifest.get("reference_identity", "")).strip():
+        found.append("reference_identity: needed when a scene is renderer-dependent")
+    size = manifest["frames"]["width"] * manifest["frames"]["height"]
+    found += _rule_problems(name, scene.get("cross_platform"), size)
+    if found:
+        return found
+    for identity, entry in sorted(platforms.items()):
+        if identity == manifest["reference_identity"]:
+            found.append(f"{name}: the reference identity has no platform set; it is the reference")
+            continue
+        found += _platform_entry_problems(root, name, identity, entry, scene)
+    return found
+
+
+def _stray_platform_folders(root: Path, manifest: dict[str, Any]) -> list[str]:
+    base = root / "baselines" / PLATFORMS
+    if not base.is_dir():
+        return []
+    listed = {
+        (identity, name)
+        for name, scene in manifest["scenes"].items()
+        for identity in scene.get("platform_baselines", {})
+    }
+    return [
+        f"baselines/{PLATFORMS}/{folder.parent.name}/{folder.name}: not listed in the manifest"
+        for folder in sorted(base.glob("*/*"))
+        if (folder.parent.name, folder.name) not in listed
+    ]
+
+
 def _history_problems(manifest: dict[str, Any]) -> list[str]:
     history = manifest.get("history", [])
     if not history:
@@ -288,28 +440,58 @@ def check(root: Path = CORPUS) -> list[str]:
     ]
     for name, scene in manifest["scenes"].items():
         found += _scene_problems(root, name, scene, count, manifest)
+        found += _platform_problems(root, name, scene, manifest)
+    found += _stray_platform_folders(root, manifest)
     found += _coverage_problems(manifest) + _comparison_problems(manifest)
     return found + _history_problems(manifest)
 
 
+def _baselines_for(
+    manifest: dict[str, Any], name: str, identity: str | None, root: Path
+) -> tuple[Path, list[str]] | str:
+    """The folder and frame names to compare one scene with, or why there are none."""
+    scene = manifest["scenes"][name]
+    if not scene.get("renderer_dependent"):
+        return root / "baselines" / name, sorted(scene["baseline"]["files"])
+    if identity is None:
+        return f"{name}: its baselines depend on the GL renderer; name the worker's identity"
+    if identity == manifest.get("reference_identity"):
+        return root / "baselines" / name, sorted(scene["baseline"]["files"])
+    entry = scene.get("platform_baselines", {}).get(identity)
+    if entry is None:
+        return (
+            f"{name}: no baseline for renderer {identity}; record the rendered frames with "
+            "mcp_corpus_build.py platform"
+        )
+    return platform_folder(root, identity, name), sorted(entry["files"])
+
+
 def compare_scene(
-    manifest: dict[str, Any], name: str, rendered: list[Path], root: Path = CORPUS
+    manifest: dict[str, Any],
+    name: str,
+    rendered: list[Path],
+    root: Path = CORPUS,
+    identity: str | None = None,
 ) -> list[str]:
     """Compare rendered frames, in order, with a scene's baselines under the scene's policy.
 
-    A scene with no baseline, or a frame without its baseline file, is a failure.
+    A renderer-dependent scene is compared only with the baselines of the worker's platform
+    identity (OS, architecture and GL renderer). A scene with no baseline for that identity, or a
+    frame without its baseline file, is a failure.
     """
-    scene = manifest["scenes"].get(name)
-    if scene is None:
+    if name not in manifest["scenes"]:
         return [f"{name}: not in the corpus"]
-    names = sorted(scene["baseline"]["files"])
+    found = _baselines_for(manifest, name, identity, root)
+    if isinstance(found, str):
+        return [found]
+    folder, names = found
     if len(rendered) != len(names):
         return [f"{name}: {len(rendered)} frames rendered, {len(names)} baselines"]
     problems = []
+    policy = policy_of(manifest["scenes"][name])
     for baseline, image in zip(names, rendered, strict=True):
-        reference = root / "baselines" / name / baseline
         try:
-            difference = compare_files(reference, image, policy_of(scene))
+            difference = compare_files(folder / baseline, image, policy)
         except OracleError as error:
             problems.append(f"{name} {baseline}: {error}")
             continue
@@ -333,10 +515,17 @@ def main() -> int:
     compare = commands.add_parser("compare", help="compare rendered frames with baselines")
     compare.add_argument("scene")
     compare.add_argument("folder", type=Path)
+    compare.add_argument(
+        "--identity",
+        help="the worker's platform identity, for a scene "
+        "whose baselines depend on the GL renderer",
+    )
     arguments = parser.parse_args()
     if arguments.command == "compare":
         frames = sorted(arguments.folder.glob("*.png"))
-        problems = compare_scene(load_manifest(), arguments.scene, frames)
+        problems = compare_scene(
+            load_manifest(), arguments.scene, frames, identity=arguments.identity
+        )
     else:
         problems = check()
         if MANIFEST.is_file():
