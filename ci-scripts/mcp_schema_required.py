@@ -162,13 +162,21 @@ def required_keys(schema: Any) -> set[str]:
 
 
 def proven(texts: dict[Path, str]) -> dict[str, tuple[str, set[str]]]:
-    """Map each tool with a handler entry to its handler and its unconditional keys."""
-    files = [(text, masked(text)) for text in texts.values()]
-    result = {}
+    """Map each tool with a handler entry to its handler and its unconditional keys.
+
+    A tool registered in more than one place (a table entry and a dispatcher that forwards)
+    keeps only the keys every registration proves; its handler is the first by file name.
+    """
+    ordered = sorted(texts.items())
+    files = [(text, masked(text)) for _path, text in ordered]
+    result: dict[str, tuple[str, set[str]]] = {}
     for home, (text, _code) in enumerate(files):
         for tool, handler in [*HANDLER.findall(text), *METHOD.findall(text)]:
-            if tool not in result:
-                result[tool] = (handler, unconditional(files, handler, home))
+            keys = unconditional(files, handler, home)
+            if tool in result:
+                result[tool] = (result[tool][0], result[tool][1] & keys)
+            else:
+                result[tool] = (handler, keys)
     return result
 
 

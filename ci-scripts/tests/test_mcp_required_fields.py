@@ -41,5 +41,24 @@ class DefinitionLookup(unittest.TestCase):
         self.assertEqual(proven(HOME + OVERRIDE, LACKS_KEY), {"own", "shared", "key"})
 
 
+TABLE = 'Handlers table{{"tool.read", tableHandler}};\n' + (
+    'QJsonValue tableHandler(Context& c) { return QJsonObject{{"a", 1}, {"b", 2}}; }\n'
+)
+DISPATCH = 'if (method == "tool.read") return dispatched(context, params);\n' + (
+    'QJsonValue dispatched(Context& c, const QJsonObject& p) { return QJsonObject{{"a", 1}}; }\n'
+)
+
+
+class Registrations(unittest.TestCase):
+    def found(self, *texts: str) -> set[str]:
+        required._CACHE.clear()
+        sources = {Path(f"automation_{index}.cpp"): text for index, text in enumerate(texts)}
+        return required.proven(sources)["tool.read"][1]
+
+    def test_a_tool_registered_twice_proves_only_what_both_write(self) -> None:
+        self.assertEqual(self.found(TABLE, DISPATCH), {"a"})
+        self.assertEqual(self.found(DISPATCH, TABLE), {"a"})
+
+
 if __name__ == "__main__":
     unittest.main()

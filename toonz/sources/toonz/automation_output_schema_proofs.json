@@ -2158,7 +2158,10 @@
   },
   "review.compare.submit": {
     "handler": "submitReview",
-    "read": []
+    "read": [
+      "requested",
+      "requested_ms"
+    ]
   },
   "rig.dependents": {
     "handler": "inspectDependents",
