@@ -3032,6 +3032,21 @@ bool TVectorImage::Imp::canMoveStrokes(int strokeIndex, int count,
       i++;
   }
 
+  // Every group, with its subgroups, must stay one run too: the check above
+  // sees only the strokes of each group's own id, so it lets a move put
+  // foreign strokes between two subgroups, which splits their parent. The
+  // PLI writer then saves the parent as two groups.
+  std::map<TGroupId, int> lastStroke;
+  for (i = 0; i < (int)groupsAfterMoving.size(); i++) {
+    if (groupsAfterMoving[i].isGrouped() == 0) continue;
+    for (TGroupId group = groupsAfterMoving[i]; group.getDepth() > 0;
+         group          = group.getParent()) {
+      std::map<TGroupId, int>::iterator it = lastStroke.find(group);
+      if (it != lastStroke.end() && it->second != i - 1) return false;
+      lastStroke[group] = i;
+    }
+  }
+
   return true;
 }
 

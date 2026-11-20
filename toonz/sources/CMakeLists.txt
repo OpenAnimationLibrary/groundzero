@@ -1164,6 +1164,14 @@ if(BUILD_RELIABILITY_TESTS)
         Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
     add_test(NAME rasterpaste COMMAND rasterpaste_test)
     set_tests_properties(rasterpaste PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
+    # Bring to Front and the other order commands keep nested vector groups
+    # whole
+    add_executable(groupreorder_test tnztools/tests/groupreorder_test.cpp)
+    target_link_libraries(groupreorder_test PRIVATE tnztools toonzqt toonzlib image tnzext tnzbase tnzcore
+        Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::Network Qt${QT_VERSION_MAJOR}::OpenGL ${OT_QT_OPENGLWIDGETS_LIB})
+    add_test(NAME groupreorder COMMAND groupreorder_test)
+    set_tests_properties(groupreorder PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
     # Runs the input modifiers' sub-track copy as compiled into tnztools
     add_executable(inputmodifier_test tnztools/tests/inputmodifier_test.cpp)
     target_link_libraries(inputmodifier_test PRIVATE tnztools tnzcore
