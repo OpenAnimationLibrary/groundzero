@@ -20,7 +20,11 @@
 // thicknesses and region boxes may differ by numberTolerance, because the
 // processors and compilers do not round the stroke fit the same way. Where a
 // platform gives another result for a known reason, golden/<platform> holds
-// its own record of that case, which replaces the reference there. --update
+// its own record of that case, which replaces the reference there. One case
+// has such records, vector_paint_inside: region computation cuts every
+// coordinate down to a multiple of 1/128, and the vertex where the painted
+// outline meets the region's edge at x = 42 comes out of the path
+// intersection one unit in the last place below 42 on x86-64. --update
 // writes those records; a failing case prints its record, so that one can be
 // taken from the log of a platform there is no machine for.
 
@@ -41,8 +45,11 @@ using namespace brushstroke;
 
 const char* const referencePlatform = "macos-arm64-qt5";
 
-// The largest difference a coordinate may have on another platform.
-const double numberTolerance = 1e-6;
+// The largest difference a coordinate may have on another platform. Linux
+// and Intel macOS differ from the arm64 reference in 82 coordinates of 13
+// vector cases, by 4.5e-14 at most (a few units in the last place of
+// coordinates up to 180); the tolerance is about 2000 times that.
+const double numberTolerance = 1e-10;
 
 struct Options {
   QString goldenRoot;
